@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-591",
+  "license": "MIT",
+  "base": "de14682fa5e5815d73ae3d377b499321648c20ba",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 587,
+  "pr": 591,
+  "commit": "fix: quarter(n) moves to quarter n in the same year",
+  "truth": {
+    "class": "P5",
+    "description": "The quarterOfYear plugin imports src/utils.js and calls Utils.u, where a plugin reaches the core helpers through this.$utils() so that it is bundled alone.",
+    "locations": [
+      {"file": "src/plugin/quarterOfYear/index.js", "start": 2, "end": 2, "side": "head"},
+      {"file": "src/plugin/quarterOfYear/index.js", "start": 7, "end": 7, "side": "head"}
+    ]
+  }
+}

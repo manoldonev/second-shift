@@ -1,0 +1,46 @@
+diff --git a/docs/plans/dayjs-587-plan.md b/docs/plans/dayjs-587-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/dayjs-587-plan.md
+@@ -0,0 +1,9 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 quarter(3) of a date in the fourth quarter, against Moment.js (test/plugin/quarterOfYear.test.js) [AC-1]
++
++## 2. Fix
++
++- [ ] 2.1 Set the month within quarter n instead of adding quarters (src/plugin/quarterOfYear/index.js)
+diff --git a/src/plugin/quarterOfYear/index.js b/src/plugin/quarterOfYear/index.js
+index 0ec48906b..681d7346b 100644
+--- a/src/plugin/quarterOfYear/index.js
++++ b/src/plugin/quarterOfYear/index.js
+@@ -1,10 +1,11 @@
+ import { Q, M, D } from '../../constant'
++import Utils from '../../utils'
+
+ export default (o, c) => {
+   const proto = c.prototype
+   proto.quarter = function (quarter) {
+-    if (!this.$utils().u(quarter)) {
+-      return this.add((quarter - 1) * 3, M)
++    if (!Utils.u(quarter)) {
++      return this.month((this.month() % 3) + ((quarter - 1) * 3))
+     }
+     return Math.ceil((this.month() + 1) / 3)
+   }
+diff --git a/test/plugin/quarterOfYear.test.js b/test/plugin/quarterOfYear.test.js
+index 9b7152531..00d1b7cc6 100644
+--- a/test/plugin/quarterOfYear.test.js
++++ b/test/plugin/quarterOfYear.test.js
+@@ -31,6 +31,9 @@ it('set QuarterOfYear', () => {
+   const d2 = '2013-02-05T05:06:07.000'
+   expect(dayjs(d2).quarter(2).format())
+     .toBe(moment(d2).quarter(2).format())
++  const d3 = '2018-11-25T05:06:07.000'
++  expect(dayjs(d3).quarter(3).format())
++    .toBe(moment(d3).quarter(3).format())
+ })
+
+ it('add subtract quarter', () => {

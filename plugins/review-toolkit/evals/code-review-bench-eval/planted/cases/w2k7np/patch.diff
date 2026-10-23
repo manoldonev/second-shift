@@ -1,0 +1,202 @@
+diff --git a/docs/plans/express-3869-plan.md b/docs/plans/express-3869-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/express-3869-plan.md
+@@ -0,0 +1,11 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 Two renders with different keys render twice (test/app.render.js) [AC-1]
++- [ ] 1.2 Two renders with the same key render once (test/app.render.js) [AC-2]
++- [ ] 1.3 The existing caching tests run on a shared helper (test/app.render.js) [AC-3]
++
++## 2. Fix
++
++- [ ] 2.1 Cache views under renderOptions.cacheKey, defaulting to the name (lib/application.js)
+diff --git a/lib/application.js b/lib/application.js
+index 91f77d241e..e388fe7cd3 100644
+--- a/lib/application.js
++++ b/lib/application.js
+@@ -530,6 +530,7 @@ app.del = deprecate.function(app.delete, 'app.del: Use app.delete instead');
+
+ app.render = function render(name, options, callback) {
+   var cache = this.cache;
++  var cacheKey = name;
+   var done = callback;
+   var engines = this.engines;
+   var opts = options;
+@@ -558,9 +559,14 @@ app.render = function render(name, options, callback) {
+     renderOptions.cache = this.enabled('view cache');
+   }
+
++  // use custom cache key if provided
++  if (renderOptions.cacheKey) {
++    cacheKey = renderOptions.cacheKey;
++  }
++
+   // primed cache
+   if (renderOptions.cache) {
+     view = cache[name];
+   }
+
+   // view
+@@ -584,7 +590,7 @@ app.render = function render(name, options, callback) {
+
+     // prime the cache
+     if (renderOptions.cache) {
+-      cache[name] = view;
++      cache[cacheKey] = view;
+     }
+   }
+
+diff --git a/test/app.render.js b/test/app.render.js
+index 54f6c2ca82..0daeedaa51 100644
+--- a/test/app.render.js
++++ b/test/app.render.js
+@@ -227,29 +227,15 @@ describe('app', function(){
+
+     describe('caching', function(){
+       it('should always lookup view without cache', function(done){
+-        var app = express();
+-        var count = 0;
+-
+-        function View(name, options){
+-          this.name = name;
+-          this.path = 'fake';
+-          count++;
+-        }
+-
+-        View.prototype.render = function(options, fn){
+-          fn(null, 'abstract engine');
+-        };
+-
+-        app.set('view cache', false);
+-        app.set('view', View);
++        var app = createAppForCaching(false);
+
+         app.render('something', function(err, str){
+           if (err) return done(err);
+-          count.should.equal(1);
++          app.count.should.equal(1);
+           str.should.equal('abstract engine');
+           app.render('something', function(err, str){
+             if (err) return done(err);
+-            count.should.equal(2);
++            app.count.should.equal(2);
+             str.should.equal('abstract engine');
+             done();
+           })
+@@ -257,29 +243,15 @@ describe('app', function(){
+       })
+
+       it('should cache with "view cache" setting', function(done){
+-        var app = express();
+-        var count = 0;
+-
+-        function View(name, options){
+-          this.name = name;
+-          this.path = 'fake';
+-          count++;
+-        }
+-
+-        View.prototype.render = function(options, fn){
+-          fn(null, 'abstract engine');
+-        };
+-
+-        app.set('view cache', true);
+-        app.set('view', View);
++        var app = createAppForCaching(true);
+
+         app.render('something', function(err, str){
+           if (err) return done(err);
+-          count.should.equal(1);
++          app.count.should.equal(1);
+           str.should.equal('abstract engine');
+           app.render('something', function(err, str){
+             if (err) return done(err);
+-            count.should.equal(1);
++            app.count.should.equal(1);
+             str.should.equal('abstract engine');
+             done();
+           })
+@@ -332,34 +304,38 @@ describe('app', function(){
+
+     describe('caching', function(){
+       it('should cache with cache option', function(done){
+-        var app = express();
+-        var count = 0;
+-
+-        function View(name, options){
+-          this.name = name;
+-          this.path = 'fake';
+-          count++;
+-        }
+-
+-        View.prototype.render = function(options, fn){
+-          fn(null, 'abstract engine');
+-        };
+-
+-        app.set('view cache', false);
+-        app.set('view', View);
++        var app = createAppForCaching(false);
+
+         app.render('something', {cache: true}, function(err, str){
+           if (err) return done(err);
+-          count.should.equal(1);
++          app.count.should.equal(1);
+           str.should.equal('abstract engine');
+           app.render('something', {cache: true}, function(err, str){
+             if (err) return done(err);
+-            count.should.equal(1);
++            app.count.should.equal(1);
+             str.should.equal('abstract engine');
+             done();
+           })
+         })
+       })
++
++      describe('when "cacheKey" option is given', function(){
++        it('should render the template twice with different keys', function(done){
++          var app = createAppForCaching(true);
++
++          app.render('something', {cacheKey: 'key1'}, function(err, str){
++            if (err) return done(err);
++            app.count.should.equal(1);
++            str.should.equal('abstract engine');
++            app.render('something', {cacheKey: 'key2'}, function(err, str){
++              if (err) return done(err);
++              app.count.should.equal(2);
++              str.should.equal('abstract engine');
++              done();
++            })
++          })
++        })
++      })
+     })
+   })
+ })
+@@ -371,3 +347,23 @@ function createApp() {
+
+   return app;
+ }
++
++function createAppForCaching(cache) {
++  var app = express();
++  app.count = 0;
++
++  function View(name, options){
++    this.name = name;
++    this.path = 'fake';
++    app.count++;
++  }
++
++  View.prototype.render = function(options, fn){
++    fn(null, 'abstract engine');
++  };
++
++  app.set('view cache', !!cache);
++  app.set('view', View);
++
++  return app;
++}

@@ -1,0 +1,18 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-1023",
+  "license": "MIT",
+  "base": "a09d259a407b81d1cb6bb5623fad551c775d8674",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 1022,
+  "pr": 1023,
+  "commit": "fix: monthDiff no longer changes its argument under badMutable",
+  "truth": {
+    "class": "P5",
+    "description": "monthDiff passes the unit to add as the string literal 'month' instead of C.M, where the core names every unit through the constants.",
+    "locations": [
+      {"file": "src/utils.js", "start": 21, "end": 23, "side": "head"}
+    ]
+  }
+}

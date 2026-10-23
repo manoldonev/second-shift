@@ -1,0 +1,14 @@
+{
+  "upstream": "https://github.com/darkreader/darkreader.git",
+  "instance": "darkreader__darkreader-6747",
+  "license": "MIT",
+  "base": "a787eb511f45159c8869d30e5a6ba1f91cb67709",
+  "base_branch": "master",
+  "overlay": "darkreader__darkreader",
+  "issue": 6739,
+  "pr": 6747,
+  "commit": "fix: return the generic fix first and read it from the start",
+  "truth": {
+    "class": "control"
+  }
+}

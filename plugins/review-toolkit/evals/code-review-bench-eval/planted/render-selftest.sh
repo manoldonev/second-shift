@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# render-selftest.sh — a case built for each arm, from a local upstream: the commit order, no remote, the local
+# origin ref, the lane's gates in run.sh's order, both prompts rendered from the real sources with no model,
+# the local gh serving the ticket and an empty PR and capturing a posted verdict, and no planted marker in
+# either arm's prompt, commits, diff, ticket or record. `review` runs with a fake claude, so nothing is billed.
+# shellcheck disable=SC2016  # the fixtures are shell and markdown text, written literally
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PASS=0 FAIL=0
+ok()  { PASS=$((PASS+1)); echo "  ok   $*"; }
+bad() { FAIL=$((FAIL+1)); echo "  FAIL $*"; }
+TD="${TMPDIR:-/tmp}"
+T="$(mktemp -d "${TD%/}/render-selftest.XXXXXX")"
+trap 'rm -rf "$T"' EXIT
+g() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@"; }
+py() { python3 "$HERE/planted.py" --root "$R" "$@"; }
+field() { python3 -c '
+import json, sys
+v = json.load(open(sys.argv[1]))
+for k in sys.argv[2:]:
+    v = v[int(k)] if isinstance(v, list) else v.get(k)
+print(json.dumps(v) if isinstance(v, (dict, list)) else v)' "$@" 2>/dev/null; }
+
+# -- the upstream: sum subtracts; two fixes are cut from it, one tested and one whose test passes either way --
+U="$T/acme/tool"; mkdir -p "$U/src"
+printf 'sum() { echo $(( $1 - $2 )); }\n' > "$U/src/sum.sh"
+g -C "$U" init -q && g -C "$U" add -A && g -C "$U" commit -qm "initial import"
+g -C "$U" config uploadpack.allowAnySHA1InWant true
+BASE="$(git -C "$U" rev-parse HEAD)"
+mkdir -p "$U/test" "$U/docs/plans"
+g -C "$U" checkout -qb tested
+printf 'sum() { echo $(( $1 + $2 )); }\n' > "$U/src/sum.sh"
+printf '. "$(dirname "$0")/../src/sum.sh"\n[ "$(sum 2 3)" = 5 ]\n' > "$U/test/sum.test.sh"
+printf '# Plan\n\n## 1. Sum\n\n- [ ] 1.1 A test that sum adds (test/sum.test.sh) [AC-1]\n- [ ] 1.2 Make sum add (src/sum.sh)\n' > "$U/docs/plans/tool-41-plan.md"
+g -C "$U" add -A && g -C "$U" commit -qm tested
+g -C "$U" checkout -q "$BASE" && g -C "$U" checkout -qb untested
+mkdir -p "$U/test" "$U/docs/plans"
+printf 'sum() { echo $(( $1 + $2 )); }\n' > "$U/src/sum.sh"
+printf 'exit 0\n' > "$U/test/sum.test.sh"
+printf '# Plan\n\n## 1. Sum\n\n- [ ] 1.1 A test that sum adds (test/sum.test.sh) [AC-1]\n- [ ] 1.2 Make sum add (src/sum.sh)\n' > "$U/docs/plans/tool-41-plan.md"
+g -C "$U" add -A && g -C "$U" commit -qm untested
+
+R="$T/root"; mkdir -p "$R/overlays/acme__tool" "$R/arms"
+cp "$HERE/arms/plain.md" "$R/arms/plain.md"
+printf '# Review context\n\nShell functions print their result on stdout.\n' > "$R/overlays/acme__tool/review-context.md"
+printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"tool": {"test": "bash test/sum.test.sh", "testRunners": [{"when": ["test/*.test.sh"], "command": "bash {file}"}]}}}\n' > "$R/overlays/acme__tool/config.json"
+DESC="The fix keeps a subtraction in the second branch of sum."
+mkcase() { # mkcase <id> <fix branch>
+  local d="$R/cases/$1"; mkdir -p "$d"
+  printf '{"upstream": "file://%s", "instance": "acme__tool-42", "license": "MIT", "base": "%s", "base_branch": "main", "overlay": "acme__tool", "issue": 41, "pr": 42, "commit": "fix: sum adds its arguments", "truth": {"class": "P1", "description": "%s", "locations": [{"file": "src/sum.sh", "start": 1, "end": 1, "side": "head"}]}}\n' "$U" "$BASE" "$DESC" > "$d/case.json"
+  printf '# Sum subtracts\n\n`sum 2 3` prints -1.\n\n## Acceptance criteria\n\n- AC-1: `sum 2 3` prints 5.\n' > "$d/ticket.md"
+  printf '# Decision record — #41 Sum subtracts\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | How sum combines | It adds its two arguments. | user-answered | intent |\n\n## Test intent\n\nACs: AC-1\n\nAC-1: sum 2 3 prints 5\n' > "$d/record.md"
+  git -C "$U" diff "$BASE" "$2" > "$d/patch.diff"
+}
+mkcase abc123 tested
+mkcase def456 untested
+leaks() { grep -Eiw 'plant|plants|planted|planting|ground.truth|answer.key|corpus|seeded|injected' "$@"; grep -iF "$DESC" "$@"; grep -F "$R" "$@"; }
+
+echo "== the lane arm =="
+py render --case abc123 --arm lane --dest "$T/lane" --clones "$T/clones" > "$T/lane.json" 2> "$T/lane.err"; rc=$?
+[ "$rc" -eq 0 ] && ok "render --arm lane exits 0" || bad "render --arm lane rc=$rc: $(tail -n 5 "$T/lane.err")"
+CO="$T/lane/checkout"
+[ "$(git -C "$CO" log --format=%s | tr '\n' '|')" = "fix: sum adds its arguments|docs: add the decision record|chore: add the review configuration|initial import|" ] \
+  && ok "the lane checkout is the base, the overlay, the record as its own commit, then the patch" || bad "lane commits: $(git -C "$CO" log --format=%s | tr '\n' '|')"
+[ "$(git -C "$CO" show --name-only --format= HEAD~1)" = "docs/plans/tool-41-decisions.md" ] && ok "the record commit holds the record alone" || bad "record commit: $(git -C "$CO" show --name-only --format= HEAD~1 | tr '\n' ' ')"
+[ "$(git -C "$CO" show --name-only --format= HEAD~2 | sort | tr '\n' ' ')" = ".claude/second-shift.config.json .claude/second-shift/review-context.md " ] \
+  && ok "the overlay commit holds review-context.md and the config" || bad "overlay commit: $(git -C "$CO" show --name-only --format= HEAD~2 | tr '\n' ' ')"
+[ -z "$(git -C "$CO" remote)" ] && [ ! -e "$CO/.git/FETCH_HEAD" ] && ok "the checkout has no remote and no FETCH_HEAD" || bad "remote: [$(git -C "$CO" remote)]"
+[ "$(git -C "$CO" rev-parse refs/remotes/origin/main)" = "$(git -C "$CO" rev-parse HEAD~2)" ] && ok "origin/main is set locally, at the overlay commit" || bad "origin/main: $(git -C "$CO" rev-parse refs/remotes/origin/main 2>&1)"
+[ "$(field "$T/lane.json" gates)" = '{"plan_coverage": 0, "fails_without_change": 0}' ] && [ "$(field "$T/lane.json" stopped)" = False ] \
+  && ok "plan coverage and fails without the change both pass, and the case goes to review" || bad "gates: $(field "$T/lane.json" gates) stopped=$(field "$T/lane.json" stopped)"
+grep -q 'fails on the record commit' "$T/lane/state/fails-without-1.log" 2>/dev/null && ok "fails without the change ran the configured runner on the record commit's tree" || bad "fwc log: $(head -n 5 "$T/lane/state/fails-without-1.log" 2>&1)"
+P="$T/lane/state/review.prompt"
+FIRST="$(git -C "$CO" rev-parse HEAD~1)"
+grep -q "^You review PR #42 of this repository" "$P" && grep -qF "git show $FIRST:docs/plans/tool-41-decisions.md" "$P" \
+  && ok "the review prompt is run.sh's, for PR 42, naming the record commit" || bad "prompt head: $(head -c 400 "$P")"
+grep -qF "'gh issue view 41 --json title,body,comments'" "$P" && grep -qF "The diff is origin/main...HEAD" "$P" \
+  && ok "the prompt names the case's ticket and its base branch" || bad "prompt ticket/base lines missing"
+input="$(awk '/^## Scheduler input/{on=1} on' "$P")"
+grep -q '^### Review policy edited' <<<"$input" && ok "the scheduler input follows the prompt" || bad "no scheduler input in the prompt"
+policy="$(awk '/^### Review policy edited/{getline; print; exit}' "$P")"
+[ "$policy" = '(none)' ] && ok "the overlay sits below origin/main, so the review sees no policy edit" || bad "policy section: $policy"
+grep -qF 'Bash(gh issue view*)' "$T/lane/state/review.allow" && ok "the allowlist is review_allowlist()'s" || bad "allow: $(cat "$T/lane/state/review.allow")"
+cmp -s "$T/lane/scratch/record-at-first.md" "$R/cases/abc123/record.md" && ok "the record at its first commit is in the scratch dir" || bad "record-at-first.md differs"
+git -C "$CO" log -p > "$T/lane-log.txt"
+if leaks "$P" "$T/lane-log.txt" "$T/lane/gh/issue.json" "$T/lane/gh/pr.json" > "$T/lane-leaks.txt"; then bad "a marker in the lane arm: $(head -n 3 "$T/lane-leaks.txt")"; else ok "no marker in the lane's prompt, commits, diff, ticket or PR"; fi
+
+echo "== the local gh =="
+lgh() { (cd "$CO" && env PATH="$T/lane/bin:$PATH" GH_LOCAL_DIR="$T/lane/gh" gh "$@"); }
+[ "$(lgh issue view 41 --json title,body,comments --jq .title)" = "Sum subtracts" ] && ok "issue view serves the case's ticket" || bad "issue view: $(lgh issue view 41 --json title 2>&1)"
+body="$(lgh issue view 41 --json body --jq .body)"
+[ "$(lgh issue view 41 --json title,body,comments --jq '.comments | length')" = 0 ] && grep -qx -- '- AC-1: `sum 2 3` prints 5.' <<<"$body" \
+  && ok "the ticket carries its AC block and no comments" || bad "ticket body: $(lgh issue view 41 --json body 2>&1 | head -c 200)"
+lgh issue view 7 --json title >/dev/null 2>&1 && bad "issue view 7 answered" || ok "another issue number is not found"
+[ "$(lgh pr view 42 --json body,comments --jq '[.body, (.comments | length)] | @tsv')" = "$(printf '\t0')" ] && ok "pr view serves an empty PR" || bad "pr view: $(lgh pr view 42 --json body,comments 2>&1)"
+diff="$(lgh pr diff 42 2>&1)"
+grep -q '^+sum() { echo \$(( \$1 + \$2 )); }' <<<"$diff" && ok "pr diff is the branch's diff from origin/main" || bad "pr diff: $(head -n 3 <<<"$diff")"
+printf 'verdict: approve\nhello\n' > "$T/body.md"
+lgh pr comment 42 --body-file "$T/body.md" >/dev/null && [ "$(lgh pr view 42 --json comments --jq '.comments[0].body')" = "$(printf 'verdict: approve\nhello')" ] \
+  && ok "pr comment saves the body, and pr view returns it" || bad "comment: $(cat "$T/lane/gh/comments.json" 2>&1)"
+lgh api repos/x >/dev/null 2>&1 && bad "gh api answered" || ok "any other gh command fails"
+
+echo "== the plain arm =="
+py render --case abc123 --arm plain --dest "$T/plain" --clones "$T/clones" > "$T/plain.json" 2> "$T/plain.err"; rc=$?
+[ "$rc" -eq 0 ] && ok "render --arm plain exits 0" || bad "render --arm plain rc=$rc: $(tail -n 5 "$T/plain.err")"
+PC="$T/plain/checkout"; PP="$T/plain/state/review.prompt"
+[ "$(git -C "$PC" log --format=%s | tr '\n' '|')" = "fix: sum adds its arguments|chore: add the review configuration|initial import|" ] \
+  && ok "the plain checkout is the same build without the record commit" || bad "plain commits: $(git -C "$PC" log --format=%s | tr '\n' '|')"
+[ ! -e "$PC/docs/plans/tool-41-decisions.md" ] && [ -f "$PC/.claude/second-shift/review-context.md" ] && [ -z "$(git -C "$PC" remote)" ] \
+  && ok "the plain checkout has review-context.md, no record and no remote" || bad "plain tree"
+grep -qF '# Sum subtracts' "$PP" && grep -qF -- '- AC-1: `sum 2 3` prints 5.' "$PP" && grep -qF "$T/plain/scratch/verdict.md" "$PP" \
+  && ok "the plain prompt carries the ticket and names its verdict file" || bad "plain prompt: $(head -c 300 "$PP")"
+grep -q 'Read the decision record\|Scheduler input' "$PP" && bad "the plain prompt carries a lane rule" || ok "the plain prompt carries none of the lane's rules"
+git -C "$PC" log -p > "$T/plain-log.txt"
+if leaks "$PP" "$T/plain-log.txt" > "$T/plain-leaks.txt"; then bad "a marker in the plain arm: $(head -n 3 "$T/plain-leaks.txt")"; else ok "no marker in plain's prompt, commits or diff"; fi
+
+echo "== a gate stops a case =="
+py render --case def456 --arm lane --dest "$T/stop" --clones "$T/clones" > "$T/stop.json" 2> "$T/stop.err"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(field "$T/stop.json" stopped)" = True ] && [ "$(field "$T/stop.json" gates fails_without_change)" = 1 ] && [ ! -e "$T/stop/state/review.prompt" ] \
+  && ok "a tagged test that passes without the change stops the case before any prompt" || bad "stop: rc=$rc $(head -c 300 "$T/stop.json" 2>&1)"
+[ "$(git -C "$T/stop/checkout" rev-parse --abbrev-ref HEAD)" = fix-41 ] && ok "the gate puts the checkout back on its branch" || bad "branch after the gate: $(git -C "$T/stop/checkout" rev-parse --abbrev-ref HEAD)"
+
+echo "== review, with a fake claude =="
+mkdir -p "$T/fakebin"
+cat > "$T/fakebin/claude" <<'EOF'
+#!/usr/bin/env bash
+prompt="$(cat)"
+if grep -q '^You review PR #' <<<"$prompt"; then
+  d="$(mktemp -d)"
+  printf 'verdict: approve\nreviewed: %s\n\n## Summary\nMergeable as it is.\nNothing to do.\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n| D-1 | honored | src/sum.sh:1 adds its arguments. |\n\n## Findings\n\nNone.\n' "$(git rev-parse HEAD)" > "$d/v.md"
+  gh pr comment 42 --body-file "$d/v.md" >/dev/null; rm -rf "$d"
+else
+  out="$(sed -n 's/^Output: write your verdict to `\(.*\)` in this form and nothing else:$/\1/p' <<<"$prompt")"
+  printf 'verdict: needs-work\n## Findings\n- [blocker] B1 src/sum.sh:1 — sum still subtracts.\n  Scenario: sum 2 3 → -1\n' > "$out"
+fi
+echo '{"type": "result", "subtype": "success", "result": "done", "total_cost_usd": 0.5, "num_turns": 2}'
+EOF
+chmod +x "$T/fakebin/claude"
+PATH="$T/fakebin:$PATH" py review --case abc123 --arm lane --dest "$T/rv-lane" --clones "$T/clones" --reviewer-model fake --no-bench > "$T/rv-lane.json" 2> "$T/rv-lane.err"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(field "$T/rv-lane.json" status)" = ok ] && [ "$(field "$T/rv-lane.json" verdict)" = approve ] && [ "$(field "$T/rv-lane.json" rows D-1)" = honored ] \
+  && ok "the lane's posted verdict is captured through the local gh and passes verdict-check.sh" || bad "lane review: rc=$rc $(head -c 600 "$T/rv-lane.json") $(tail -n 3 "$T/rv-lane.err")"
+PATH="$T/fakebin:$PATH" py review --case abc123 --arm plain --dest "$T/rv-plain" --clones "$T/clones" --reviewer-model fake --no-bench > "$T/rv-plain.json" 2> "$T/rv-plain.err"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(field "$T/rv-plain.json" status)" = ok ] && [ "$(field "$T/rv-plain.json" findings 0 path)" = src/sum.sh ] && [ "$(field "$T/rv-plain.json" findings 0 line)" = 1 ] \
+  && ok "plain's verdict file is read: one [blocker] at src/sum.sh:1" || bad "plain review: rc=$rc $(head -c 600 "$T/rv-plain.json") $(tail -n 3 "$T/rv-plain.err")"
+
+echo "render-selftest: $PASS passed, $FAIL failed"
+exit "$FAIL"

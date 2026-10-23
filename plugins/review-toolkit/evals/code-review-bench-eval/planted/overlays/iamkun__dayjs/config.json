@@ -1,0 +1,12 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "dayjs": {
+      "lint": "npm run lint",
+      "test": "npm test"
+    }
+  }
+}

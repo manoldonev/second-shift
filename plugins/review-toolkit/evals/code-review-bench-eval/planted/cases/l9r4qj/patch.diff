@@ -1,0 +1,70 @@
+diff --git a/docs/plans/dayjs-244-plan.md b/docs/plans/dayjs-244-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/dayjs-244-plan.md
+@@ -0,0 +1,11 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 dayjs() is an instance of dayjs (test/constructor.test.js) [AC-1]
++- [ ] 1.2 dayjs.isDayjs still recognizes an instance (test/constructor.test.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Point dayjs.prototype at the Dayjs prototype (src/index.js)
++- [ ] 2.2 Document instanceof in the API reference (docs/en/API-reference.md)
+diff --git a/docs/en/API-reference.md b/docs/en/API-reference.md
+index 5f6779ada..925e26797 100644
+--- a/docs/en/API-reference.md
++++ b/docs/en/API-reference.md
+@@ -421,6 +421,12 @@ dayjs.isDayjs(dayjs()); // true
+ dayjs.isDayjs(new Date()); // false
+ ```
+
++The operator `instanceof` works equally well:
++
++```js
++dayjs() instanceof dayjs // true
++```
++
+ ## Plugin APIs
+
+ ### RelativeTime
+diff --git a/src/index.js b/src/index.js
+index c3b7530f1..c60b2b809 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -384,6 +384,8 @@ class Dayjs {
+   }
+ }
+
++dayjs.prototype = Dayjs.prototype
++
+ dayjs.extend = (plugin, option) => {
+   plugin(option, Dayjs, dayjs)
+   return dayjs
+diff --git a/test/constructor.test.js b/test/constructor.test.js
+new file mode 100644
+index 000000000..b14b2fec4
+--- /dev/null
++++ b/test/constructor.test.js
+@@ -0,0 +1,18 @@
++import MockDate from 'mockdate'
++import dayjs from '../src'
++
++beforeEach(() => {
++  MockDate.set(new Date())
++})
++
++afterEach(() => {
++  MockDate.reset()
++})
++
++it('supports instanceof dayjs', () => {
++  expect(dayjs() instanceof dayjs).toBeTruthy()
++})
++
++it('does not break isDayjs', () => {
++  expect(dayjs.isDayjs(dayjs())).toBeTruthy()
++})

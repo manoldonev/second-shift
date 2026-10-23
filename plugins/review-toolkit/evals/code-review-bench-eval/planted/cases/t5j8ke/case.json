@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-1567",
+  "license": "MIT",
+  "base": "b5e40e6f16abeaea6a0facfa466d20aefaa8a444",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 1533,
+  "pr": 1567,
+  "commit": "fix: customParseFormat parses the X and x timestamp formats",
+  "truth": {
+    "class": "P2",
+    "row": "D-2",
+    "description": "The timestamp path is taken for any format that contains X or x, so a format such as 'YYYY [x]' is read as a timestamp instead of going through the token parser.",
+    "locations": [
+      {"file": "src/plugin/customParseFormat/index.js", "start": 178, "end": 178, "side": "head"}
+    ]
+  }
+}

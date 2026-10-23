@@ -1,0 +1,89 @@
+diff --git a/docs/plans/darkreader-7238-plan.md b/docs/plans/darkreader-7238-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/darkreader-7238-plan.md
+@@ -0,0 +1,9 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 Base64 padding inside CSS does not split the block (tests/generators/utils/parse.tests.ts) [AC-1]
++
++## 2. Fix
++
++- [ ] 2.1 Anchor the index's delimiter regex to the line start (src/generators/utils/parse.ts)
+diff --git a/src/generators/utils/parse.ts b/src/generators/utils/parse.ts
+index dce4ad0ae299..067d41a7eab1 100644
+--- a/src/generators/utils/parse.ts
++++ b/src/generators/utils/parse.ts
+@@ -143,7 +143,7 @@ export function indexSitesFixesConfig<T extends SiteProps>(text: string): SitePr
+
+     let recordStart = 0;
+     // Delimiter between two blocks
+-    const delimiterRegex = /\s*={2,}\s*/gm;
++    const delimiterRegex = /^\s*={2,}/gm;
+     let delimiter: RegExpMatchArray;
+     let count = 0;
+     while ((delimiter = delimiterRegex.exec(text))) {
+diff --git a/tests/generators/utils/parse.tests.ts b/tests/generators/utils/parse.tests.ts
+index 332eb0413f36..d3ab1b1f4128 100644
+--- a/tests/generators/utils/parse.tests.ts
++++ b/tests/generators/utils/parse.tests.ts
+@@ -393,3 +393,57 @@ test('Implied wildcards', () => {
+             'directive': 'one'
+         }]);
+ });
++
++// Regression test which ensures parser properly splits blocks (ignores Base64 padding within CSS).
++test('Base64 in CSS', () => {
++    interface TestFix {
++        url: string[];
++        directive: string[];
++        css: string[];
++    }
++
++    const directiveMap: { [key: string]: keyof TestFix } = {
++        DIRECTIVE: 'directive',
++        CSS: 'css',
++    };
++
++    const config = [
++        '*',
++        '',
++        'DIRECTIVE',
++        'hello world',
++        '',
++        '====================',
++        '',
++        'example.com',
++        '',
++        'CSS',
++        '.CodeMirror-merge-r-deleted, .CodeMirror-merge-l-deleted {',
++        "    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAAFklEQVQImWO84ePDwMCQ8uEDEwMMAAA1TAO4kytpLAAAAABJRU5ErkJggg==') !important;",
++        '}',
++        ''
++    ].join('\n');
++
++    const options: SitesFixesParserOptions<TestFix> = {
++        commands: Object.keys(directiveMap),
++        getCommandPropName: (command) => directiveMap[command],
++        parseCommandValue: (_, value) => value.trim(),
++    };
++    const index = indexSitesFixesConfig<TestFix>(config);
++
++    const fixes = getSitesFixesFor('www.example.com', config, index, options);
++    expect(fixes).toEqual([
++        {
++            'url': ['*'],
++            'directive': 'hello world'
++        }, {
++            'url': [
++                'example.com',
++            ],
++            'css': [
++                '.CodeMirror-merge-r-deleted, .CodeMirror-merge-l-deleted {',
++                "    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAAFklEQVQImWO84ePDwMCQ8uEDEwMMAAA1TAO4kytpLAAAAABJRU5ErkJggg==') !important;",
++                '}',
++            ].join('\n'),
++        }]);
++});

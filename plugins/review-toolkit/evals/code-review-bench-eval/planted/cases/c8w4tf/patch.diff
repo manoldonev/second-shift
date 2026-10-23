@@ -1,0 +1,43 @@
+diff --git a/docs/plans/dayjs-2095-plan.md b/docs/plans/dayjs-2095-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/dayjs-2095-plan.md
+@@ -0,0 +1,10 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 dayjs(null) is invalid with objectSupport (test/plugin/objectSupport.test.js) [AC-1]
++- [ ] 1.2 dayjs() is valid with objectSupport (test/plugin/objectSupport.test.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Treat null as no value in the undefined check that isObject calls (src/utils.js)
+diff --git a/src/utils.js b/src/utils.js
+--- a/src/utils.js
++++ b/src/utils.js
+@@ -43,7 +43,7 @@ const prettyUnit = (u) => {
+   return special[u] || String(u || '').toLowerCase().replace(/s$/, '')
+ }
+
+-const isUndefined = s => s === undefined
++const isUndefined = s => s === undefined || s === null
+
+ export default {
+   s: padStart,
+diff --git a/test/plugin/objectSupport.test.js b/test/plugin/objectSupport.test.js
+index 06b10f9dc..7e20200b3 100755
+--- a/test/plugin/objectSupport.test.js
++++ b/test/plugin/objectSupport.test.js
+@@ -384,3 +384,11 @@ it('add decimal values of days and months', () => {
+   expect(dayjs([2016, 7, 1]).add(1.6, 'years').format('YYYY-MM-DD')).toBe('2017-07-01')
+   expect(dayjs([2016, 1, 1]).add(1.1, 'quarters').format('YYYY-MM-DD')).toBe('2016-04-01')
+ })
++
++it('returns valid date on undefined', () => {
++  expect(dayjs().isValid()).toBe(true)
++})
++
++it('returns invalid date on null', () => {
++  expect(dayjs(null).isValid()).toBe(false)
++})

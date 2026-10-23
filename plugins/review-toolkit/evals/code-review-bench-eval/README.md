@@ -111,3 +111,30 @@ refresh are not comparable to rows written after it; say so in the note.
 
 Write `arms/<name>.md`, smoke it, then run the `dev` set. A new arm's first row is its baseline.
 Never tune on `heldout`.
+
+## The planted mode
+
+`planted/` asks a different question: does the lane's review catch what a plain review with the
+ticket misses? Its cases are planted defects on real Multi-SWE-bench fixes, each with a ticket, a
+decision record and repo context. What it measures, the scoring and the gate are in
+`docs/testing.md`, under "The planted mode". It reuses this bench's judge, judge cache,
+calibration gate and transcript scan, and writes its own rows to `planted/changelog.md`.
+
+```
+python3 planted/planted.py check                                  # the corpus's structure, as CI runs it
+python3 planted/planted.py verify --dest <dir>                    # build and render every case, no model
+REVIEWER_MODEL=<id|alias> JUDGE_MODEL=<id|alias> planted/run.sh --arm plain --arm lane --runs 3 --note "why"
+REVIEWER_MODEL=<id|alias> JUDGE_MODEL=<id|alias> planted/run.sh --arm lane --case <id> --runs 1 --no-record
+```
+
+A case is `planted/cases/<id>/`: `case.json` (the upstream, its license, the base sha, the issue and
+PR numbers, the commit subject and the ground truth), `ticket.md`, `record.md` and `patch.diff`.
+The patch applies to the base after the overlay, and adds the plan at
+`docs/plans/<repo>-<issue>-plan.md`. Its ids are six random characters, because the reviewer sees
+the id in its scratch path and session name. Each overlay under `planted/overlays/` is shared by
+the cases of one upstream. `NOTICE` names each upstream and its license.
+
+A case configures no test runner, so the lane's fails-without-the-change gate is not-applicable on
+every case; a runner added to an overlay's config makes the recipe run it on the record commit's
+tree, as the lane does. The checkouts, the clones and the per-run state live under the cache dir,
+never in the repo.

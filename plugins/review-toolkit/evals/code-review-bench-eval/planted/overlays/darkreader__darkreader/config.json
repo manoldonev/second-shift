@@ -1,0 +1,12 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "darkreader": {
+      "lint": "npm run lint",
+      "test": "npm run test:unit"
+    }
+  }
+}

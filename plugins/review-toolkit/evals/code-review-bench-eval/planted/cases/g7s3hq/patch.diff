@@ -1,0 +1,67 @@
+diff --git a/docs/plans/dayjs-1304-plan.md b/docs/plans/dayjs-1304-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/dayjs-1304-plan.md
+@@ -0,0 +1,9 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 weekYear in en-gb around the new year, against Moment.js (test/plugin/weekYear.test.js) [AC-1]
++
++## 2. Fix
++
++- [ ] 2.1 Return the previous year for a late week in January (src/plugin/weekYear/index.js)
+diff --git a/src/plugin/weekYear/index.js b/src/plugin/weekYear/index.js
+index 1fa7577b7..b7a93e0d5 100644
+--- a/src/plugin/weekYear/index.js
++++ b/src/plugin/weekYear/index.js
+@@ -7,6 +7,9 @@ export default (o, c) => {
+     if (weekOfYear === 1 && month === 11) {
+       return year + 1
+     }
++    if (month === 0 && weekOfYear >= 52) {
++      return year - 1
++    }
+     return year
+   }
+ }
+diff --git a/test/plugin/weekYear.test.js b/test/plugin/weekYear.test.js
+index a23709e50..30955d267 100644
+--- a/test/plugin/weekYear.test.js
++++ b/test/plugin/weekYear.test.js
+@@ -3,6 +3,7 @@ import MockDate from 'mockdate'
+ import dayjs from '../../src'
+ import weekYear from '../../src/plugin/weekYear'
+ import weekOfYear from '../../src/plugin/weekOfYear'
++import '../../src/locale/en-gb'
+
+ dayjs.extend(weekYear)
+ dayjs.extend(weekOfYear)
+@@ -24,7 +25,24 @@ it('Week Year', () => {
+   ]
+   daySet.forEach((d) => {
+     const [day, result] = d
+-    expect(dayjs(day).weekYear()).toBe(result)
+-    expect(dayjs(day).weekYear()).toBe(moment(day).weekYear())
++    const dResult = dayjs(day).weekYear()
++    expect(dResult).toBe(result)
++  })
++})
++
++it('yearStart: 4', () => {
++  const daySet = [
++    ['2020-12-31', 2020],
++    ['2021-01-01', 2020],
++    ['2021-01-02', 2020],
++    ['2021-01-03', 2020],
++    ['2021-01-04', 2021],
++    ['2021-01-05', 2021]
++  ]
++  daySet.forEach((d) => {
++    const [day, result] = d
++    const dResult = dayjs(day).locale('en-gb').weekYear()
++    expect(dResult).toBe(result)
++    expect(dResult).toBe(moment(day).locale('en-gb').weekYear())
+   })
+ })

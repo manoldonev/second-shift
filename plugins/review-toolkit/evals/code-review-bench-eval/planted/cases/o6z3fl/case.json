@@ -1,0 +1,14 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-1611",
+  "license": "MIT",
+  "base": "f68e4b1a29fc33542f74cde10ec6d9fb045ca37e",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 1521,
+  "pr": 1611,
+  "commit": "fix: count a missing ISO duration component as zero",
+  "truth": {
+    "class": "control"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-2377",
+  "license": "MIT",
+  "base": "f0a0b546b074b3b511c2319a1ce83d412894b91f",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 2376,
+  "pr": 2377,
+  "commit": "fix: round the ISO duration seconds once, after the milliseconds",
+  "truth": {
+    "class": "P2",
+    "row": "D-2",
+    "description": "toISOString writes the rounded seconds back into $d.seconds, so a second call adds the milliseconds again and returns a different string.",
+    "locations": [
+      {"file": "src/plugin/duration/index.js", "start": 144, "end": 144, "side": "head"}
+    ]
+  }
+}

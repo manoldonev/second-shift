@@ -1,0 +1,167 @@
+diff --git a/docs/plans/axios-5844-plan.md b/docs/plans/axios-5844-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/axios-5844-plan.md
+@@ -0,0 +1,12 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 getAdapter loads a function handle and a name in any case (test/unit/adapters/adapters.js) [AC-1]
++- [ ] 1.2 getAdapter picks the first available adapter of a list (test/unit/adapters/adapters.js) [AC-2]
++- [ ] 1.3 getAdapter reports an unavailable and an unsupported adapter (test/unit/adapters/adapters.js) [AC-3]
++
++## 2. Fix
++
++- [ ] 2.1 Resolve each entry of the list and collect the reasons for the rejected ones (lib/adapters/adapters.js)
++- [ ] 2.2 Make the default adapter the list ['xhr', 'http'] (lib/defaults/index.js)
+diff --git a/lib/adapters/adapters.js b/lib/adapters/adapters.js
+index e31fca1203..550997d8c7 100644
+--- a/lib/adapters/adapters.js
++++ b/lib/adapters/adapters.js
+@@ -9,7 +9,7 @@ const knownAdapters = {
+ }
+
+ utils.forEach(knownAdapters, (fn, value) => {
+-  if(fn) {
++  if (fn) {
+     try {
+       Object.defineProperty(fn, 'name', {value});
+     } catch (e) {
+@@ -19,6 +19,10 @@ utils.forEach(knownAdapters, (fn, value) => {
+   }
+ });
+
++const renderReason = (reason) => `- ${reason}`;
++
++const isResolvedHandle = (adapter) => typeof adapter === 'function' || adapter === null || adapter === false;
++
+ export default {
+   getAdapter: (adapters) => {
+     adapters = utils.isArray(adapters) ? adapters : [adapters];
+@@ -27,30 +31,44 @@ export default {
+     let nameOrAdapter;
+     let adapter;
+
++    const rejectedReasons = {};
++
+     for (let i = 0; i < length; i++) {
+       nameOrAdapter = adapters[i];
+-      if((adapter = utils.isString(nameOrAdapter) ? knownAdapters[nameOrAdapter.toLowerCase()] : nameOrAdapter)) {
++      let id;
++
++      adapter = nameOrAdapter;
++
++      if (!isResolvedHandle(nameOrAdapter)) {
++        adapter = knownAdapters[(id = String(nameOrAdapter)).toLowerCase()];
++
++        if (adapter === undefined) {
++          throw new AxiosError(`Unknown adapter '${id}'`);
++        }
++      }
++
++      if (adapter) {
+         break;
+       }
++
++      rejectedReasons[id || '#' + i] = adapter;
+     }
+
+     if (!adapter) {
+-      if (adapter === false) {
+-        throw new AxiosError(
+-          `Adapter ${nameOrAdapter} is not supported by the environment`,
+-          'ERR_NOT_SUPPORT'
++
++      const reasons = Object.entries(rejectedReasons)
++        .map(([id, state]) => `adapter ${id} ` +
++          (state === false ? 'is not supported by the environment' : 'is not available in the build')
+         );
+-      }
+
+-      throw new Error(
+-        utils.hasOwnProp(knownAdapters, nameOrAdapter) ?
+-          `Adapter '${nameOrAdapter}' is not available in the build` :
+-          `Unknown adapter '${nameOrAdapter}'`
+-      );
+-    }
++      let s = length ?
++        (reasons.length > 1 ? 'since :\n' + reasons.map(renderReason).join('\n') : ' ' + renderReason(reasons[0])) :
++        'as no adapter specified';
+
+-    if (!utils.isFunction(adapter)) {
+-      throw new TypeError('adapter is not a function');
++      throw new AxiosError(
++        `There is no suitable adapter to dispatch the request ` + s,
++        'ERR_NOT_SUPPORT'
++      );
+     }
+
+     return adapter;
+diff --git a/lib/defaults/index.js b/lib/defaults/index.js
+index 27c71b45e6..a883bfe5c5 100644
+--- a/lib/defaults/index.js
++++ b/lib/defaults/index.js
+@@ -37,7 +37,7 @@ const defaults = {
+
+   transitional: transitionalDefaults,
+
+-  adapter: platform.isNode ? 'http' : 'xhr',
++  adapter: ['xhr', 'http'],
+
+   transformRequest: [function transformRequest(data, headers) {
+     const contentType = headers.getContentType() || '';
+diff --git a/test/unit/adapters/adapters.js b/test/unit/adapters/adapters.js
+new file mode 100644
+index 0000000000..f0d01393be
+--- /dev/null
++++ b/test/unit/adapters/adapters.js
+@@ -0,0 +1,48 @@
++import adapters from '../../../lib/adapters/adapters.js';
++import assert from 'assert';
++
++
++describe('adapters', function () {
++  const store = {...adapters.adapters};
++
++  beforeEach(() => {
++    Object.keys(adapters.adapters).forEach((name) => {
++      delete adapters.adapters[name];
++    });
++
++    Object.assign(adapters.adapters, store);
++  });
++
++  it('should support loading by fn handle', function () {
++    const adapter = () => {};
++    assert.strictEqual(adapters.getAdapter(adapter), adapter);
++  });
++
++  it('should support loading by name', function () {
++    const adapter = () => {};
++    adapters.adapters['testadapter'] = adapter;
++    assert.strictEqual(adapters.getAdapter('testAdapter'), adapter);
++  });
++
++  it('should detect adapter unavailable status', function () {
++    adapters.adapters['testadapter'] = null;
++    assert.throws(()=> adapters.getAdapter('testAdapter'), /is not available in the build/)
++  });
++
++  it('should detect adapter unsupported status', function () {
++    adapters.adapters['testadapter'] = false;
++    assert.throws(()=> adapters.getAdapter('testAdapter'), /is not supported by the environment/)
++  });
++
++  it('should pick suitable adapter from the list', function () {
++    const adapter = () => {};
++
++    Object.assign(adapters.adapters, {
++      foo: false,
++      bar: null,
++      baz: adapter
++    });
++
++    assert.strictEqual(adapters.getAdapter(['foo', 'bar', 'baz']), adapter);
++  });
++});

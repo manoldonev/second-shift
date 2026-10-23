@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# The gh a case checkout's review session finds first on PATH. The checkout has no remote, so this answers
+# from the files in $GH_LOCAL_DIR: `issue view` from issue.json, `pr view` from pr.json and the comments
+# posted so far, `pr diff` from the branch, and `pr comment` appends to comments.json. Anything else fails
+# as gh does for an unknown command. It prints no path: an error message names nothing the session should
+# not see.
+set -uo pipefail
+D="${GH_LOCAL_DIR:?GH_LOCAL_DIR is not set}"
+cmd="${1:-} ${2:-}"
+[ $# -ge 2 ] && shift 2 || set --
+num="" fields="" filter="" body="" body_file="" has_body=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json) fields="${2:-}"; shift 2 ;;
+    --json=*) fields="${1#--json=}"; shift ;;
+    --jq|-q) filter="${2:-}"; shift 2 ;;
+    --jq=*) filter="${1#--jq=}"; shift ;;
+    --body-file|-F) body_file="${2:-}"; shift 2 ;;
+    --body-file=*) body_file="${1#--body-file=}"; shift ;;
+    --body|-b) body="${2:-}"; has_body=1; shift 2 ;;
+    --repo|-R) shift 2 ;;
+    -*) shift ;;
+    *) [ -n "$num" ] || num="$1"; shift ;;
+  esac
+done
+emit() { # emit <json>: --json keeps the named fields, --jq filters what is left
+  local j="$1"
+  if [ -n "$fields" ]; then j="$(jq -c --arg f "$fields" '. as $o | reduce ($f | split(",")[] | select(. != "")) as $k ({}; .[$k] = $o[$k])' <<<"$j")" || exit 1; fi
+  if [ -n "$filter" ]; then jq -r "$filter" <<<"$j"; else jq . <<<"$j"; fi
+}
+pr_number() { jq -r .number "$D/pr.json"; }
+case "$cmd" in
+  "issue view")
+    [ "${num#\#}" = "$(jq -r .number "$D/issue.json")" ] \
+      || { echo "GraphQL: Could not resolve to an issue or pull request with the number of ${num#\#}. (repository.issue)" >&2; exit 1; }
+    emit "$(cat "$D/issue.json")" ;;
+  "pr view")
+    [ -z "$num" ] || [ "${num#\#}" = "$(pr_number)" ] \
+      || { echo "GraphQL: Could not resolve to a PullRequest with the number of ${num#\#}. (repository.pullRequest)" >&2; exit 1; }
+    emit "$(jq -c --slurpfile c "$D/comments.json" '.comments = $c[0]' "$D/pr.json")" ;;
+  "pr diff")
+    git diff "origin/$(jq -r .baseRefName "$D/pr.json")...HEAD" ;;
+  "pr comment")
+    [ -z "$num" ] || [ "${num#\#}" = "$(pr_number)" ] \
+      || { echo "GraphQL: Could not resolve to a PullRequest with the number of ${num#\#}. (repository.pullRequest)" >&2; exit 1; }
+    if [ -n "$body_file" ]; then body="$(cat -- "$body_file")" || exit 1
+    elif [ "$has_body" -eq 0 ]; then echo "must provide --body or --body-file when not running interactively" >&2; exit 1; fi
+    k="$(jq length "$D/comments.json")"; k=$((k + 1))
+    url="$(jq -r .url "$D/pr.json")#issuecomment-$k"
+    printf '%s\n' "$body" > "$D/comment-$k.md"
+    jq --rawfile b "$D/comment-$k.md" --arg u "$url" '. + [{author: {login: "reviewer"}, body: ($b | rtrimstr("\n")), url: $u}]' "$D/comments.json" > "$D/comments.json.new" \
+      && mv "$D/comments.json.new" "$D/comments.json" || exit 1
+    echo "$url" ;;
+  *)
+    echo "unknown command \"${cmd%% *}\" for \"gh\"" >&2; exit 1 ;;
+esac

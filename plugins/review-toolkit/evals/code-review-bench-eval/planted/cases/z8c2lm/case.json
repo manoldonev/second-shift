@@ -1,0 +1,18 @@
+{
+  "upstream": "https://github.com/expressjs/express.git",
+  "instance": "expressjs__express-3695",
+  "license": "MIT",
+  "base": "3ed5090ca91f6a387e66370d57ead94d886275e1",
+  "base_branch": "master",
+  "overlay": "expressjs__express",
+  "issue": 3696,
+  "pr": 3695,
+  "commit": "feat: catch errors thrown in async handlers",
+  "truth": {
+    "class": "P4",
+    "description": "handle_request calls next() when an async request handler's promise resolves, so an existing async handler that already sent its response also runs the next matching handler.",
+    "locations": [
+      {"file": "lib/router/layer.js", "start": 97, "end": 99, "side": "head"}
+    ]
+  }
+}

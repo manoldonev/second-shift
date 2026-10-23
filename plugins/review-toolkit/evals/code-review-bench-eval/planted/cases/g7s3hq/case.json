@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-1319",
+  "license": "MIT",
+  "base": "cc993f0a8d18d33c0137616b80adc86127ba3424",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 1304,
+  "pr": 1319,
+  "commit": "fix: weekYear returns the previous year for early January in its last week",
+  "truth": {
+    "class": "P3",
+    "description": "The existing Week Year test no longer compares weekYear with Moment.js: the comparison is deleted while the test is refactored, and no AC asks for it.",
+    "locations": [
+      {"file": "test/plugin/weekYear.test.js", "start": 28, "end": 29, "side": "head"},
+      {"file": "test/plugin/weekYear.test.js", "start": 28, "end": 28, "side": "base"}
+    ]
+  }
+}

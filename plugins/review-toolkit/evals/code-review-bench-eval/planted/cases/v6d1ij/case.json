@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-867",
+  "license": "MIT",
+  "base": "3188e158ed4ebca6669b5464ff7d3d85bf1c8615",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 865,
+  "pr": 867,
+  "commit": "fix: duration getters return their own component",
+  "truth": {
+    "class": "P3",
+    "description": "The existing expectation that a 500 ms duration is 0.5 seconds is weakened to toBeLessThan(1), and no AC asks for it.",
+    "locations": [
+      {"file": "test/plugin/duration.test.js", "start": 138, "end": 138, "side": "head"},
+      {"file": "test/plugin/duration.test.js", "start": 137, "end": 137, "side": "base"}
+    ]
+  }
+}

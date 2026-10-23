@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/expressjs/express.git",
+  "instance": "expressjs__express-3495",
+  "license": "MIT",
+  "base": "8da51108e7bb501344c537d3f1f846a7477ae329",
+  "base_branch": "4.17",
+  "overlay": "expressjs__express",
+  "issue": 3494,
+  "pr": 3495,
+  "commit": "feat: req.hostname reads the first host of X-Forwarded-Host",
+  "truth": {
+    "class": "P1",
+    "description": "The first host is cut at the comma but never trimmed, so a header of 'example.com , foobar.com' gives a hostname with a trailing space and AC-2 is unmet.",
+    "locations": [
+      {"file": "lib/request.js", "start": 433, "end": 436, "side": "head"},
+      {"file": "docs/plans/express-3494-plan.md", "start": 6, "end": 6, "side": "head"}
+    ]
+  }
+}

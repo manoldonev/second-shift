@@ -1,0 +1,42 @@
+diff --git a/docs/plans/dayjs-1745-plan.md b/docs/plans/dayjs-1745-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/dayjs-1745-plan.md
+@@ -0,0 +1,10 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A three-digit year formats with YYYY as Moment.js does (test/display.test.js) [AC-1]
++- [ ] 1.2 A three-digit year formats with YY as Moment.js does (test/display.test.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Pad YYYY to four digits with Utils.s (src/index.js)
+diff --git a/src/index.js b/src/index.js
+index 19c409078..ba74b8b66 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -280,7 +280,7 @@ class Dayjs {
+
+     const matches = {
+       YY: String(this.$y).slice(-2),
+-      YYYY: this.$y,
++      YYYY: Utils.s(this.$y, 4, '0'),
+       M: $M + 1,
+       MM: Utils.s($M + 1, 2, '0'),
+       MMM: getShort(locale.monthsShort, $M, months, 3),
+diff --git a/test/display.test.js b/test/display.test.js
+index 7eb48fe82..de278fde6 100644
+--- a/test/display.test.js
++++ b/test/display.test.js
+@@ -24,6 +24,9 @@ it('Format invalid date', () => {
+ it('Format Year YY YYYY', () => {
+   expect(dayjs().format('YY')).toBe(moment().format('YY'))
+   expect(dayjs().format('YYYY')).toBe(moment().format('YYYY'))
++  const timeWithThreeDigitYear = '0200-05-02T01:00:00.000'
++  expect(dayjs(timeWithThreeDigitYear).format('YYYY')).toBe(moment(timeWithThreeDigitYear).format('YYYY'))
++  expect(dayjs(timeWithThreeDigitYear).format('YY')).toBe(moment(timeWithThreeDigitYear).format('YY'))
+ })
+
+ it('Format Month M MM MMM MMMM', () => {

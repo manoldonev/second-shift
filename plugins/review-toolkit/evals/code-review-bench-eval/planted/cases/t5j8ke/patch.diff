@@ -1,0 +1,44 @@
+diff --git a/docs/plans/dayjs-1533-plan.md b/docs/plans/dayjs-1533-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/dayjs-1533-plan.md
+@@ -0,0 +1,10 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 'X' parses seconds as Moment.js does (test/plugin/customParseFormat.test.js) [AC-1]
++- [ ] 1.2 'x' parses milliseconds as Moment.js does (test/plugin/customParseFormat.test.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Return a Date from the timestamp before the token parser (src/plugin/customParseFormat/index.js)
+diff --git a/src/plugin/customParseFormat/index.js b/src/plugin/customParseFormat/index.js
+index 536a6654c..73e48eb91 100644
+--- a/src/plugin/customParseFormat/index.js
++++ b/src/plugin/customParseFormat/index.js
+@@ -175,6 +175,7 @@ function makeParser(format) {
+
+ const parseFormattedInput = (input, format, utc) => {
+   try {
++    if (/[Xx]/.test(format)) return new Date((format.indexOf('X') > -1 ? 1000 : 1) * input)
+     const parser = makeParser(format)
+     const {
+       year, month, day, hours, minutes, seconds, milliseconds, zone
+diff --git a/test/plugin/customParseFormat.test.js b/test/plugin/customParseFormat.test.js
+index 65a702997..97fe8fb73 100644
+--- a/test/plugin/customParseFormat.test.js
++++ b/test/plugin/customParseFormat.test.js
+@@ -368,3 +368,12 @@ it('custom two-digit year parse function', () => {
+   const input3 = '99-05-02'
+   expect(dayjs(input3, format).year()).toBe(1899)
+ })
++
++it('parse X x', () => {
++  const input = '1410715640.579'
++  const format = 'X'
++  expect(dayjs(input, format).valueOf()).toBe(moment(input, format).valueOf())
++  const input2 = '1410715640579'
++  const format2 = 'x'
++  expect(dayjs(input2, format2).valueOf()).toBe(moment(input2, format2).valueOf())
++})
