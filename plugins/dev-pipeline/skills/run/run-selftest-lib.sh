@@ -152,6 +152,9 @@ case "$plan" in
                    echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "fix: a change for $k"; git push -q origin "$branch"; openpr ;;
   build-pr-close)  push; openpr; echo CLOSED > "$S/state" ;;
   build-pr-dirty)  push; openpr; echo uncommitted >> work.txt ;;
+  build-pr-chmod)  printf '#!/usr/bin/env bash\n' > new-selftest.sh; chmod +x new-selftest.sh; push; openpr ;;
+  build-pr-update-index) printf '#!/usr/bin/env bash\n' > new-selftest.sh; git add new-selftest.sh; git update-index --chmod=+x new-selftest.sh   # the index's mode only:
+                   git commit -qm "build $n"; git push -q origin "$branch"; openpr ;;                                                  # push's git add -A would copy 100644 back
   build-pr-untracked) push; openpr; printf 'it("probe", () => {});\n' > src/zz-probe.spec.ts; mkdir -p "src/probe dir"; echo scratch > "src/probe dir/notes.txt" ;;   # never committed: what a probing build leaves
   build-commit-nopush) echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "local only $n" ;;
   build-skip-test) printf 'it.skip("x", () => {});\n' >> src/a.spec.ts; mkdir -p .github/workflows; echo 'on: push' > .github/workflows/ci.yml; push; openpr ;;
