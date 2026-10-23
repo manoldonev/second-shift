@@ -61,7 +61,7 @@ The panel named throughout this skill is the **plugin-shipped generic registry**
 
 - `reviewers.add[]` — repo-local reviewer agents living in the repo's `.claude/agents/` (referenced **bare**, e.g. `orders-reviewer`). Each entry declares `dimensions[]` (a routing/dedup hint — treat those dimensions as the reviewer's domain when deciding whether to spawn it and when merging its findings). Register these alongside the plugin panel; spawn them per their declared domain the same way the conditional reviewers below are spawned.
 - `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; omit its Verdicts row.
-- `reviewers.default[]` — plugin-shipped reviewers this repo dispatches **unconditionally on the pipeline path** (see "The pipeline default panel" under Reviewer Routing), named the way `reviewers.remove[]` names them. Purely additive: it can put a reviewer INTO the pipeline default panel and can never take one out — subtraction stays `reviewers.remove[]`'s, which this key does not override. Read on every path; it selects nothing when the pipeline default panel was not declared, because on every other path those reviewers already have their surface triggers.
+- `reviewers.default[]` — deprecated. Do not read it: it selects nothing on any path. The config grill reports a config that sets it.
 - `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). The `code-review.mjs` fan-out reads these; pass the overridden tier, not the agent-frontmatter default.
 
 If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced **bare**, and plugin-shipped reviewers **qualified** (`docs/namespaces.md` rule 2) — that asymmetry is the disambiguation between roots, and it is what the panel above is spelled to satisfy. The names in the panel are dispatch names: they reach `agent({ agentType })` through `code-review.mjs`, so a bare plugin name there is not a stylistic choice but an agent type that does not resolve. `check-reviewer-references.sh` enforces both halves.
@@ -256,8 +256,9 @@ When in doubt about whether a domain reviewer is relevant, spawn it — a "no is
 
 **A caller may declare it; this skill never infers it.** There is no mode sniff, no cwd test and no
 config flag that turns it on: a caller that wants the trimmed panel says so in the invocation, and
-a caller that says nothing gets the table above exactly as written. The pipeline's review session
-declares it (its step 5); the standalone `/review-toolkit:review-lead` invocation does not, and its routing is unchanged.
+a caller that says nothing gets the table above exactly as written. No shipped caller declares it:
+the lane's review session reviews the diff itself and does not run this skill, and the standalone
+`/review-toolkit:review-lead` invocation does not declare it, so its routing is unchanged.
 
 **What it changes.** When the pipeline default panel is declared, three rows of the
 Conditionally-spawn table do **not** fire on their surface triggers:
@@ -285,60 +286,38 @@ measure — it saves no wall at all, since the three run in parallel with the lo
 is a membership rule: a panel seat that never moves an outcome reads as coverage without being
 coverage.
 
-**Opting one back in.** Any carrier selects; all are read at Routing, and their effects union.
+**Opting one back in — the caller's own judgment, with a reason.** The caller is the one carrier.
+A `review panel` row in a decision record is a retired row kind and selects nothing, and so does
+the deprecated config `reviewers.default[]`. The caller that declares the panel may name opt-ins
+itself when the diff touches their surface — `security` for authentication, sessions, tenancy or
+ownership scoping, or queries built from external input; `a11y` for the web-component surface;
+`unit-test-mutation` for new logic with a co-located spec; `performance` for a new entry point (a
+route, handler, consumer or SDK method) that reaches a data read or existing heavy work. It passes
+each short name in the invocation with a one-line reason. The trim stays the default because it
+was measured; this carrier exists so a diff the measurement never saw is not reviewed blind on a
+rule's say-so.
 
-1. **Per ticket — a Decision Ledger row in the committed spec.** The spec found by Process step 4
-   (Plan/Spec Awareness) carries a `## Decision Ledger` table. A row selects opt-ins when its
-   Decision cell is exactly `review panel`, its Resolution cell is a comma-separated list of the
-   **short** names `security`, `a11y`, `unit-test-mutation`, `performance`, and its Provenance is `user-answered`
-   or `user-delegated` — the two `intent`-kind values of the ledger's closed provenance enum. Any
-   other provenance selects nothing: an opt-in is an operator's intent, and `codebase-derived` /
-   `deferred` are not that. `ticket-sourced` is excluded too, though it is operator-originated:
-   the two carriers are already enough surface, and widening them is a change to the ledger
-   contract rather than to this routing rule.
-
-   ```
-   | D-4 | review panel | security, a11y | user-answered |
-   ```
-
-2. **Per repo — config `reviewers.default[]`.** An array of plugin-shipped reviewer names spelled
-   the way `reviewers.remove[]` spells them (`security-reviewer`, not `security`). Every name in
-   it is dispatched unconditionally on the pipeline path. The two carriers use two spellings
-   because the config key sits beside `remove[]` and is validated against the shipped registry by
-   the same string compare (`check-reviewer-references.sh`, `DEFAULT-UNKNOWN`), while the ledger
-   row is prose an operator types. Read both; do not translate one into the other silently.
-
-3. **Per round — the caller's own judgment, with a reason.** The caller that declares the panel
-   may name opt-ins itself when the diff touches their surface — `security` for authentication,
-   sessions, tenancy or ownership scoping, or queries built from external input; `a11y` for the
-   web-component surface; `unit-test-mutation` for new logic with a co-located spec; `performance`
-   for a new entry point (a route, handler, consumer or SDK method) that reaches a data read or
-   existing heavy work. It passes each
-   short name in the invocation with a one-line reason, and it selects exactly as a ledger row
-   would. The trim stays the default because it was measured; this carrier exists so a diff the
-   measurement never saw is not reviewed blind on a rule's say-so.
-
-   **The same carrier carries the decline.** Whether the diff *introduces* one of the four
-   surfaces — a new authentication, session, tenancy or ownership-scoping path or a new query
-   built from external input; new form controls or a new interactive component; new logic with
-   a co-located spec; a new entry point that reaches a data read or existing heavy work — is
-   model judgment over the diff, as the Conditionally-spawn table judges
-   its triggers; the trim changes who is selected, not whether the surface is read. When a
-   surface is introduced and no carrier selects its reviewer, the caller passes the decline with
-   a one-line reason, and the panel line records it. An introduced surface with no selection and
-   no reason is recorded as such. It is never a blocker and never a `[Coverage gap]`, since the
-   lead pass still ran over the diff; it is a decision the verdict's reader can see was made
-   without a stated reason. A change to a file that already sits on a surface needs no decline:
-   that is the measured case, and the trim is its answer. The lead pass is one reader over the
-   whole diff, not the specialist's checklist, so it does not stand in for a declined reviewer
-   in the record.
+**The same carrier carries the decline.** Whether the diff *introduces* one of the four
+surfaces — a new authentication, session, tenancy or ownership-scoping path or a new query
+built from external input; new form controls or a new interactive component; new logic with
+a co-located spec; a new entry point that reaches a data read or existing heavy work — is
+model judgment over the diff, as the Conditionally-spawn table judges
+its triggers; the trim changes who is selected, not whether the surface is read. When a
+surface is introduced and the caller does not select its reviewer, the caller passes the decline
+with a one-line reason, and the panel line records it. An introduced surface with no selection and
+no reason is recorded as such. It is never a blocker and never a `[Coverage gap]`, since the
+lead pass still ran over the diff; it is a decision the verdict's reader can see was made
+without a stated reason. A change to a file that already sits on a surface needs no decline:
+that is the measured case, and the trim is its answer. The lead pass is one reader over the
+whole diff, not the specialist's checklist, so it does not stand in for a declined reviewer
+in the record.
 
 **The record arm: a named cost risk is a required performance decision.** When the decision
 record carries a `D-n` row or an `OR-n` Open Region that names a cost, load or performance risk —
 deferred, unmeasured or inherited, such as "the route inherits the manager's quadratic expansion,
 not measured" — performance is a decision the caller must make this round, whatever the diff
 looks like. Whether a row names such a risk is model judgment, as the introduced-surface clause
-above is. The caller either selects `performance` (by any carrier) or passes a decline whose
+above is. The caller either selects `performance` or passes a decline whose
 one-line reason answers that row — names the row and says why its risk does not need the seat —
 and the panel line records which. A record-named risk with neither a dispatch nor a decline is a
 process `[blocker]` on the verdict; whether a decline answers the row is the caller's judgment,
@@ -347,12 +326,10 @@ introduced-surface clause on purpose: there the trim is the measured default and
 is only recorded, while here the operator has already written the concern down. Never all-seats:
 the arm reaches performance and nothing else.
 
-**An unrecognized name selects nothing and is never silent.** The ledger row and the caller use
-the four short names, which resolve to `security-reviewer`, `a11y-reviewer`,
-`unit-test-mutation-reviewer` and `performance-reviewer`; the config spells reviewers in full. A
-name in any carrier that does not resolve that way to a reviewer in the effective registry — a
-typo, a short name in the config, a full name in the ledger row, a reviewer this repo `remove`d —
-selects nobody. Name it once in the Review Summary
+**An unrecognized name selects nothing and is never silent.** The caller uses the four short
+names, which resolve to `security-reviewer`, `a11y-reviewer`, `unit-test-mutation-reviewer` and
+`performance-reviewer`. A name that does not resolve that way to a reviewer in the effective
+registry — a typo, a full name, a reviewer this repo `remove`d — selects nobody. Name it once in the Review Summary
 (e.g. "opt-in `sekurity` not recognized; no reviewer selected for it"). It is never a blocker and
 never a `[Coverage gap]`: nothing was selected, so nothing went dark. Under a trimmed default a
 silently-dropped opt-in is indistinguishable from a green round, which is the one failure this
@@ -360,8 +337,7 @@ rule exists to prevent.
 
 **Say which panel ran.** When the caller declared the pipeline default panel, end the Review
 Summary with a panel block. Write the lines below in this order. Give each name one reason in
-parentheses, at most 15 words. Start each reason with its source: `record D-n:`, `config:` or
-`caller:`.
+parentheses, at most 15 words. Start each reason with `caller:`.
 
 - `- Default: scope-completeness only.` Always write this line.
 - `- Opted in: <name> (<source>: <reason>), …` Write `- Opted in: none.` when no reviewer was

@@ -124,17 +124,20 @@ the choice was its own (`--build-model` overrides). See
 
 ## Reviewers and `review-context.md`
 
-On a pipeline round the review runs `scope-completeness-reviewer`. `security-reviewer`,
-`a11y-reviewer` and `unit-test-mutation-reviewer` join only when opted in: per ticket by a
-`review panel` row in the intake record, or per repo in `reviewers.default`. Repo-local agents in
-`.claude/agents/` join through `reviewers.add`. Other files the reviewers read when present are
-listed in [`extension-points.md`](extension-points.md).
+The lane's review is one session. It reviews the diff itself against the ticket and the intake
+record, and it reads `review-context.md` when present. It dispatches one reviewer only: a
+design-fidelity reviewer, on a record with design frames, picked by the handoff host or
+`design.provider`. The other reviewers run when you run `/review-toolkit:review-lead` yourself, on
+any PR. That ad hoc review reads `reviewers.add` (repo-local agents in `.claude/agents/`),
+`reviewers.remove`, `reviewers.webComponentGlobs` and the per-reviewer files under
+`review-context/`. `reviewers.default` is deprecated and read by nothing. Other files the reviewers
+read when present are listed in [`extension-points.md`](extension-points.md).
 
 ### Your first `review-context.md`
 
-The one extension file worth writing early. Without it, every reviewer guesses your stack and
-maturity from the diff and lowers its confidence. With it, reviewers key on the sections you
-declare. Write only the sections that are true (all optional), using the exact names from
+The one extension file worth writing early. Without it, the lane's review session and every
+reviewer guess your stack and maturity from the diff and lower their confidence. With it, they key
+on the sections you declare. Write only the sections that are true (all optional), using the exact names from
 [extension-points.md → Authoring the review-context surface](extension-points.md#authoring-the-review-context-surface):
 
 ```markdown
@@ -179,11 +182,12 @@ ticket.
 
 Give design support to the frontend only. When `reviewers.webComponentGlobs` is absent, the
 default, `**/*.{tsx,jsx,vue,svelte,css,scss,less}`, matches a component or stylesheet at any
-depth, so the accessibility and design reviews run on the frontend's UI files. Set the key when
-your components use another extension (for example `["src/app/**/*.{html,ts}"]` for Angular) or
-when you want a narrower surface. A configured key always wins.
-Set it to `[]` when the repo has no UI surface at all; then on an unarmed diff neither review is
-routed, and config-grill reports the key as declared.
+depth, so the ad hoc `/review-toolkit:review-lead` routes its accessibility and design reviews on
+the frontend's UI files. The lane's review does not read the key: there the design review runs on a
+record with design frames. Set the key when your components use another extension (for example
+`["src/app/**/*.{html,ts}"]` for Angular) or when you want a narrower surface. A configured key
+always wins. Set it to `[]` when the repo has no UI surface at all; then on an unarmed diff the ad
+hoc review routes neither review, and config-grill reports the key as declared.
 
 ### Manual install
 

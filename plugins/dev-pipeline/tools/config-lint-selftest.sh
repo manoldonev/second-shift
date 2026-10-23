@@ -78,9 +78,9 @@ expect_violation invalid-unknown-repo-and-tier.json "reviewers.modelOverrides.se
 expect_violation invalid-override-unknown-tier.json  "reviewers.modelOverrides.security-reviewer: must name a dispatch model"
 expect_violation invalid-bad-tiermap-value.json      "reviewers.tierMap.code: must be haiku|sonnet|opus|fable"
 
-# reviewers.default — the per-repo opt-in into the trimmed review panel. Typed here the way
-# remove[] is; the NAME check is check-reviewer-references.sh's. The valid fixture is what fails
-# when `default` is missing from the reviewers key allowlist.
+# reviewers.default — deprecated and read by nothing, but still valid config until a major
+# release removes it, so it stays typed. The valid fixture is what fails when `default` is
+# missing from the reviewers key allowlist.
 expect_violation invalid-reviewers-default-type.json  "reviewers.default: must be array"
 expect_violation invalid-reviewers-default-entry.json "reviewers.default: every entry must be a string"
 expect_no_violation valid-reviewers-default.json      "reviewers: unknown keys"

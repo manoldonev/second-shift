@@ -30,7 +30,9 @@
 # it this round" — the spawned reviewer where one is dispatched, the lead pass otherwise. The
 # tokens stay reviewer names because those names remain effective-registry members and the
 # format's legal column values are registry names or `all`; a section whose reader is a lead-pass
-# dimension is not a section with no reader.
+# dimension is not a section with no reader. The lane's review session dispatches none of these
+# reviewers: it reads the shared review-context.md itself, as one reviewer over every dimension,
+# and never the per-reviewer files.
 #
 # H1 title lines (`# ...`) are NEVER linted — only H2 (`## ...`) headings (H3+ subsection headings are section content). Sibling
 # discipline to the doctor's extension-manifest.txt (EP-3). Additions/renames are breaking-class:
@@ -50,5 +52,5 @@ Test coverage | test-coverage-reviewer | active
 Maturity calibration (MVP stage) | security-reviewer | deprecated-alias-of:Maturity stage
 reader: intake | the /intake-toolkit:intake session — its Requirements stage dispatches the provider the section names
 Knowledge source | intake | active | intake-context.md
-reader: review-lead | review-lead's lead pass — it applies the section's inclusion test and writes its report's knowledge-base contributions, which the verdict carries in ## Notes (#1033)
+reader: review-lead | the lane's review session, and the ad hoc review-lead's lead pass — each applies the section's inclusion test and writes the knowledge-base contributions, which the lane's verdict carries in ## Notes
 Knowledge-base contributions | review-lead | active

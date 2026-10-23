@@ -141,8 +141,7 @@ or a bare dash. Example: "Requirements: the ticket body as written. spec-reviewe
 The interview resolved 2 gaps."
 
 - **Decision Ledger** — five columns (`Kind` included). Write the Decision cell as a short
-  question or noun phrase. Exception: the review panel row keeps the exact Decision text
-  `review panel`. Write the Resolution cell as the answer. Put the chosen value first and the
+  question or noun phrase. Write the Resolution cell as the answer. Put the chosen value first and the
   reason after it. Use sentences of max 25 words. Write one decision per row. Never split one
   decision into several rows to make the cells shorter. Each extra row is one more row for the
   review to score. Keep a cell to 40 words when no condition is lost. A cell can be longer only to

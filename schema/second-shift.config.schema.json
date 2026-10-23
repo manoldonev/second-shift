@@ -171,7 +171,8 @@
         "default": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Plugin-shipped reviewers this repo dispatches UNCONDITIONALLY on the pipeline path, on top of the default panel (/dev-pipeline:review's fan-out defaults to scope-completeness-reviewer; security-reviewer, a11y-reviewer and unit-test-mutation-reviewer are opt-in). Purely ADDITIVE — dropping a shipped reviewer stays reviewers.remove's job. Names are the plugin-shipped bare names; config-lint.sh types the array and check-reviewer-references.sh validates the names against the review-lead registry."
+          "deprecated": true,
+          "description": "DEPRECATED and ignored: nothing reads it. The lane's review is one session that dispatches no reviewer panel, and review-lead does not read the key. It stays valid so that an existing config still passes config-lint, which types the array; the config grill reports a set key as an advisory finding. A later major release removes it."
         },
         "modelOverrides": {
           "type": "object",

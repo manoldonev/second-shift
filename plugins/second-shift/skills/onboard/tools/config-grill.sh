@@ -128,8 +128,8 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
 }
 
 # --- trigger 2: a silent-fallback default that cannot match the repo (AC-2/AC-3) ----------
-# One row: reviewers.webComponentGlobs, the trigger review-lead routes a11y-reviewer and the
-# design-fidelity dimension on. It fires on BOTH an absent key whose resolved default matches
+# One row: reviewers.webComponentGlobs, the trigger the ad hoc review-lead routes a11y-reviewer
+# and the design-fidelity dimension on. It fires on BOTH an absent key whose resolved default matches
 # nothing AND a hand-set value that matches nothing: an adopted value can itself be broken, so
 # setting the key wrongly must not silence the check.
 #
@@ -206,7 +206,7 @@ CANDIDATES=("src/app/**/*.{html,ts}" "src/**/*.vue" "app/**/*.tsx" "src/**/*.{ts
 PROBE_GLOBS=("${WEB_SURFACE_PROBE[@]}")
 t2_key "T2.webComponentGlobs" "reviewers.webComponentGlobs" \
   '(.reviewers.webComponentGlobs // []) | .[]' \
-  "This glob is the trigger for a11y-reviewer AND the design-fidelity dimension (on a pipeline round a11y-reviewer also needs an opt-in): while it matches nothing, neither is ever routed and every review looks clean because they never ran."
+  "This glob routes a11y-reviewer and the design-fidelity reviewer in the ad hoc /review-toolkit:review-lead: while it matches nothing, neither is routed there, and its review looks clean because they never ran. The lane's review does not read it: there the design-fidelity reviewer runs on a record with design frames."
 
 # --- trigger 4: internally inconsistent config (AC-4) --------------------------------------
 # design.provider declared with no design.liveRender behind it: the design axis is on with no
@@ -226,6 +226,15 @@ if [[ -n "$DESIGN_PROVIDER" && -z "$DESIGN_LR" ]]; then
       "design.provider is \"$DESIGN_PROVIDER\" but design.liveRender is absent — the design axis is on with no render harness behind it." \
       "Add design.liveRender { command, smokeCommand, readyProbe? } pointing at the repo's render and smoke scripts. Without it a ticket whose record declares design frames stops the run: after every build /dev-pipeline:run renders each declared route and checks it shows its must-show value, and there is nothing here to render with (docs/live-render.md)."
   fi
+fi
+
+# --- trigger 7: a deprecated key that is set ------------------------------------------------
+# reviewers.default has no reader: the lane's review dispatches no panel, and review-lead ignores
+# it. config-lint has no warning level, so the grill is where a set key is reported.
+if jq -e '(.reviewers | type) == "object" and (.reviewers | has("default"))' "$CONFIG" >/dev/null 2>&1; then
+  add_finding "T7.reviewers-default" "reviewers.default" \
+    "reviewers.default is set ($(jq -r '.reviewers.default | if type == "array" then join(", ") else tostring end' "$CONFIG" 2>/dev/null)) — the key is deprecated, and nothing reads it: the lane's review is one session that dispatches no reviewer panel, and /review-toolkit:review-lead ignores it." \
+    "Delete reviewers.default from the config. Setting it changes no review, and a later major release removes the key."
 fi
 
 # --- trigger 5: a declared command that contradicts repo reality (AC-5) --------------------

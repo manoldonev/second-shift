@@ -23,7 +23,7 @@ repo enables `dev-pipeline`, `review-toolkit`, `intake-toolkit`, `audit-toolkit`
 
 ### review-toolkit
 - Skills: `review-lead`, `mutation-review`, `reviewer-baseline` — loaded only when invoked.
-- Agents: the reviewer panel (scope-completeness, security, performance, maintainability, complexity, db, pipeline, a11y, test-coverage, unit-test-mutation, spec, plan reviewers, …) — dispatched only by review runs. A pipeline review round dispatches scope-completeness only unless the config's `reviewers.default` or the ticket's Decision Ledger opts others in.
+- Agents: the reviewer panel (scope-completeness, security, performance, maintainability, complexity, db, pipeline, a11y, test-coverage, unit-test-mutation, spec, plan reviewers, …) — dispatched only by review runs. The lane's review is one session that dispatches none of them, except a design-fidelity reviewer on a record with design frames; `/review-toolkit:review-lead` dispatches the panel when you run it yourself.
 - Hooks: two PreToolUse gates on `git commit` commands — reviewer-reference drift check and model-tier lockstep check.
 
 ### intake-toolkit
