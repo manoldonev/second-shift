@@ -14,12 +14,12 @@ All extension files sit under the consumer repo's `.claude/second-shift/` direct
 | --- | --- | --- |
 | `.claude/second-shift/blocker-mutants.md` | unit-test-mutation-reviewer, unit-test-plan-reviewer | Domain-specific blocker-class mutants (e.g. "account-scope filter removed", "financial rounding guard flipped") appended to the generic blocker list |
 | `.claude/second-shift/security-rules.md` | security-reviewer | Domain security review rules (tenancy invariants, credential-handling rules, permission-set ↔ OAuth-scope mapping requirements) |
-| `.claude/second-shift/review-context.md` | every panel reviewer + review-lead (each self-loads it) | Repo-wide review context: stack orientation, maturity/severity calibration, architectural invariants, known-accepted patterns, and an ownership table pointing at the docs that own enumerable values (the named-section catalog reviewers key on: "Authoring the review-context surface" below). **Database stack** (engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special capabilities like vector search) — db-reviewer applies its checks in the terms this section (or `review-context/db-reviewer.md`) declares; absent = db-reviewer infers the stack and lowers confidence. plan-reviewer applies this section's round-trip traps at plan time only when they are in this shared file — it does not load `review-context/db-reviewer.md`, so traps declared only there are applied at review time |
-| `.claude/second-shift/review-context/<reviewer-name>.md` | exactly that reviewer (self-loaded after the shared file) | Per-reviewer repo rules: severity examples, what-not-to-flag lists, stack resolutions only that reviewer consumes. Basename must be a reviewer in the effective registry — linted fail-closed by `review-toolkit/scripts/check-review-context.sh` (review-lead pre-flight) on top of the manifest glob |
+| `.claude/second-shift/review-context.md` | the lane's review session (it reads it at the head); every panel reviewer + the ad hoc review-lead (each self-loads it) | Repo-wide review context: stack orientation, maturity/severity calibration, architectural invariants, known-accepted patterns, and an ownership table pointing at the docs that own enumerable values (the named-section catalog reviewers key on: "Authoring the review-context surface" below). **Database stack** (engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special capabilities like vector search) — db-reviewer applies its checks in the terms this section (or `review-context/db-reviewer.md`) declares; absent = db-reviewer infers the stack and lowers confidence. plan-reviewer applies this section's round-trip traps at plan time only when they are in this shared file — it does not load `review-context/db-reviewer.md`, so traps declared only there are applied at review time |
+| `.claude/second-shift/review-context/<reviewer-name>.md` | exactly that reviewer (self-loaded after the shared file) when the ad hoc review-lead dispatches it; the lane's review does not read it | Per-reviewer repo rules: severity examples, what-not-to-flag lists, stack resolutions only that reviewer consumes. Basename must be a reviewer in the effective registry — linted fail-closed by `review-toolkit/scripts/check-review-context.sh` (review-lead pre-flight) on top of the manifest glob |
 | `.claude/second-shift/intake-context.md` | `/intake-toolkit:intake` (its Requirements stage) | Intake context. `## Knowledge source` names a provider agent of the repo's own — one that answers from the repo's knowledge base — and the question to ask it; intake dispatches it once per intake, before the first question to the engineer, and the receipt's `## Knowledge source` carries the whole answer. Absent = `Knowledge source: none declared`. Authoring: "Authoring the intake-context surface" below |
 | `.claude/second-shift/doc-routing.md` | review-toolkit `doc-updater` | Change-category → doc-path routing map: for each conceptual code-area category (API/endpoint, DB schema, background worker, decision/domain-constant, frontend, …) the doc(s) that document it, plus which reviewer agents restate those constants. Supplements the repo's `CLAUDE.md` context router when a specific-enough category→doc map is wanted. Absent = fall back to CLAUDE.md's declared doc roots + basename grep |
 | `.claude/second-shift/design-tokens/*.md` | design-toolkit `design-faithful`, `figma-faithful`, `figma-faithful-spec`, `figma-iterate` skills + `design-faithful-reviewer` / `design-faithful-plan-reviewer` / `figma-faithful-reviewer` / `figma-faithful-plan-reviewer` | Design-system reference: component catalog, token roles + arithmetic, primitives package, known-good analogs. May declare **multiple surfaces** (fixed-theme value tables vs a branded/host-relative surface) so the plugin stays surface-agnostic |
-| `.claude/agents/*.md` + config `reviewers.add` | review-lead registry | Whole domain reviewers (e.g. an orders-reviewer); dimensions declared in config for routing/dedup |
+| `.claude/agents/*.md` + config `reviewers.add` | the ad hoc review-lead registry; the lane's review does not dispatch them | Whole domain reviewers (e.g. an orders-reviewer); dimensions declared in config for routing/dedup |
 | `.claude/skills/**` | native skill discovery | Knowledge skills (playbooks); no registration needed |
 | `findings.md`, `CLAUDE.md` | session start / all agents | As before — the plugins respect but never require them |
 
@@ -52,6 +52,8 @@ exactly as the subagent would have. So a `review-context/performance-reviewer.md
 or not `performance-reviewer` is dispatched this round. The names are kept as the reader tokens
 because they remain effective-registry members and are what the machine-readable catalog's format
 accepts; the semantic is "this section calibrates that dimension, applied by whoever reviews it".
+On the lane, that is the review session: it reads the shared file at the head and reviews every
+dimension itself, and it does not read the per-reviewer files.
 
 ```markdown
 # Review context — <repo>
@@ -127,8 +129,8 @@ test-coverage-reviewer.
 Target: <the knowledge base the review proposes additions to>
 Inclusion test: <what earns a page in it, as prose the review applies to each candidate>
 Format: <optional — one proposal per line; absent = `- <kb-page> — <what to add or correct> (<lookup gap | change gap | kb stale | kb ahead>)`>
-Read by: review-lead (its lead pass applies the inclusion test; the verdict carries the
-proposals in `## Notes`).
+Read by: the lane's review session and the ad hoc review-lead's lead pass (each applies the
+inclusion test; the lane's verdict carries the proposals in `## Notes`).
 ```
 
 Keep entries short and declarative — reviewers quote them back as exemption justifications,
@@ -136,18 +138,18 @@ so every line is effectively policy. (Doc routing does NOT go here; that's
 `doc-routing.md` above.)
 
 **`## Knowledge-base contributions` is the review's sink, and it writes nowhere.** Declared,
-every `review-lead` report — lane or standalone — carries a `### Knowledge-base contributions`
-block, and every verdict carries that block in its `## Notes` under the lead line
+every lane verdict carries the block in its `## Notes` under the lead line
 `Knowledge-base contributions:`, one proposal per line, or the single line
-`Knowledge-base contributions: none`. The proposals are drafts you file: second-shift ships the
+`Knowledge-base contributions: none`. The lane's review session writes it itself. Every ad hoc
+`review-lead` report carries the same proposals in a `### Knowledge-base contributions` block. The proposals are drafts you file: second-shift ships the
 mechanism and writes to no knowledge base. Each proposal must pass your inclusion test; a
 candidate that fails it is not listed. They come from three places: the gaps intake's knowledge
 source reported (the record's `## Knowledge source`, "Authoring the intake-context surface"
 below), the record's `kb-conflict:` rows, and what the change itself makes true. A record with no
 provider answer — `none declared`, `failed`, or a receipt older than the section — yields change
 gaps only. A proposal is never a finding and never makes a verdict `needs-work`. Absent, empty or
-TODO-bodied, there is no contributions line at all. The contract: `review-lead`,
-"Knowledge-base contributions".
+TODO-bodied, there is no contributions line at all. The contract: `/dev-pipeline:review` step 8
+for the lane, and `review-lead`, "Knowledge-base contributions", for the ad hoc review.
 
 **This section is machine-mirrored.** The section names above are not just prose — they are
 the exact keys reviewers match on, shipped as a machine-readable catalog at

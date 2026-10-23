@@ -29,8 +29,7 @@ You have a repo-, org-, or domain-specific need. Walk it down this list; the fir
 | Change a **value** the plugin hardcodes (a path, a command, a label set, the web-component globs) | `commands` / `paths` / `tracker.labels` / `reviewers.webComponentGlobs` config | config | n/a |
 | Add a **check of your own** to every run (a linter, a contract check, a custom test suite, a schema-diff gate, a license scan, a codegen-drift check) | `commands.<repo>.extraLanes` (EP-2) | config | yes — the scheduler runs it after every build |
 | Add **domain knowledge** a shipped agent should read (blocker mutants, security rules, review context, design tokens, doc routing) | an **extension file** under `.claude/second-shift/` | knowledge | additive to that agent |
-| Add a **whole new reviewer** dimension for this repo | a repo-local agent in `.claude/agents/` + `reviewers.add` | config + agent | it's a reviewer |
-| Put a **shipped reviewer the pipeline no longer dispatches by default** (security, a11y, unit-test-mutation) back in every pipeline round here | `reviewers.default` config (§3.3b) | config | it's a reviewer |
+| Add a **whole new reviewer** dimension to the ad hoc `/review-toolkit:review-lead` for this repo | a repo-local agent in `.claude/agents/` + `reviewers.add` | config + agent | it's a reviewer; the lane's review does not dispatch it (§3.3) |
 | Turn on **design-fidelity** review against Figma or Claude-Design | `design.provider` config | config | yes — per-ticket frames, route smoke, review render |
 | Ship any of the above **across many repos in your org**, versioned and pinned | a **companion pack** plugin (EP-5) that the config points at | its own plugin | per the mechanism it uses |
 
@@ -62,7 +61,7 @@ A value the plugin would otherwise hardcode lives in config, and every such key 
 {
   "paths": { "plansDir": "docs/decisions" },                     // where the intake record is committed
   "tracker": { "labels": { "queue": "ready", "claimed": "wip" } }, // your tracker's label vocabulary
-  "reviewers": { "webComponentGlobs": ["src/**/*.vue"] }          // a11y + design-fidelity routing — the default is repo-wide; set it for another extension or a narrower surface
+  "reviewers": { "webComponentGlobs": ["src/**/*.vue"] }          // a11y + design-fidelity routing of the ad hoc review-lead — the default is repo-wide; set it for another extension or a narrower surface
 }
 ```
 
@@ -116,33 +115,13 @@ A whole review dimension the shipped panel doesn't cover. Write the agent where 
 }
 ```
 
-review-lead now dispatches it alongside the shipped reviewers under the same confidence protocol; `dimensions` is a dedup/routing hint. `check-reviewer-references.sh` unions the plugin registry with your `reviewers.add`, so a registered agent with no file (or a file registered nowhere, or one shadowing a shipped reviewer name) fails the lint. Repo-local agents are referenced **bare**; that's how the two roots disambiguate ([`namespaces.md`](namespaces.md) rule 2). To *drop* a shipped reviewer instead (e.g. db-reviewer in a pure-FE repo), that's `reviewers.remove` — a subtraction, hence config, hence one auditable line.
+The ad hoc `/review-toolkit:review-lead` now dispatches it alongside the shipped reviewers under the same confidence protocol; `dimensions` is a dedup/routing hint. The lane's review does not: it is one session that reviews the diff itself and dispatches only a design-fidelity reviewer, on a record with design frames. To put a domain rule in front of the lane's review, write it into `review-context.md` (§3.4). `check-reviewer-references.sh` unions the plugin registry with your `reviewers.add`, so a registered agent with no file (or a file registered nowhere, or one shadowing a shipped reviewer name) fails the lint. Repo-local agents are referenced **bare**; that's how the two roots disambiguate ([`namespaces.md`](namespaces.md) rule 2). To *drop* a shipped reviewer instead (e.g. db-reviewer in a pure-FE repo), that's `reviewers.remove` — a subtraction, hence config, hence one auditable line.
 
-### 3.3b `reviewers.default` — put a reviewer back in the pipeline's panel
+### 3.3b `reviewers.default` — deprecated
 
-On the pipeline path (`/dev-pipeline:review`) the review fan-out defaults to `scope-completeness-reviewer` alone. `security-reviewer`, `a11y-reviewer` and `unit-test-mutation-reviewer` keep their agents and their surface triggers everywhere else — a standalone `review-lead` invocation is unchanged — but on a pipeline round they are selected only when someone opts them in. Measured over 25 pipeline fan-outs, those three produced 35 findings and moved no hidden test and no seeded-defect detector; `scope-completeness-reviewer` was the only one that ever blocked.
+The lane's review is one session. It reviews the diff itself against the ticket and the intake record, and it dispatches no reviewer panel for this key to add to. `reviewers.default` is deprecated, and nothing reads it. It stays valid config, so `config-lint` still passes a config that sets it, and `check-reviewer-references.sh` no longer checks its names. The config grill reports a set key as a warning in `/second-shift:doctor` and `/second-shift:onboard`. Delete it from your config. A later major release removes the key.
 
-This key is the **per-repo** opt-in. A repo whose pipeline rounds should always carry the security dimension as a dispatched reviewer says so once:
-
-```jsonc
-{
-  "reviewers": {
-    "default": ["security-reviewer"]
-  }
-}
-```
-
-Names are spelled the way `reviewers.remove` spells them. `config-lint.sh` types the array; `check-reviewer-references.sh` validates each name against the shipped registry and denies on `DEFAULT-UNKNOWN`, so a typo is a failed lint rather than a reviewer that silently never runs.
-
-**It is additive and only additive.** `reviewers.default` can put a reviewer *into* the pipeline's panel; it can never take one out, and naming a subset does not drop the reviewers you left out. Dropping a shipped reviewer is still `reviewers.remove`'s job (§1) — which is why the "the two places that can subtract" rule up top is still exactly two.
-
-The **per-ticket** opt-in is not config at all: a row in the ticket's committed intake record (its `## Decision Ledger`) whose Decision cell is `review panel`, whose Resolution is a comma-separated list of the short names `security`, `a11y`, `unit-test-mutation`, and whose provenance is `user-answered` or `user-delegated`.
-
-```
-| D-4 | review panel | security, a11y | user-answered |
-```
-
-Either carrier selects, and their effects union. A name neither recognizes selects nothing and is reported in the round's Review Summary.
+The `review panel` Decision Ledger row is retired with it. Intake no longer asks for one, and the lane's review gives such a row no special handling.
 
 ### 3.4 Extension file — domain knowledge for a shipped agent
 
@@ -156,7 +135,7 @@ The shipped agents are domain-blind by design; you feed them domain knowledge th
 .claude/second-shift/doc-routing.md          # change-category → doc-path map for doc updates
 ```
 
-Each consuming agent's prompt names its own file and loads it *if present*, treating the contents as additive — they can tighten review, never weaken the generic protocol. What files exist and who reads them is the table in [`extension-points.md`](extension-points.md); this is the "add evidence" half of the axiom in its purest form. Every file you drop here must match the shipped **extension manifest** or your own `.known-extensions` allowlist (§4.3), or `check-extensions.sh` fails closed on it. Nothing runs that lint for you: a typo'd `security-rules.md.md` stays silently ignored until you run it by hand from the dev-pipeline plugin's `tools/`. The *named sections inside* `review-context.md` (and `review-context/<r>.md`) have their own lint, `check-review-context-sections.sh`, which matches your H2 headings against the shipped section catalog and flags a drifted spelling (`## Maturity calibration` vs `## Maturity stage`) or an empty section body. Onboard runs it once after scaffolding and doctor shows its coverage report; otherwise it too runs only by hand — see [extension-points.md → Authoring the review-context surface](extension-points.md#authoring-the-review-context-surface).
+The lane's review session reads `review-context.md` itself. It dispatches no reviewer agent except a design-fidelity reviewer on a record with design frames, so a file a reviewer agent loads, such as `review-context/<r>.md` or `security-rules.md`, is read when the ad hoc `/review-toolkit:review-lead` or another caller dispatches that agent. Each consuming agent's prompt names its own file and loads it *if present*, treating the contents as additive — they can tighten review, never weaken the generic protocol. What files exist and who reads them is the table in [`extension-points.md`](extension-points.md); this is the "add evidence" half of the axiom in its purest form. Every file you drop here must match the shipped **extension manifest** or your own `.known-extensions` allowlist (§4.3), or `check-extensions.sh` fails closed on it. Nothing runs that lint for you: a typo'd `security-rules.md.md` stays silently ignored until you run it by hand from the dev-pipeline plugin's `tools/`. The *named sections inside* `review-context.md` (and `review-context/<r>.md`) have their own lint, `check-review-context-sections.sh`, which matches your H2 headings against the shipped section catalog and flags a drifted spelling (`## Maturity calibration` vs `## Maturity stage`) or an empty section body. Onboard runs it once after scaffolding and doctor shows its coverage report; otherwise it too runs only by hand — see [extension-points.md → Authoring the review-context surface](extension-points.md#authoring-the-review-context-surface).
 
 One class of extension prose is subtractive **in effect** despite the additive surface: maturity-calibration claims ("no auth system exists yet") that reviewers honor as severity downgrades. A stale claim is a standing waiver no diff ever re-reviews — the pocket test failing with nobody having changed anything. Those claims must be declared as **verified calibration claims** (the fenced `second-shift-claims` block — grammar in [`extension-points.md`](extension-points.md)): a mandatory `reverify-by` expiry past which reviewers treat the claim as absent. The mechanism itself honors the axiom — an expired claim stops waiving anything; nothing makes a claim grant more.
 
@@ -257,7 +236,7 @@ The need it answered: an extra reviewer of the *plan itself* — a QA-tier revie
 }
 ```
 
-As designed, each plan gate ran **after** the built-in plan gates (plan-reviewer, design FE-spec, unit-test-plan) as an additive trinary reviewer over the plan, appearing in the gate ledger as `plan-gate:<name>`; `surface` (optional) scoped it to plans touching that glob, and a `block` mapped to the existing `plan-reviewer-block` reason (no per-extension enum value) — able to make a passing plan review *block*, never to waive a built-in gate. It was conceived as the plan-stage counterpart of `extraLanes` and `reviewers.add`, but that symmetry no longer holds: **those two still run** — `extraLanes` by the `/dev-pipeline:run` scheduler and `reviewers.add` by `review-lead` — while this seam has no dispatcher. `agent` was `"<plugin>:<agent>"` or a bare repo-local name; an unresolvable one failed closed at pre-flight.
+As designed, each plan gate ran **after** the built-in plan gates (plan-reviewer, design FE-spec, unit-test-plan) as an additive trinary reviewer over the plan, appearing in the gate ledger as `plan-gate:<name>`; `surface` (optional) scoped it to plans touching that glob, and a `block` mapped to the existing `plan-reviewer-block` reason (no per-extension enum value) — able to make a passing plan review *block*, never to waive a built-in gate. It was conceived as the plan-stage counterpart of `extraLanes` and `reviewers.add`, but that symmetry no longer holds: **those two still run** — `extraLanes` by the `/dev-pipeline:run` scheduler and `reviewers.add` by the ad hoc `review-lead` — while this seam has no dispatcher. `agent` was `"<plugin>:<agent>"` or a bare repo-local name; an unresolvable one failed closed at pre-flight.
 
 ### 3.9 Companion pack — package the above for the whole org
 
@@ -336,8 +315,8 @@ tier that still dispatch, registered and auditable. This block is valid config; 
       ]
     }
   },
-  // REVIEW the tests — LIVE: read by review-lead when it selects the panel. The written
-  // tests get a domain code review.
+  // REVIEW the tests — LIVE in the ad hoc review-lead: read when it selects the panel. The
+  // written tests get a domain code review there; the lane's one-session review does not dispatch it.
   "reviewers": {
     "add": [{ "name": "acme-qa-pack:api-test-reviewer", "dimensions": ["api-testing"] }]
   }
@@ -380,7 +359,7 @@ api-testing/*.md
 | plan review | `planGates` (EP-8) | `api-test-plan-reviewer` judges the plan's test strategy | `block` → `plan-reviewer-block` | **retired** — no equivalent on the lane |
 | implement | `implementDelegates` (EP-7) | `api-test-coder` writes `tests/api/**` | output passes the unchanged scope + downstream gates | **retired** — a session may still choose the agent |
 | verify | `extraLanes` (EP-2) | the API suite runs | nonzero → red, checks-red budget | live (`/dev-pipeline:run`) |
-| code review | `reviewers.add` | `api-test-reviewer` reviews the tests | its verdict folds into the review round | live (`review-lead`) |
+| code review | `reviewers.add` | `api-test-reviewer` reviews the tests | its verdict folds into the review-lead report | live in the ad hoc `/review-toolkit:review-lead` only — the lane's review does not dispatch it |
 
 Every one of these **adds** a gate or a unit of work; not one can waive a shipped check — an API-test tier can only make a green run *red* (a bad plan, a failing suite, a rejected review), which is exactly the fork-vs-extend line from §1. And because the wiring lives in the consumer's config, anyone auditing the repo sees the whole tier in one file — while the *implementation* (agents, skill) is versioned and pinned in the pack, bumped independently.
 

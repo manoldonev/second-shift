@@ -283,21 +283,27 @@ while IFS=$'\t' read -r kind sp spv suv; do
   warn "$sp: the project-scope record ($spv) is redundant — a user-scope record ($suv) already serves this plugin, and only the CURRENT repo is ever realigned, so the project one rots behind it. Fix: claude plugin uninstall $sp@$MKT --scope project — CAUTION: that also deletes \"$sp@$MKT\" from the committed .claude/settings.json enabledPlugins; restore it with git checkout -- .claude/settings.json && git status"
 done <<< "$SHADOW_ROWS"
 
-# --- 3.5 upgrade skew: a review-toolkit older than the fan-out move ------------------------
-# review-toolkit ships the reviewer Workflow scripts and the tier alphabet that dev-pipeline and
-# intake-toolkit reach for. Plugins update one at a time and none declares a dependency, so a
-# machine mid-upgrade can serve a new reader beside a review-toolkit that lacks them. There is
-# no fallback search: the fix is to update the set together.
+# --- 3.5 upgrade skew: a review-toolkit older than the plugins that read it ----------------
+# review-toolkit ships the intake Workflow scripts intake-toolkit copies and the tier alphabet
+# dev-pipeline's config-lint reads. Plugins update one at a time and none declares a dependency,
+# so a machine mid-upgrade can serve a new reader beside a review-toolkit that lacks them. There
+# is no fallback search: the fix is to update the set together.
 rt_rec="$(jq -c --arg id "review-toolkit@$MKT" --arg root "$ROOT" "$RESOLVE_RECORD" <<< "$PLUGLIST")"
 rt_path="$(jq -r '.installPath // empty' <<< "${rt_rec:-null}")"
 if [[ -n "$rt_path" && -d "$rt_path" && "$(jq -r '.enabled != false' <<< "$rt_rec")" == "true" ]]; then
-  readers=""
+  lacks=""
   for p in dev-pipeline intake-toolkit; do
-    [[ "$(jq -r --arg id "$p@$MKT" --arg root "$ROOT" "$RESOLVE_RECORD | .enabled != false" <<< "$PLUGLIST")" == "true" ]] \
-      && readers="${readers:+$readers, }$p"
+    [[ "$(jq -r --arg id "$p@$MKT" --arg root "$ROOT" "$RESOLVE_RECORD | .enabled != false" <<< "$PLUGLIST")" == "true" ]] || continue
+    case "$p" in
+      dev-pipeline)   needs="model-tiering.md" ;;
+      intake-toolkit) needs="workflows/intake-fanout.mjs workflows/intake-review.mjs" ;;
+    esac
+    for f in $needs; do
+      [[ -f "$rt_path/$f" ]] || lacks="${lacks:+$lacks, }$p reads $f"
+    done
   done
-  if [[ -n "$readers" ]] && [[ ! -f "$rt_path/workflows/code-review.mjs" || ! -f "$rt_path/model-tiering.md" ]]; then
-    bad "review-toolkit $(jq -r '.version' <<< "$rt_rec") predates the fan-out move — update all second-shift plugins together (/second-shift:local-dev-refresh). $readers reach for its workflows/ and model-tiering.md, which this install lacks ($rt_path)"
+  if [[ -n "$lacks" ]]; then
+    bad "review-toolkit $(jq -r '.version' <<< "$rt_rec") predates the fan-out move — update all second-shift plugins together (/second-shift:local-dev-refresh). This install lacks what they read: $lacks ($rt_path)"
     NEED_RESTART=1
   fi
 fi

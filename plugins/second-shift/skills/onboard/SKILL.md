@@ -101,8 +101,9 @@ Build the draft config from detection — the configVersion 3 shape, and only th
 - **`reviewers.webComponentGlobs` when detected.** The grill below measures the repo's rendering
   surface: when its `T2.webComponentGlobs` finding names a candidate glob that matches tracked
   files, draft that glob into `reviewers.webComponentGlobs` (provenance: the grill's count) and
-  re-run the grill. It is the trigger review-lead routes a11y-reviewer and the design-fidelity
-  dimension on. The shipped default (`**/*.{tsx,jsx,vue,svelte,css,scss,less}`) is repo-wide, so
+  re-run the grill. It is the trigger the ad hoc `/review-toolkit:review-lead` routes a11y-reviewer
+  and the design-fidelity dimension on; the lane's review does not read it, and there the design
+  reviewer runs on a record with design frames. The shipped default (`**/*.{tsx,jsx,vue,svelte,css,scss,less}`) is repo-wide, so
   the finding fires only on a surface it does not list, such as an Angular `.html` + `.ts` tree.
   A repo with no rendering surface gets no key.
 - **`commands.<key>.testRunners` when detected.** When the grill's `T6.testRunners.<key>` finding
@@ -153,16 +154,14 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      Undetected or declined → omit the `liveRender` key (a ticket whose record declares design
      frames then has nothing to render with; docs/live-render.md).
   4. reviewer deltas — **what they buy: `add` puts a reviewer that knows this repo's domain on
-     every review panel; `remove` stops a shipped reviewer whose findings you always dismiss
-     from spending a slot** (docs/extending.md §3.3).
+     every panel of the ad hoc `/review-toolkit:review-lead`; `remove` stops a shipped reviewer
+     whose findings you always dismiss from spending a slot there** (docs/extending.md §3.3).
      (`reviewers.add` for repo-local reviewer agents, `.remove` for shipped
-     reviewers that don't fit — e.g. db-reviewer in an FE repo —, `.default` to put a
-     reviewer the pipeline no longer dispatches by default back in this repo's rounds,
-     `.modelOverrides`, `.tierMap`).
-     Say on the screen what the default panel is: `/dev-pipeline:review` dispatches
-     scope-completeness-reviewer only, so security-reviewer, a11y-reviewer and
-     unit-test-mutation-reviewer do not run on a pipeline round unless listed in
-     `reviewers.default` (or opted in per ticket by a `review panel` Decision Ledger row).
+     reviewers that don't fit — e.g. db-reviewer in an FE repo —, `.modelOverrides`, `.tierMap`).
+     Say on the screen that the lane's review is one session: it reviews the diff itself, reads
+     `review-context.md` (question 6), and dispatches no reviewer except a design-fidelity
+     reviewer on a record with design frames. These deltas shape only the ad hoc review. Never
+     draft `reviewers.default`: it is deprecated, and the grill reports a config that sets it.
      Recommended default: none. Emit the reviewer deltas ONLY when the answer is non-empty
      (`reviewers.webComponentGlobs`, drafted above, is independent of this answer).
   5. **github tracker only — the first-run wall, absorbed here:**
@@ -182,8 +181,8 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
         reads for the build model: a ticket carrying neither stops before its first round.
   6. **`review-context.md` scaffold (accept-or-edit, never mandatory; default "later").**
      Offer to scaffold a starter `.claude/second-shift/review-context.md` so reviewers key on
-     named sections instead of inferring from the diff. **What it buys: every panel reviewer
-     self-loads it, so stack, severity calibration and known-accepted patterns are stated once
+     named sections instead of inferring from the diff. **What it buys: the lane's review
+     session reads it, and every reviewer of the ad hoc review-lead self-loads it, so stack, severity calibration and known-accepted patterns are stated once
      instead of re-inferred — and re-argued — on every review** (docs/extension-points.md,
      "Authoring the review-context surface"). **The offer default is "later"** —
      onboarding stays green without it. Hard rules if accepted:

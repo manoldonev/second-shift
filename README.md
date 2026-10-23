@@ -117,7 +117,7 @@ It never merges. That stays yours.
 
 ### Two repos or a monorepo
 
-**A backend and its frontend in two repos.** Set up each one, backend first, with design support on the frontend only. The default `reviewers.webComponentGlobs`, `**/*.{tsx,jsx,vue,svelte,css,scss,less}`, matches a component or stylesheet at any depth, so the accessibility and design reviews run on the frontend's UI files without config; set the key when your components use another extension (for example `["src/app/**/*.{html,ts}"]` for Angular), or to `[]` when the repo has no UI surface. A feature that touches both repos is two tickets: name the frontend checkout in the backend ticket so intake's research reads it, put the API contract in the frontend ticket, and merge the backend first. More in [onboarding.md → Pair repos](docs/onboarding.md#pair-repos-befe-under-the-pipeline).
+**A backend and its frontend in two repos.** Set up each one, backend first, with design support on the frontend only. The default `reviewers.webComponentGlobs`, `**/*.{tsx,jsx,vue,svelte,css,scss,less}`, matches a component or stylesheet at any depth, so the ad hoc `/review-toolkit:review-lead` routes its accessibility and design reviews on the frontend's UI files without config (the lane's review does not read the key: there the design review runs on a record with design frames); set the key when your components use another extension (for example `["src/app/**/*.{html,ts}"]` for Angular), or to `[]` when the repo has no UI surface. A feature that touches both repos is two tickets: name the frontend checkout in the backend ticket so intake's research reads it, put the API contract in the frontend ticket, and merge the backend first. More in [onboarding.md → Pair repos](docs/onboarding.md#pair-repos-befe-under-the-pipeline).
 
 **A monorepo.** One config at the root: the root scripts are the checks, and the setup steps install (and, if the apps import built packages, build) the workspaces. More in [onboarding.md → Finish the command table](docs/onboarding.md#finish-the-command-table-and-give-it-a-setup-step).
 
@@ -162,7 +162,7 @@ Any other stop explains itself on the line just above `terminal:`, and a claimed
 | --- | --- |
 | **intake-toolkit** | `/intake-toolkit:intake`: the questions before the build, written into the intake record. |
 | **dev-pipeline** | `/dev-pipeline:run`: a ticket to a reviewed PR. `/dev-pipeline:build` and `/dev-pipeline:review`: the build and the review by hand. |
-| **review-toolkit** | The reviewers. A pipeline round runs the scope reviewer; security, accessibility and test-mutation reviewers are opt-in. |
+| **review-toolkit** | The reviewers, and `/review-toolkit:review-lead` to run them on any PR. The lane's review is one session and runs none of them, except a design reviewer on a ticket with design frames. |
 | **design-toolkit** | Builds screens faithful to a Claude Design or Figma handoff (Figma needs a Dev or Full seat). Offered when the repo has a UI. |
 | **audit-toolkit** | A per-repo log of the tools the agent actually called, with `/audit-toolkit:audit`. |
 | **second-shift** | `/second-shift:onboard` and `/second-shift:doctor`. Installed once per machine. |

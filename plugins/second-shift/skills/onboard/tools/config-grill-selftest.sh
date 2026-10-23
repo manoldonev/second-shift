@@ -296,6 +296,28 @@ EOF
 run_grill "$R6N" "$R6N/design-bare.json"
 expect_finding "t4 design.provider outside a work tree → finding stands" T4.design-liverender "figma"
 
+# --- trigger 7: reviewers.default is deprecated ---------------------------------------------
+# Nothing reads the key, so setting it changes no review. The finding is the only signal the
+# consumer gets, and an empty array is still a set key.
+RD="$(mkrepo t7 src/main.ts)"
+cfg "$RD/set.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}}, "reviewers": {"default": ["security-reviewer", "a11y-reviewer"]} }
+EOF
+run_grill "$RD" "$RD/set.json"
+expect_finding "t7 reviewers.default set → advisory finding naming the key and its value" \
+  T7.reviewers-default "reviewers.default" "security-reviewer, a11y-reviewer" "deprecated" "Delete reviewers.default"
+check "t7 the finding keeps the grill at exit 0 (rc=$RC)" "$([[ "$RC" -eq 0 ]] && echo 0 || echo 1)"
+cfg "$RD/empty.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}}, "reviewers": {"default": []} }
+EOF
+run_grill "$RD" "$RD/empty.json"
+expect_finding "t7 reviewers.default set to [] → still a finding" T7.reviewers-default "deprecated"
+cfg "$RD/unset.json" <<EOF
+{ $STD_HEAD, "commands": {"app":{}}, "reviewers": {"remove": ["db-reviewer"]} }
+EOF
+run_grill "$RD" "$RD/unset.json"
+expect_no_finding "t7 reviewers.default absent → no finding" T7.reviewers-default
+
 # --- AC-5: trigger 5 -----------------------------------------------------------------------
 # Case C: `yarn test {file}` LOOKS fine; scripts.test = "vitest" underneath is what hangs. The
 # watcher test therefore runs on the manifest script BODY, never the configured string.

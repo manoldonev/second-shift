@@ -86,9 +86,11 @@ mkdir -p "$INSTALL/dev-pipeline/2.1.0/skills/run" "$INSTALL/dev-pipeline/2.1.0/t
          "$INSTALL/second-shift/1.0.0/skills/onboard" \
          "$INSTALL/second-shift/1.0.0/skills/doctor" \
          "$INSTALL/review-toolkit/2.0.2/workflows"
-# A current review-toolkit carries the fan-out; without these every scenario would FAIL the
-# upgrade-skew check. The skew scenario points at its own install dir that lacks them.
-: > "$INSTALL/review-toolkit/2.0.2/workflows/code-review.mjs"
+# A current review-toolkit carries what the other plugins read; without these every scenario
+# would FAIL the upgrade-skew check. No other plugin reads workflows/code-review.mjs, so the
+# green install leaves it out. The skew scenarios point at their own install dir.
+: > "$INSTALL/review-toolkit/2.0.2/workflows/intake-fanout.mjs"
+: > "$INSTALL/review-toolkit/2.0.2/workflows/intake-review.mjs"
 : > "$INSTALL/review-toolkit/2.0.2/model-tiering.md"
 # The stub echoes the tier doc it was handed, so a scenario can see what doctor passed.
 # shellcheck disable=SC2016 # emitting a literal stub script — $1 must not expand here
@@ -137,6 +139,15 @@ mkdir -p "$INSTALL/predates/review-toolkit/2.0.2"
 scenario rt-predates      plugin-list-rt-predates.json settings-green.json marketplace-list-pinned.json 1 "review-toolkit 2.0.2 predates the fan-out move — update all second-shift plugins together (/second-shift:local-dev-refresh)"
 # ...and nothing reads that fan-out when dev-pipeline and intake-toolkit are both disabled.
 scenario rt-predates-unused plugin-list-rt-predates-unused.json settings-green.json marketplace-list-pinned.json 0 "summary: 0 failed"
+# The same install dir, now carrying code-review.mjs, the tier alphabet and intake-review.mjs but
+# not intake-fanout.mjs, which intake's Explore stage copies.
+mkdir -p "$INSTALL/predates/review-toolkit/2.0.2/workflows"
+: > "$INSTALL/predates/review-toolkit/2.0.2/workflows/code-review.mjs"
+: > "$INSTALL/predates/review-toolkit/2.0.2/workflows/intake-review.mjs"
+: > "$INSTALL/predates/review-toolkit/2.0.2/model-tiering.md"
+scenario rt-no-fanout     plugin-list-rt-predates.json settings-green.json marketplace-list-pinned.json 1 "intake-toolkit reads workflows/intake-fanout.mjs"
+if grep -qF "dev-pipeline reads" <<< "$LAST_OUT"; then check "rt-no-fanout blames only the reader whose file is missing" 1
+else check "rt-no-fanout blames only the reader whose file is missing" 0; fi
 scenario missing-plugin   plugin-list-missing.json settings-green.json     marketplace-list-pinned.json  1 "claude plugin install dev-pipeline@second-shift"
 # The two drift branches under a PROJECT-scope record. Both greps name the arm's own string
 # rather than the "marketplace update" / "ahead of the lockfile" prefixes both arms share —
