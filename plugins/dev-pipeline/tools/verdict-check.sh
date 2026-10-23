@@ -9,7 +9,7 @@
 # The body has these parts, in this order and nothing else (the grammar run.sh's review prompt and
 # review/SKILL.md state):
 #   line 1 `verdict: approve|needs-work`, line 2 `reviewed: <40-hex sha>`, an optional line 3
-#   `reason: render-unavailable`;
+#   `reason: render-unavailable|ticket-unreadable|seat-unavailable`;
 #   `## Summary` (optional, first): its first line is `Mergeable as it is.` on an approve or `Not mergeable
 #   yet.` on a needs-work, it names every row scored departed, violated or undeterminable, and it
 #   holds no table;
@@ -18,13 +18,12 @@
 #   honored|violated|departed|undeterminable;
 #   `## Findings`: each finding starts `- [blocker] B<n> ` or `- [note] N<n> `, continuation lines are
 #   indented two or more spaces, and a section with no findings holds the single line `None.`; the
-#   grammar asks a review-lead finding to carry `[Reviewer] file:line (confidence: N)` after the id,
-#   but nothing here checks it (#1010 D-9): the rest of the line is free text;
-#   `## Panel` (optional, not parsed) and `## Notes` (optional, free prose).
+#   rest of a finding's line is free text;
+#   `## Panel` (optional, not parsed: earlier verdicts carry one) and `## Notes` (optional, free prose).
 # `Ready to merge?` anywhere fails. An approve has no [blocker], no violated or undeterminable score
-# and no render-unavailable line; a needs-work has a [blocker], a violated or undeterminable score, or
-# the render-unavailable line. Every `D-n` row of either record version — only unindented lines
-# `| D-n |` (#991 D-6) — is scored, except under render-unavailable.
+# and no reason line; a needs-work has a [blocker], a violated or undeterminable score, or a reason
+# line. Every `D-n` row of either record version — only unindented lines `| D-n |` (#991 D-6) — is
+# scored, except under a reason line.
 #
 # Exit: 0 the body passes · 1 it breaks a rule (stdout: one line per failure, every one of them, each
 # starting with the rule's stable name) · 2 usage, or a file cannot be read (nothing is evaluated).
@@ -52,7 +51,7 @@ BEGIN {
 /Ready to merge\?/ { fail("Ready to merge? in the body", "line " NR) }
 NR == 1 { if ($0 ~ /^verdict: (approve|needs-work)$/) v = substr($0, 10); else fail("line 1 is not a verdict line", cut($0)); next }
 NR == 2 { if (!($0 ~ /^reviewed: [0-9a-f]+$/ && length($0) == 50)) fail("line 2 is not a reviewed line", cut($0)); next }
-NR == 3 && $0 == "reason: render-unavailable" { render = 1; next }
+NR == 3 && $0 ~ /^reason: (render-unavailable|ticket-unreadable|seat-unavailable)$/ { reason = substr($0, 9); next }
 /^## / {
   h = $0; sub(/[ \t]+$/, "", h)
   if (!(h in order)) { fail("unknown section", h); sec = -1; next }
@@ -103,15 +102,15 @@ END {
   if (v == "approve") {
     if (blockers > 0) fail("approve with a blocker", blockers " [blocker] line(s)")
     if (badrows != "") fail("approve with a violated or undeterminable row", badrows)
-    if (render) fail("approve with reason: render-unavailable")
+    if (reason != "") fail("approve with reason: " reason)
   }
-  if (v == "needs-work" && !render && blockers == 0 && badrows == "") fail("needs-work with no blocker")
+  if (v == "needs-work" && reason == "" && blockers == 0 && badrows == "") fail("needs-work with no blocker")
   if ("## Summary" in seen) {
     want = (v == "approve") ? "Mergeable as it is." : "Not mergeable yet."
     if (sfirst != want) fail("Summary line 1 does not match the verdict", "want " want)
     for (i = 1; i <= nn; i++) if (!((" " stext " ") ~ ("[^-0-9A-Za-z]" notable[i] "[^0-9]"))) fail("Summary does not name a row that is not honored", notable[i])
   }
-  if (!render) for (i = 1; i <= n; i++) if (idl[i] != "" && !(idl[i] in scored)) fail("record row not scored", idl[i])
+  if (reason == "") for (i = 1; i <= n; i++) if (idl[i] != "" && !(idl[i] in scored)) fail("record row not scored", idl[i])
   exit bad
 }'
 awk -v ids="$ids" "$prog" "$1"

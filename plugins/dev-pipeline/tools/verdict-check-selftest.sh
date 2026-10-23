@@ -3,7 +3,7 @@
 #
 # INVARIANTS GUARDED: PR #983's two verdicts as posted are rejected against the #979 record at each
 # head and at its first commit (round 1 names "needs-work with no blocker", round 2 "Findings not in
-# the grammar"); each rule passes and fails; a render-unavailable needs-work passes; a row the build
+# the grammar"); each rule passes and fails; a needs-work with any of the three line-3 reasons passes; a row the build
 # deleted or added is still owed a score; every failed rule is printed, not only the first; a record
 # that cannot be read is exit 2. The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
 #
@@ -55,6 +55,16 @@ check nw-undet "$(body needs-work $'| D-1 a | undeterminable | x |\n| D-2 c | ho
 passes "(v3) a needs-work with an undeterminable row passes"
 check render "$(printf 'verdict: needs-work\nreviewed: %s\nreason: render-unavailable\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$SHA")"
 passes "(v4) a render-unavailable needs-work passes with no blocker and no row scored"
+for r in ticket-unreadable seat-unavailable; do
+  check "reason-$r" "$(printf 'verdict: needs-work\nreviewed: %s\nreason: %s\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$SHA" "$r")"
+  passes "(v4) a $r needs-work passes with no blocker and no row scored"
+  check "approve-$r" "$(printf 'verdict: approve\nreviewed: %s\nreason: %s\n\n%s' "$SHA" "$r" "$(body approve "$HEAD_ROWS" 'None.' | sed 1,2d)")"
+  fails_with "(f3) an approve carrying reason: $r" "approve with reason: $r"
+done
+check reason-other "$(printf 'verdict: needs-work\nreviewed: %s\nreason: reviewer-busy\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$SHA")"
+fails_with "(f3) a line 3 reason outside the grammar is text outside a section" "text outside a section: line 3: reason: reviewer-busy"
+check new-form "$(body needs-work "$HEAD_ROWS" $'- [blocker] B1 src/a.ts:3 — the retry loops forever\n  Scenario: a 409 from the store → the worker never exits\n  Fix: stop after three tries\n- [blocker] B2 [design-faithful-reviewer] src/b.tsx:9 — a raw hex color\n  Scenario: the dark theme → the text is unreadable\n  Fix: use the text token')"
+passes "(v2) a needs-work in the session's finding form, a dispatched reviewer's finding included, passes"
 check panel-notes "$(body approve "$HEAD_ROWS" 'None.' $'\n## Panel\n\n| Reviewer | Verdict |\n| --- | --- |\n| Scope | Pass |\n\n## Notes\n\nrevised after reading the account of the build: nothing changed.\n- [blocker] B9 quoted in prose, not a finding\n### a sub-heading is prose too')"
 passes "(v5) ## Panel and ## Notes are optional and unparsed; a [blocker] line in Notes counts for nothing"
 check crlf "$(body approve "$HEAD_ROWS" 'None.' | awk '{ printf "%s\r\n", $0 }')"

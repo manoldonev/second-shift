@@ -24,15 +24,26 @@ grep -q '<!-- dev-pipeline -->$' "$FAKE_GH/issue-comments" && grep -q '^<!-- run
 grep -q 'Claimed by .*/dev-pipeline:run' "$FAKE_GH/issue-comments" && ! grep -q 'dev-pipeline:build' "$FAKE_GH/issue-comments" && ok "(a) a run's claim marker names /dev-pipeline:run" || bad "(a) run marker: $(grep 'Claimed by' "$FAKE_GH/issue-comments")"
 ! grep -qE '^--(resume|continue)$' "$FAKE_GH/args-1.txt" && ! grep -qE '^--(resume|continue)$' "$FAKE_GH/args-2.txt" && ok "(a) [F1] neither session is resumed or continued" || bad "(a) [F1] a session was resumed"
 [ "$(tr '\n' ' ' < "$FAKE_GH/env-1.txt")" = "BASH_DEFAULT_TIMEOUT_MS=6900000 BASH_MAX_TIMEOUT_MS=6900000 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 " ] && ok "(a) [F-env] BUILD: background tasks off, Bash timeouts 300 s inside the 7200 s bound" || bad "(a) [F-env] BUILD spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-1.txt")"
-[ "$(tr '\n' ' ' < "$FAKE_GH/env-2.txt")" = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3300000 " ] && ok "(a) [F-env] REVIEW: background tasks kept, their wait 300 s inside the 3600 s bound" || bad "(a) [F-env] REVIEW spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-2.txt")"
+[ "$(tr '\n' ' ' < "$FAKE_GH/env-2.txt")" = "BASH_DEFAULT_TIMEOUT_MS=3300000 BASH_MAX_TIMEOUT_MS=3300000 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 " ] && ok "(a) [F-env] REVIEW: background tasks off, Bash timeouts 300 s inside the 3600 s bound" || bad "(a) [F-env] REVIEW spawn env: $(tr '\n' ' ' < "$FAKE_GH/env-2.txt")"
+! grep -q 'PermissionRequest' "$FAKE_GH/args-2.txt" && ok "(a) [F-env] the PermissionRequest hook stays the BUILD's alone" || bad "(a) [F-env] the review was given the permission hook"
 [ ! -d "$d/wt/42" ] && ok "(a) worktree torn down on approve" || bad "(a) worktree left after approve"
 grep -q 'Closes #42' "$FAKE_GH/prompt-1.txt" && grep -q 'gh pr create --draft' "$FAKE_GH/prompt-1.txt" && ok "(a) build prompt asks for a draft PR that closes the ticket" || bad "(a) PR conventions missing from the build prompt"
 grep -q 'AskUserQuestion' "$FAKE_GH/args-1.txt" && ! grep -q 'editJiraIssue' "$FAKE_GH/args-1.txt" && ok "(a) keyboard tools disallowed, no jira strip under github" || bad "(a) disallowed-tools list wrong"
-grep -q 'DECLARE THE PIPELINE DEFAULT PANEL' "$FAKE_GH/prompt-2.txt" && ok "(a) review prompt declares the panel" || bad "(a) panel declaration missing"
-grep -q 'the expected call whenever the diff introduces a surface' "$FAKE_GH/prompt-2.txt" && grep -q 'Do not stand in for a specialist' "$FAKE_GH/prompt-2.txt" && grep -q 'pass the decline to review-lead with a one-line reason' "$FAKE_GH/prompt-2.txt" && ok "(a) review prompt: opting a reviewer in is the expected call on an introduced surface, the lead pass is no stand-in, and a decline carries a reason" || bad "(a) judgment opt-in / decline-with-reason missing from the review prompt"
-grep -q "naming security, a11y, unit-test-mutation or performance" "$FAKE_GH/prompt-2.txt" && grep -q 'performance for a new entry point' "$FAKE_GH/prompt-2.txt" \
-  && grep -q 'A record-named risk with neither a dispatch nor a decline is a process \[blocker\]' "$FAKE_GH/prompt-2.txt" && grep -q 'Its risk is also required performance work: the review states the worst-case bound as a finding' "$FAKE_GH/prompt-2.txt" \
-  && ok "(a) #1034: performance is a fourth opt-in with an entry-point surface, a record-named cost risk is a required decision, and its row's risk is required work beside its score" || bad "(a) #1034: the performance opt-in, record arm or named-risk scoring is missing from the review prompt"
+! grep -q 'review-lead' "$FAKE_GH/prompt-2.txt" && ! grep -qi 'default panel' "$FAKE_GH/prompt-2.txt" && ! grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" && ! grep -q 'Workflow' "$FAKE_GH/prompt-2.txt" \
+  && ok "(a) the review prompt runs no review-lead, declares no panel and stages no Workflow" || bad "(a) the review prompt still hands the review to review-lead or its panel"
+grep -qF 'The diff is origin/main...HEAD, not the remote default branch. Review that diff yourself, in this session, against the ticket and the record.' "$FAKE_GH/prompt-2.txt" \
+  && grep -qxF 'Review the diff for completeness. Check every acceptance criterion of the ticket and every row of the record against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a finding, unless the record'"'"'s test intent exempts it.' "$FAKE_GH/prompt-2.txt" \
+  && grep -qF 'Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers.' "$FAKE_GH/prompt-2.txt" && grep -qF 'When the change adds a rule over stored data, read the data that the rule meets.' "$FAKE_GH/prompt-2.txt" \
+  && grep -qF 'Walk every path through the change' "$FAKE_GH/prompt-2.txt" && grep -qF 'Report each problem as a finding with its file:line and a concrete scenario' "$FAKE_GH/prompt-2.txt" \
+  && grep -qF "A maintainability, test-coverage or repo-convention problem is a \`[note]\` only, never a \`[blocker]\`." "$FAKE_GH/prompt-2.txt" \
+  && ok "(a) the review prompt has the session review the base diff itself for completeness and correctness, other pillars as notes" || bad "(a) the completeness and correctness instruction is missing from the review prompt"
+grep -qxF "Read it with exactly 'gh issue view 42 --json title,body,comments', as written." "$FAKE_GH/prompt-2.txt" && grep -qF "If you cannot read the ticket, you cannot review the PR: post 'verdict: needs-work' with line 3 'reason: ticket-unreadable'." "$FAKE_GH/prompt-2.txt" \
+  && ok "(a) the review reads the ticket itself, and an unreadable ticket is line 3 reason: ticket-unreadable" || bad "(a) the ticket read is missing from the review prompt"
+grep -q 'Its risk is also required performance work: the review states the worst-case bound as a finding' "$FAKE_GH/prompt-2.txt" && grep -qF 'The finding is a [blocker] when the bound breaks what the row decided, and a [note] otherwise.' "$FAKE_GH/prompt-2.txt" \
+  && ! grep -q 'neither a dispatch nor a decline' "$FAKE_GH/prompt-2.txt" \
+  && ok "(a) a row's cost risk is a bound the session states, a blocker only when it breaks the row" || bad "(a) the record-named risk rule is missing or still asks for a dispatch"
+grep -qxF 'Read .claude/second-shift/review-context.md at the head when it exists. It is the repo'"'"'s context for this review.' "$FAKE_GH/prompt-2.txt" && grep -qx 'Dispatch no other reviewer.' "$FAKE_GH/prompt-2.txt" && ! grep -q 'design-fidelity reviewer' "$FAKE_GH/prompt-2.txt" \
+  && ok "(a) the session loads review-context.md and dispatches no reviewer on a record with no frames" || bad "(a) review-context or dispatch line wrong in the review prompt"
 grep -q 'models: build opus (label), review opus (default)' <<<"$OUT" && ok "(a) [A4 A6] build model read from the opus label; tiers are passed to the CLI as aliases, never pinned ids" || bad "(a) model line: $(grep 'models:' <<<"$OUT")"
 ! grep -q 'claude-opus-[0-9]' "$FAKE_GH/args-1.txt" && grep -q '^opus$' "$FAKE_GH/args-1.txt" && ok "(a) [A6] the session is launched with --model opus" || bad "(a) [A6] a pinned model id reached the session: $(grep -A1 -- '--model' "$FAKE_GH/args-1.txt" | tr '\n' ' ')"
 first=$(git -C "$d/origin.git" log --format=%s --reverse main..second-shift/42 | head -n 1)
@@ -101,8 +112,8 @@ printf '%s\n' "$OUT" | grep -q '2 round' && ok "(b) two rounds counted" || bad "
 # A grep on the emitted prompt, by necessity: the fake build never reads its prompt, so no run can show what it was told
 fixture b3; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 run_case "$d"; expect approved "(b3) a mixed needs-work binds, fix, approve"
-grep -qF -- '- [blocker] B1 [Maintainability] src/a.ts:3 (confidence: 85)' "$FAKE_GH/prompt-3.txt" && grep -qF -- '- [note] N1 [Complexity] src/a.ts:9 (confidence: 60)' "$FAKE_GH/prompt-3.txt" \
-  && ok "(b3) both finding lines, confidence included, reach the round-2 build" || bad "(b3) a finding line is missing from prompt-3"
+grep -qF -- '- [blocker] B1 src/a.ts:3 — mixed blocker' "$FAKE_GH/prompt-3.txt" && grep -qxF -- '  Scenario: a 409 → the worker never exits' "$FAKE_GH/prompt-3.txt" && grep -qF -- '- [note] N1 src/a.ts:9 — mixed note' "$FAKE_GH/prompt-3.txt" \
+  && ok "(b3) both finding lines, the blocker's scenario included, reach the round-2 build" || bad "(b3) a finding line is missing from prompt-3"
 grep -qF 'fix each [blocker] finding, or rebut it' "$FAKE_GH/prompt-3.txt" && grep -qF 'violated or undeterminable' "$FAKE_GH/prompt-3.txt" \
   && ok "(b3) the build is ordered to fix or rebut each blocker and fix each bad row" || bad "(b3) the round-2 prompt does not split blockers from notes"
 grep -qF 'A [note] finding requires nothing' "$FAKE_GH/prompt-3.txt" && ok "(b3) a note is named optional" || bad "(b3) the round-2 prompt does not free the notes"
@@ -161,8 +172,8 @@ toc="$(tar -tf "$(SD)/scratch.tar" 2>/dev/null)"
 [ -n "$scr" ] && [ ! -e "$scr" ] && grep -qx './probe-1.txt' <<<"$toc" && grep -qx './probe-2.txt' <<<"$toc" \
   && ok "(sc) D-2: at exit the dir is gone and both sessions' files are in \$STATE/scratch.tar" || bad "(sc) D-2: dir $([ -e "$scr" ] && echo kept || echo gone), archive: $(tr '\n' ' ' <<<"$toc")"
 ads="$(grep -h -A1 -x -- '--add-dir' "$FAKE_GH/args-1.txt" "$FAKE_GH/args-2.txt")"
-[ -n "$ads" ] && ! grep -qF "/run-42/" <<<"$ads" && grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" && grep -qF "writing it with Write into $scr," "$FAKE_GH/prompt-2.txt" \
-  && ok "(sc) D-3: the review stages code-review.mjs in the scratch dir and is not handed \$STATE" || bad "(sc) D-3: \$STATE still granted, or the staging sentence does not name $scr"
+[ -n "$ads" ] && ! grep -qF "/run-42/" <<<"$ads" && grep -qF "Your scratch directory is $scr (already added to this session)." "$FAKE_GH/prompt-2.txt" \
+  && ok "(sc) D-3: the review is handed the scratch dir for its drafts, and not \$STATE" || bad "(sc) D-3: \$STATE still granted, or the review prompt does not name $scr"
 # the prompt lines (S-3), one case each
 grep -q 'Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables' "$FAKE_GH/prompt-1.txt" && grep -q 'Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables' "$FAKE_GH/prompt-2.txt" \
   && ok "(sc) S-3: both prompts ask for one command per call, absolute paths, no cd or variables" || bad "(sc) S-3: one-command line missing"

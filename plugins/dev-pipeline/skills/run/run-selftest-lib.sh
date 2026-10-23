@@ -207,12 +207,12 @@ case "$plan" in
   review-bad-approve-blocker)  post "$(ROWS='| D-1 | honored | fake |' FINDINGS='- [blocker] B1 must change before merge' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-approve-violated) post "$(ROWS='| D-1 | violated | fake |' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-needs-work-noblocker) post "$(FINDINGS='- [note] N1 nothing required' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
-  review-approve-kb) # #1033 AC-10: review-lead's knowledge-base contributions block, carried into ## Notes
+  review-approve-kb) # the session's knowledge-base contributions block, last in ## Notes
     post "$(vbody approve "$(git rev-parse "origin/$branch")" $'\n## Notes\n\nKnowledge-base contributions:\n- <kb-page> — the worker retries a 409 forever (lookup gap)\n- <kb-page> — every build round appends to work.txt (change gap)')" ;;
-  review-needs-work-mixed) # #1010: one blocker and one note, in the grammar's review-lead form
-    post "$(FINDINGS=$'- [blocker] B1 [Maintainability] src/a.ts:3 (confidence: 85) — mixed blocker\n- [note] N1 [Complexity] src/a.ts:9 (confidence: 60) — mixed note' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
-  review-render-unavailable) sha=$(git rev-parse "origin/$branch")
-    post "$(printf 'verdict: needs-work\nreviewed: %s\nreason: render-unavailable\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$sha")" ;;
+  review-needs-work-mixed) # one blocker and one note, in the grammar's finding form
+    post "$(FINDINGS=$'- [blocker] B1 src/a.ts:3 — mixed blocker\n  Scenario: a 409 → the worker never exits\n  Fix: stop after three tries\n- [note] N1 src/a.ts:9 — mixed note' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
+  review-render-unavailable|review-ticket-unreadable|review-seat-unavailable) sha=$(git rev-parse "origin/$branch")
+    post "$(printf 'verdict: needs-work\nreviewed: %s\nreason: %s\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$sha" "${plan#review-}")" ;;
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
     sha=$(git rev-parse "origin/$branch"); for v in ${FAKE_ORDER//,/ }; do post "$(vbody "$v" "$sha")"; done ;;
   review-silent)   : ;;

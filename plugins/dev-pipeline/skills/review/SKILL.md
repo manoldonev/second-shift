@@ -27,6 +27,10 @@ review.
    `gh pr view <pr> --json body --jq '.body | split("\n")[] | (capture("^\\s*(?<l>(closes|fixes|resolves)\\s+(#\\d+|\\[[A-Za-z][A-Za-z0-9]*-\\d+\\]))\\s*$"; "i").l), (capture("^(?<l>Record baseline: [0-9a-f]{7,40})\\s*$").l), scan("[^\\s()<>\\[\\]]*decisions\\.md")'`.
    The tokens name the ticket (`Closes #N`), the `Record baseline:` and the decision record
    (`<plansDir>/<repo>-<key>-decisions.md`).
+   **Read the ticket yourself.** Under github, run `gh issue view <N> --json title,body,comments`.
+   Under jira, use the `getJiraIssue` MCP tool, under whichever Atlassian namespace this session
+   exposes. If you cannot read the ticket, you cannot review the PR: post `verdict: needs-work`
+   with line 3 `reason: ticket-unreadable`.
    **Read the build's own account last.** First write the row scores of step 5 and the findings of
    step 6. Only then read the PR description and the build's PR comments. Use them to reconcile
    the departures and rebuttals they state. Measurements show that an author's framing lowers
@@ -59,9 +63,8 @@ review.
      lane that did not run on this diff.
    - Every added, edited, deleted or renamed review-policy file. List them with
      `git diff --name-status $FIRST..HEAD`, and check both sides of a rename. The review-policy
-     files are `.claude/second-shift.config.json`, anything under `.claude/second-shift/`, and
-     `.claude/agents/<name>.md` for each bare name under the config's `reviewers.add[]`. The
-     reviewers load these files from the head, so the PR is reviewed against the policy it edits.
+     files are `.claude/second-shift.config.json` and anything under `.claude/second-shift/`.
+     You load these files from the head, so the PR is reviewed against the policy it edits.
      Trace each one to an acceptance criterion or a record row. An untraced one is a `[blocker]`
      that requires the citation. The edit itself is never the blocker.
 
@@ -97,76 +100,59 @@ review.
    A row can name a deferred, unmeasured or inherited cost, load or performance risk. Still score
    that row on whether the code matches it. The row is the operator's decision. A score never
    overrides it. Its risk is also required performance work: the review states the worst-case
-   bound as a finding, at the severity the performance rules give it. The row permits the
-   out-of-diff reads that check the bound. The row can name a file that the diff does not touch.
-   That fact scores the row. It does not bound the risk.
-6. **Run `review-toolkit:review-lead` over the PR diff.** Pass it the ticket from step 1 yourself.
-   **Declare the pipeline default panel** when you invoke it. Under that panel the fan-out
-   defaults to `scope-completeness-reviewer`. The other four reviewers (`security-reviewer`,
-   `a11y-reviewer`, `unit-test-mutation-reviewer` and `performance-reviewer`) run only on an
-   opt-in. An opt-in comes from one of two sources. The first is a `review panel` row in the
-   record with `user-answered` or `user-delegated` provenance, naming `security`, `a11y`,
-   `unit-test-mutation` or `performance`. The second is the config's `reviewers.default[]`.
-   `review-lead` never infers this. An undeclared panel leaves the surface triggers in force.
+   bound as a finding. The finding is a `[blocker]` when the bound breaks what the row decided,
+   and a `[note]` otherwise. The row permits the out-of-diff reads that check the bound. The row
+   can name a file that the diff does not touch. That fact scores the row. It does not bound the
+   risk.
+6. **Review the diff yourself, in this session.** The diff is `origin/<base>...HEAD`, where
+   `<base>` is the PR's base branch. Review it against the ticket and the record. Read
+   `.claude/second-shift/review-context.md` at the head when it exists. It is the repo's context
+   for this review.
 
-   You can opt one of the four back in. **That is the expected call whenever the diff introduces
-   a surface.** It is not expected when the diff only edits an existing surface.
-   - Opt in `security` for a new authentication, session, tenancy or ownership-scoping path, or
-     for a new query built from external input.
-   - Opt in `a11y` for new form controls or a new interactive component.
-   - Opt in `unit-test-mutation` for new logic with a co-located spec.
-   - Opt in `performance` for a new entry point that reaches a data read or existing heavy work.
-     An entry point is a route, handler, consumer or SDK method.
+   <!-- LOCKSTEP-BEGIN review-completeness -->
+   Review the diff for completeness. Check every acceptance criterion of the ticket and every row of the record against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a finding, unless the record's test intent exempts it.
+   <!-- LOCKSTEP-END review-completeness -->
 
-   For a change to a file that already sits on one of those surfaces, you decide either way. Pass
-   each short name to `review-lead` with a one-line reason.
+   <!-- LOCKSTEP-BEGIN review-correctness -->
+   Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers. Check that each of them still works with the change. When the change adds a rule over stored data, read the data that the rule meets. Check the rule against the data that already exists. Walk every path through the change: each branch, each early return, each error and each empty input. Report each problem as a finding with its file:line and a concrete scenario: the input or state, and the wrong outcome it produces. A problem with no scenario is not a finding.
+   A completeness or correctness problem is a `[blocker]` when it must change before merge. A maintainability, test-coverage or repo-convention problem is a `[note]` only, never a `[blocker]`.
+   <!-- LOCKSTEP-END review-correctness -->
 
-   Do not stand in for a specialist on a surface the diff introduces. Your lead pass is one reader
-   over the whole diff. It is not that reviewer's checklist. The trimmed panel stays the default
-   because it was measured. You judge a diff that it was never measured on.
-
-   Declining a reviewer whose surface the diff introduces is itself a decision. When you decline
-   one, pass the decline to `review-lead` with a one-line reason. `review-lead` writes the decline
-   into the panel line of the review. The human who reads the verdict reads that line. An
-   introduced surface with neither a reviewer nor a reason is a silent decision.
-
-   **A record-named cost risk makes performance a required decision.** A `D-n` row or an `OR-n`
-   Open Region of the record can name a cost, load or performance risk. When one does, opt
-   `performance` in, or pass its decline with a reason that answers that row. When you opt in,
-   pass `review-lead` that row and the new entry point's `path:line`. Then `performance-reviewer`
-   traces the risk and not the whole diff. A record-named risk with neither a dispatch nor a
-   decline is a process `[blocker]` on your verdict. The blocker is for the missing decision, not
-   for the code. Whether a decline answers the row is your judgment. The panel line shows it.
-
-   `review-lead` can report that the review did not run (its panel went dark). Then you have no
-   verdict to give. Say which reviewer went dark in a plain comment, and post no `verdict:` line.
+   Dispatch no reviewer, except the one design-fidelity reviewer of step 7.
 7. **Design frames.** The `## Design frames` (or `## Design`) section of the record can have
-   `| RS-n |` rows. Then render every screen at the head with the repo's render command
-   (`design.liveRender.command`). Compare each screen with its frame. If you cannot render, you
-   cannot approve: post `verdict: needs-work` with line 3 `reason: render-unavailable`.
+   `| RS-n |` rows. Then do two things.
+   - Dispatch one design-fidelity reviewer with the Agent tool. A handoff URL in the section
+     picks it: a `figma.com` host picks `design-toolkit:figma-faithful-reviewer`, and a
+     `claude.ai` URL under `/design` picks `design-toolkit:design-faithful-reviewer`. With no
+     such URL, the config's `design.provider` picks it: `figma` picks `figma-faithful-reviewer`,
+     and any other value, or none, picks `design-faithful-reviewer`. Give it the diff and the
+     record. If you cannot dispatch it, or it returns no report, you cannot approve: post
+     `verdict: needs-work` with line 3 `reason: seat-unavailable`.
+   - Render every screen at the head with the repo's render command
+     (`design.liveRender.command`). Compare each screen with its frame. If you cannot render, you
+     cannot approve: post `verdict: needs-work` with line 3 `reason: render-unavailable`.
 8. **Post ONE PR comment.** Post it through [`gh-bot.sh`](../../tools/gh-bot.sh) when its
    `--status` is `ok`, and through plain `gh` otherwise. Pass the body with `--body-file`. The body
    follows this grammar exactly. The review prompt of `run.sh` states the same grammar:
 
    <!-- LOCKSTEP-BEGIN verdict-grammar -->
    The verdict comment has these parts, in this order and nothing else:
-   - Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`.
+   - Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`, `reason: ticket-unreadable` or `reason: seat-unavailable`.
    - `## Summary`, right after line 2, or line 3 when it is present. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
    - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
    - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. A section with no findings holds the single line `None.`.
-   - After its id and one space, a finding from review-lead's report carries that report's reviewer, file:line and confidence in its form: `- [blocker] B1 [Reviewer] file:line (confidence: N) — <text>`, file:line only where the finding has one. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) or as a process note names its rule and carries no number: never invent a score.
-   - `## Panel` (optional): the panel lines review-lead writes.
+   - After its id and one space, a finding names its file:line and its defect: `- [blocker] B1 path:line — <defect>`. Its first continuation line is `Scenario: <input or state> → <wrong outcome>`. A finding that a dispatched reviewer raised names that reviewer in brackets before its file:line: `- [blocker] B1 [Reviewer] path:line — <defect>`. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) or as a process note names its rule, and its file:line only where it has one. No finding carries a confidence number.
    - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. Nothing in it counts toward the verdict.
 
    `Ready to merge?` is never written anywhere in the body.
 
-   A `[blocker]` is something in the diff that must change before merge. The PR title and description are not the diff: a stale or wrong one is at most a `[note]`, never a `[blocker]`, and never makes a verdict `needs-work`. A `[note]` requires nothing. review-lead's findings translate one way: a Critical is a `[blocker]`; a Warning you would hold the merge for is a `[blocker]`, and any other Warning is a `[note]`; its "Ready to merge?" and "With fixes" are never written on this comment.
+   A `[blocker]` is something in the diff that must change before merge. The PR title and description are not the diff: a stale or wrong one is at most a `[note]`, never a `[blocker]`, and never makes a verdict `needs-work`. A `[note]` requires nothing.
 
-   `verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no `[blocker]` and no `reason: render-unavailable` line. `verdict: needs-work` carries at least one `[blocker]`, a `violated` or `undeterminable` row, or the `reason: render-unavailable` line; under that line the rows need not be scored, and the findings may be `None.`.
+   `verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no `[blocker]` and no `reason:` line. `verdict: needs-work` carries at least one `[blocker]`, a `violated` or `undeterminable` row, or a `reason:` line; under that line the rows need not be scored, and the findings may be `None.`.
    <!-- LOCKSTEP-END verdict-grammar -->
 
    <!-- LOCKSTEP-BEGIN kb-contributions -->
-   Knowledge-base contributions: when review-lead's report has a `### Knowledge-base contributions` block, carry it into the verdict's `## Notes` as review-lead wrote it — the lead line `Knowledge-base contributions:` with one proposal per line under it, or the single line `Knowledge-base contributions: none`. review-lead applied the inclusion test the repo's review-context.md declares: do not apply it again, and add, drop or reword no proposal. Carry the whole list on every verdict, never only what changed since an earlier one: the earlier verdicts are collapsed once one binds. When the report has no such block, the verdict carries no contributions line. A proposal is a draft the operator files in the knowledge base: never a finding, and it never makes a verdict `needs-work`.
+   Knowledge-base contributions: when the repo's review-context.md has a `## Knowledge-base contributions` section, write a contributions block last in the verdict's `## Notes`. The candidates are what the record's `## Knowledge source` answer says the knowledge base does not cover (lookup gap), the page a `D-n` row names in `kb-conflict: <kb-page> (kb stale)` or `(kb ahead)`, and what this diff makes true that the knowledge base should state (change gap). Apply the inclusion test that the section declares, as written, to every candidate, and list only the candidates that pass. Write the lead line `Knowledge-base contributions:` with one proposal per line under it, in the format the section declares or as `- <kb-page> — <what to add or correct> (<gap kind>)`. When no candidate passes, write the single line `Knowledge-base contributions: none`. Carry the whole list on every verdict, never only what changed since an earlier one: the earlier verdicts are collapsed once one binds. When review-context.md has no such section, the verdict carries no contributions line. A proposal is a draft the operator files in the knowledge base: never a finding, and it never makes a verdict `needs-work`.
    <!-- LOCKSTEP-END kb-contributions -->
 
    <!-- LOCKSTEP-BEGIN verdict-style -->
@@ -192,9 +178,6 @@ review.
    - End each blocker with the continuation line `Fix: <one instruction>`.
    - Do not give a note a Fix line. A note requires nothing.
    - Write a note in at most three lines. Write a dismissed or suppressed note in one line.
-   In `## Panel`:
-   - Copy the panel lines that review-lead writes. Do not merge, drop or reword a line.
-   - Do not repeat the panel reasons in `## Notes`.
    In `## Notes`:
    - Use one `###` sub-heading for each topic. Write at most six sentences under it.
    - Write an inventory, such as the mutation run, as a list.
@@ -202,7 +185,7 @@ review.
    - Do not write a sub-heading that has nothing under it.
    - Write a topic that changed no score or finding in one sentence, or leave it out.
    - Keep `## Notes` under 150 words, not counting the knowledge-base block.
-   A limit never removes a row, a finding, a panel line or a knowledge-base proposal. If they do not fit, shorten the wording.
+   A limit never removes a row, a finding or a knowledge-base proposal. If they do not fit, shorten the wording.
    <!-- LOCKSTEP-END verdict-style -->
 
    **Check the draft before you post it.** Write the body to a file. Write the record at `FIRST` to
@@ -250,6 +233,6 @@ review.
   during your review, review the new commits and name the new head. A verdict that names an older
   head does not count.
 - **Do not soften a blocker to keep a run moving. Do not invent a blocker to look thorough.**
-- **Never end a turn with work that this turn started and has not collected.** A `review-lead`
-  Workflow dispatch re-enters the session when it completes. Wait for it. A `&`-detached command
-  or an armed `Monitor` at turn end is abandoned, not deferred.
+- **Never end a turn with work that this turn started and has not collected.** Wait for the
+  design-fidelity reviewer you dispatched. A `&`-detached command or an armed `Monitor` at turn
+  end is abandoned, not deferred.
