@@ -1,0 +1,66 @@
+diff --git a/docs/plans/express-5554-plan.md b/docs/plans/express-5554-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/express-5554-plan.md
+@@ -0,0 +1,10 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 res.location accepts a URL instance (test/res.location.js) [AC-1]
++
++## 2. Fix
++
++- [ ] 2.1 Convert the argument with String() in res.location (lib/response.js)
++- [ ] 2.2 Note the change in History.md (History.md)
+diff --git a/History.md b/History.md
+index b6208ea7e3..2fda95c155 100644
+--- a/History.md
++++ b/History.md
+@@ -1,3 +1,8 @@
++unreleased changes
++==========
++
++  * Allow passing non-strings to res.location with new encoding handling checks
++
+ 4.19.0 / 2024-03-20
+ ==========
+
+diff --git a/lib/response.js b/lib/response.js
+index f7c94d10e7..6fddbf3516 100644
+--- a/lib/response.js
++++ b/lib/response.js
+@@ -905,7 +905,7 @@ res.cookie = function (name, value, options) {
+  */
+
+ res.location = function location(url) {
+-  var loc = url;
++  const loc = String(url);
+
+   // "back" is an alias for the referrer
+   if (url === 'back') {
+diff --git a/test/res.location.js b/test/res.location.js
+index 71fbaec03d..d1bbf4b687 100644
+--- a/test/res.location.js
++++ b/test/res.location.js
+@@ -145,5 +145,20 @@ describe('res', function(){
+         .expect(200, done)
+       })
+     })
++
++    if (typeof URL !== 'undefined') {
++      it('should accept an instance of URL', function (done) {
++        var app = express();
++
++        app.use(function(req, res){
++          res.location(new URL('http://google.com/')).end();
++        });
++
++        request(app)
++          .get('/')
++          .expect('Location', 'http://google.com/')
++          .expect(200, done);
++      });
++    }
+   })
+ })

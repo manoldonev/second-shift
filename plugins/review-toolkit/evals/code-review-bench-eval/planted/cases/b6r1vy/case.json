@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-1470",
+  "license": "MIT",
+  "base": "0fdac93ff2531542301b76952be9b084b2e2dfa0",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 1465,
+  "pr": 1470,
+  "commit": "feat: a locale's invalidDate replaces the invalid date string",
+  "truth": {
+    "class": "P1",
+    "description": "The updateLocale test that the plan names for AC-1 is not in the change, so the invalidDate override has no test.",
+    "locations": [
+      {"file": "docs/plans/dayjs-1465-plan.md", "start": 5, "end": 5, "side": "head"},
+      {"file": "src/index.js", "start": 254, "end": 256, "side": "head"}
+    ]
+  }
+}

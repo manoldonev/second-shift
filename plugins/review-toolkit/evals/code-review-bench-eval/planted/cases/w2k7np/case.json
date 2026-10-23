@@ -1,0 +1,20 @@
+{
+  "upstream": "https://github.com/expressjs/express.git",
+  "instance": "expressjs__express-3870",
+  "license": "MIT",
+  "base": "dc538f6e810bd462c98ee7e6aae24c64d4b1da93",
+  "base_branch": "master",
+  "overlay": "expressjs__express",
+  "issue": 3869,
+  "pr": 3870,
+  "commit": "feat: app.render takes a cacheKey option",
+  "truth": {
+    "class": "P1",
+    "description": "The cache is still read under the view name while it is written under the cacheKey, so two renders with the same key render the view twice and AC-2 is unmet.",
+    "locations": [
+      {"file": "lib/application.js", "start": 567, "end": 569, "side": "head"},
+      {"file": "lib/application.js", "start": 593, "end": 593, "side": "head"},
+      {"file": "docs/plans/express-3869-plan.md", "start": 6, "end": 6, "side": "head"}
+    ]
+  }
+}

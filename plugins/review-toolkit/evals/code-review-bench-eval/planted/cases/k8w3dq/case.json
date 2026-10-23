@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/darkreader/darkreader.git",
+  "instance": "darkreader__darkreader-7241",
+  "license": "MIT",
+  "base": "991883df4d5910851130e3dc0e21fcbce604ea7d",
+  "base_branch": "master",
+  "overlay": "darkreader__darkreader",
+  "issue": 7238,
+  "pr": 7241,
+  "commit": "fix: the site-fix index ignores = signs inside a block",
+  "truth": {
+    "class": "P2",
+    "row": "D-2",
+    "description": "The index's delimiter regex has no end-of-line anchor, so a CSS line that starts with two = signs and holds more text still splits the block, unlike the parser's regex.",
+    "locations": [
+      {"file": "src/generators/utils/parse.ts", "start": 146, "end": 146, "side": "head"}
+    ]
+  }
+}

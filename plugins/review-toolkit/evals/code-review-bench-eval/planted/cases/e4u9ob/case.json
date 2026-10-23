@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-2369",
+  "license": "MIT",
+  "base": "f0a0b546b074b3b511c2319a1ce83d412894b91f",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 2364,
+  "pr": 2369,
+  "commit": "fix: a duration getter returns 0 for a missing unit",
+  "truth": {
+    "class": "P3",
+    "description": "The existing expectation that adding five days to a one-day duration gives six days is weakened to toBeDefined, and no AC asks for it.",
+    "locations": [
+      {"file": "test/plugin/duration.test.js", "start": 186, "end": 186, "side": "head"},
+      {"file": "test/plugin/duration.test.js", "start": 186, "end": 186, "side": "base"}
+    ]
+  }
+}

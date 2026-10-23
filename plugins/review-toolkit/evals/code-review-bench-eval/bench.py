@@ -147,7 +147,7 @@ def find_transcripts(session_id: str) -> list[Path]:
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 
 
-def blindness_violations(session_id: str, data_dir: Path, scratch: Path | None = None) -> list[str]:
+def blindness_violations(session_id: str, data_dir: Path, scratch: Path | None = None, blind_re: re.Pattern = BLIND_RE) -> list[str]:
     """Scan the session's transcript (and its subagents') for a read of the answer key or a
     network reach. Only a tool's OPERATIVE field is read — a shell command, a path — never the
     content a Write carries: review-lead stages a script whose text names `gh issue view`, and a
@@ -170,7 +170,7 @@ def blindness_violations(session_id: str, data_dir: Path, scratch: Path | None =
                     what = f"{name} {json.dumps(inp)[:120]}"
                 elif name == "Bash":
                     cmd = str(inp.get("command", ""))
-                    if BLIND_RE.search(cmd) or str(data_dir) in cmd:
+                    if blind_re.search(cmd) or str(data_dir) in cmd:
                         what = f"Bash {cmd[:160]}"
                 elif name in WRITE_TOOLS:
                     fp = str(inp.get("file_path", ""))

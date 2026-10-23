@@ -1,0 +1,17 @@
+The cases under cases/ are built from issues, fixes and tests of these upstream projects, taken
+from the Multi-SWE-bench dataset (https://huggingface.co/datasets/ByteDance-Seed/Multi-SWE-bench).
+Each case's patch.diff edits the upstream fix. The recipe clones each upstream at the base sha
+its case.json names; no upstream source tree is vendored here.
+
+- Day.js — https://github.com/iamkun/dayjs — MIT License, Copyright (c) 2018-present, iamkun
+- Express — https://github.com/expressjs/express — MIT License, Copyright (c) 2009-2014 TJ
+  Holowaychuk, (c) 2013-2014 Roman Shtylman, (c) 2014-2015 Douglas Christopher Wilson
+- axios — https://github.com/axios/axios — MIT License, Copyright (c) 2014-present Matt Zabriskie
+  & Collaborators
+- Dark Reader — https://github.com/darkreader/darkreader — MIT License, Copyright (c) 2021 Dark
+  Reader Ltd.
+- GitHub Readme Stats — https://github.com/anuraghazra/github-readme-stats — MIT License,
+  Copyright (c) 2021 Anurag Hazra
+
+The ticket texts are the upstream issues' text, each with an acceptance-criteria block written
+for its case. Multi-SWE-bench is distributed under its own license on its dataset page.

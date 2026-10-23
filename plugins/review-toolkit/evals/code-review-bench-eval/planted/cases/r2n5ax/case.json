@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-1008",
+  "license": "MIT",
+  "base": "5a465cc90c0ace55268b2640512d0a4c6544ac7f",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 1007,
+  "pr": 1008,
+  "commit": "fix: a duration takes the global locale",
+  "truth": {
+    "class": "P3",
+    "description": "The existing expectation that a duration with the es locale humanizes as 'en un minuto' is deleted, and no AC asks for it.",
+    "locations": [
+      {"file": "test/plugin/duration.test.js", "start": 101, "end": 102, "side": "head"},
+      {"file": "test/plugin/duration.test.js", "start": 102, "end": 102, "side": "base"}
+    ]
+  }
+}

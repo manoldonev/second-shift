@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-957",
+  "license": "MIT",
+  "base": "14ab808a7b7e226f2eb2cbe894916a18ed5d967d",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 953,
+  "pr": 957,
+  "commit": "fix: adding months keeps the hour in utcOffset mode",
+  "truth": {
+    "class": "P4",
+    "description": "toDate now returns the instance's own Date instead of a copy, so startOf, which calls a setter on this.toDate('s'), changes the instance it is called on.",
+    "locations": [
+      {"file": "src/index.js", "start": 379, "end": 381, "side": "head"},
+      {"file": "src/index.js", "start": 175, "end": 176, "side": "head"}
+    ]
+  }
+}

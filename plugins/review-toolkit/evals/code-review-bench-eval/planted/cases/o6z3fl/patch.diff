@@ -1,0 +1,41 @@
+diff --git a/docs/plans/dayjs-1521-plan.md b/docs/plans/dayjs-1521-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/dayjs-1521-plan.md
+@@ -0,0 +1,9 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A duration parsed from 'PT1H' formats its missing components as zeros (test/plugin/duration.test.js) [AC-1]
++
++## 2. Fix
++
++- [ ] 2.1 Map a missing regex group to 0 in the ISO string parser (src/plugin/duration/index.js)
+diff --git a/src/plugin/duration/index.js b/src/plugin/duration/index.js
+index 4e894647a..10ebb4ca2 100644
+--- a/src/plugin/duration/index.js
++++ b/src/plugin/duration/index.js
+@@ -84,7 +84,7 @@ class Duration {
+       const d = input.match(durationRegex)
+       if (d) {
+         const properties = d.slice(2)
+-        const numberD = properties.map(value => Number(value));
++        const numberD = properties.map(value => (value != null ? Number(value) : 0));
+         [
+           this.$d.years,
+           this.$d.months,
+diff --git a/test/plugin/duration.test.js b/test/plugin/duration.test.js
+index cca1a828e..2e804691c 100644
+--- a/test/plugin/duration.test.js
++++ b/test/plugin/duration.test.js
+@@ -76,6 +76,9 @@ describe('Parse ISO string', () => {
+   it('Part ISO string', () => {
+     expect(dayjs.duration('PT2777H46M40S').toISOString()).toBe('PT2777H46M40S')
+   })
++  it('Formatting missing components', () => {
++    expect(dayjs.duration('PT1H').format('YYYY-MM-DDTHH:mm:ss')).toBe('0000-00-00T01:00:00')
++  })
+   it('ISO string with week', () => {
+     const d = dayjs.duration('P2M3W4D')
+     expect(d.toISOString()).toBe('P2M25D')

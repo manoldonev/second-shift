@@ -1,0 +1,51 @@
+diff --git a/docs/plans/dayjs-1022-plan.md b/docs/plans/dayjs-1022-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/dayjs-1022-plan.md
+@@ -0,0 +1,9 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A year diff under badMutable, against Moment.js (test/plugin/badMutable.test.js) [AC-1]
++
++## 2. Fix
++
++- [ ] 2.1 Add months to a clone in monthDiff (src/utils.js)
+diff --git a/src/utils.js b/src/utils.js
+index ae81679f8..324bc5e11 100644
+--- a/src/utils.js
++++ b/src/utils.js
+@@ -18,9 +18,9 @@ const monthDiff = (a, b) => {
+   // function from moment.js in order to keep the same result
+   if (a.date() < b.date()) return -monthDiff(b, a)
+   const wholeMonthDiff = ((b.year() - a.year()) * 12) + (b.month() - a.month())
+-  const anchor = a.add(wholeMonthDiff, C.M)
++  const anchor = a.clone().add(wholeMonthDiff, 'month')
+   const c = b - anchor < 0
+-  const anchor2 = a.add(wholeMonthDiff + (c ? -1 : 1), C.M)
++  const anchor2 = a.clone().add(wholeMonthDiff + (c ? -1 : 1), 'month')
+   return +(-(wholeMonthDiff + ((b - anchor) / (c ? (anchor - anchor2) :
+     (anchor2 - anchor)))) || 0)
+ }
+diff --git a/test/plugin/badMutable.test.js b/test/plugin/badMutable.test.js
+index fb4dc723e..bfd351520 100644
+--- a/test/plugin/badMutable.test.js
++++ b/test/plugin/badMutable.test.js
+@@ -164,6 +164,16 @@ it('Locale', () => {
+   expect(d.format(format)).toBe(m.format(format))
+ })
+
++it('Diff', () => {
++  const d = dayjs()
++  const m = moment()
++  const unit = 'year'
++  const d2 = d.clone().add(1, unit)
++  const m2 = m.clone().add(1, unit)
++  expect(d.diff(d2, unit)).toBe(-1)
++  expect(m.diff(m2, unit)).toBe(-1)
++})
++
+ it('isAfter isBefore isSame', () => {
+   const d = dayjs()
+   const format = dayjs().format()

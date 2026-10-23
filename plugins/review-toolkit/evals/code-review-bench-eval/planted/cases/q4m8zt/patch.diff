@@ -1,0 +1,89 @@
+diff --git a/docs/plans/express-3494-plan.md b/docs/plans/express-3494-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/express-3494-plan.md
+@@ -0,0 +1,12 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 Two hosts in X-Forwarded-Host give the first (test/req.hostname.js) [AC-1]
++- [ ] 1.2 Whitespace around the comma is removed (test/req.hostname.js) [AC-2]
++- [ ] 1.3 The first host's port is stripped (test/req.hostname.js) [AC-3]
++
++## 2. Fix
++
++- [ ] 2.1 Cut X-Forwarded-Host at the first comma (lib/request.js)
++- [ ] 2.2 Note the change in History.md (History.md)
+diff --git a/History.md b/History.md
+index 35147d390d..c29a4490bd 100644
+--- a/History.md
++++ b/History.md
+@@ -3,6 +3,7 @@ unreleased
+
+   * Improve error message for non-strings to `res.sendFile`
+   * Improve error message for `null`/`undefined` to `res.status`
++  * Support multiple hosts in `X-Forwarded-Host`
+
+ 4.16.4 / 2018-10-10
+ ===================
+diff --git a/lib/request.js b/lib/request.js
+index 8bb86a9acc..a9400ef99d 100644
+--- a/lib/request.js
++++ b/lib/request.js
+@@ -430,6 +430,10 @@ defineGetter(req, 'hostname', function hostname(){
+
+   if (!host || !trust(this.connection.remoteAddress, 0)) {
+     host = this.get('Host');
++  } else if (host.indexOf(',') !== -1) {
++    // Note: X-Forwarded-Host is normally only ever a
++    //       single value, but this is to be safe.
++    host = host.substring(0, host.indexOf(','))
+   }
+
+   if (!host) return;
+diff --git a/test/req.hostname.js b/test/req.hostname.js
+index 816cd59799..09bfb89989 100644
+--- a/test/req.hostname.js
++++ b/test/req.hostname.js
+@@ -116,6 +116,40 @@ describe('req', function(){
+         .set('Host', 'example.com')
+         .expect('example.com', done);
+       })
++
++      describe('when multiple X-Forwarded-Host', function () {
++        it('should use the first value', function (done) {
++          var app = express()
++
++          app.enable('trust proxy')
++
++          app.use(function (req, res) {
++            res.send(req.hostname)
++          })
++
++          request(app)
++          .get('/')
++          .set('Host', 'localhost')
++          .set('X-Forwarded-Host', 'example.com, foobar.com')
++          .expect(200, 'example.com', done)
++        })
++
++        it('should strip port number', function (done) {
++          var app = express()
++
++          app.enable('trust proxy')
++
++          app.use(function (req, res) {
++            res.send(req.hostname)
++          })
++
++          request(app)
++          .get('/')
++          .set('Host', 'localhost')
++          .set('X-Forwarded-Host', 'example.com:8080 , foobar.com:8888')
++          .expect(200, 'example.com', done)
++        })
++      })
+     })
+
+     describe('when "trust proxy" is disabled', function(){

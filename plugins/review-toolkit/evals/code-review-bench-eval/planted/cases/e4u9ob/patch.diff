@@ -1,0 +1,45 @@
+diff --git a/docs/plans/dayjs-2364-plan.md b/docs/plans/dayjs-2364-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/dayjs-2364-plan.md
+@@ -0,0 +1,9 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 Adding a duration of hours and minutes to a Dayjs instance (test/plugin/duration.test.js) [AC-1]
++
++## 2. Fix
++
++- [ ] 2.1 Return 0 from the duration getter for a missing unit (src/plugin/duration/index.js)
+diff --git a/src/plugin/duration/index.js b/src/plugin/duration/index.js
+index 000047065..70d49296c 100644
+--- a/src/plugin/duration/index.js
++++ b/src/plugin/duration/index.js
+@@ -198,7 +198,7 @@ class Duration {
+     } else {
+       base = this.$d[pUnit]
+     }
+-    return base === 0 ? 0 : base // a === 0 will be true on both 0 and -0
++    return base || 0 // a === 0 will be true on both 0 and -0
+   }
+
+   add(input, unit, isSubtract) {
+diff --git a/test/plugin/duration.test.js b/test/plugin/duration.test.js
+index 7c6c6998a..f2c44156d 100644
+--- a/test/plugin/duration.test.js
++++ b/test/plugin/duration.test.js
+@@ -186,6 +186,12 @@ describe('Add', () => {
+-  expect(a.add({ days: 5 }).days()).toBe(6)
++  expect(a.add({ days: 5 }).days()).toBeDefined()
+ })
+
++describe('Add to a dayjs()', () => {
++  const a = dayjs()
++  const b = dayjs.duration({ hours: 7, minutes: 10 })
++  expect(a.add(b)).toEqual(a.add(7, 'hours').add(10, 'minutes'))
++})
++
+ test('Add duration', () => {
+   const a = dayjs('2020-10-01')
+   const days = dayjs.duration(2, 'days')

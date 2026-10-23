@@ -1,0 +1,18 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-1370",
+  "license": "MIT",
+  "base": "d0ab2ff030edfecf74373de8ca16e9d09a273afa",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats",
+  "issue": 1259,
+  "pr": 1370,
+  "commit": "fix: wrap long repo names and Chinese descriptions",
+  "truth": {
+    "class": "P4",
+    "description": "The title is trimmed to 35 characters in the shared Card constructor, so the stats, top languages and WakaTime cards now cut a long title or custom_title that they showed in full.",
+    "locations": [
+      {"file": "src/common/Card.js", "start": 24, "end": 28, "side": "head"}
+    ]
+  }
+}

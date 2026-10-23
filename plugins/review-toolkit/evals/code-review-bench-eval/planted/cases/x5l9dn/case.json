@@ -1,0 +1,18 @@
+{
+  "upstream": "https://github.com/axios/axios.git",
+  "instance": "axios__axios-5919",
+  "license": "MIT",
+  "base": "bc9af51b1886d1b3529617702f2a21a6c0ed5d92",
+  "base_branch": "v1.x",
+  "overlay": "axios__axios",
+  "issue": 5844,
+  "pr": 5919,
+  "commit": "fix(adapters): pick the first available adapter from a list",
+  "truth": {
+    "class": "P5",
+    "description": "isResolvedHandle tests for a function with typeof instead of utils.isFunction, which new code in lib/ outside lib/utils.js does not do.",
+    "locations": [
+      {"file": "lib/adapters/adapters.js", "start": 24, "end": 24, "side": "head"}
+    ]
+  }
+}

@@ -1,0 +1,104 @@
+diff --git a/docs/plans/github-readme-stats-1259-plan.md b/docs/plans/github-readme-stats-1259-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/github-readme-stats-1259-plan.md
+@@ -0,0 +1,11 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A long repo name is trimmed in the header (tests/renderRepoCard.test.js) [AC-1]
++- [ ] 1.2 A Chinese description wraps at its commas (tests/utils.test.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Trim a title longer than 35 characters (src/common/Card.js)
++- [ ] 2.2 Split a Chinese text at its full-width commas (src/common/utils.js)
+diff --git a/src/common/Card.js b/src/common/Card.js
+--- a/src/common/Card.js
++++ b/src/common/Card.js
+@@ -21,10 +21,11 @@ class Card {
+
+     // returns theme based colors with proper overrides and defaults
+     this.colors = colors;
+-    this.title =
+-      customTitle !== undefined
+-        ? encodeHTML(customTitle)
+-        : encodeHTML(defaultTitle);
++    const title = customTitle !== undefined ? customTitle : defaultTitle;
++    // long titles run past the card's edge, so trim them
++    this.title = encodeHTML(
++      title.length > 35 ? `${title.slice(0, 35)}...` : title,
++    );
+
+     this.css = "";
+
+diff --git a/src/common/utils.js b/src/common/utils.js
+index 7834dbae2cb0e..b91173b05796e 100644
+--- a/src/common/utils.js
++++ b/src/common/utils.js
+@@ -157,12 +157,21 @@ function getCardColors({
+   return { titleColor, iconColor, textColor, bgColor, borderColor };
+ }
+
+-function wrapTextMultiline(text, width = 60, maxLines = 3) {
+-  const wrapped = wrap(encodeHTML(text), { width })
+-    .split("\n") // Split wrapped lines to get an array of lines
+-    .map((line) => line.trim()); // Remove leading and trailing whitespace of each line
++function wrapTextMultiline(text, width = 59, maxLines = 3) {
++  const encoded = encodeHTML(text);
++  const isChinese = encoded.includes("，");
+
+-  const lines = wrapped.slice(0, maxLines); // Only consider maxLines lines
++  let wrapped = [];
++
++  if (isChinese) {
++    wrapped = encoded.split("，"); // Chinese full punctuation
++  } else {
++    wrapped = wrap(encoded, {
++      width,
++    }).split("\n"); // Split wrapped lines to get an array of lines
++  }
++
++  const lines = wrapped.map((line) => line.trim()).slice(0, maxLines); // Only consider maxLines lines
+
+   // Add "..." to the last line if the text exceeds maxLines
+   if (wrapped.length > maxLines) {
+diff --git a/tests/renderRepoCard.test.js b/tests/renderRepoCard.test.js
+index 4b7060a1f88f1..8f1d6ef44a3b4 100644
+--- a/tests/renderRepoCard.test.js
++++ b/tests/renderRepoCard.test.js
+@@ -51,6 +51,17 @@ describe("Test renderRepoCard", () => {
+     );
+   });
+
++  it("should trim header", () => {
++    document.body.innerHTML = renderRepoCard({
++      ...data_repo.repository,
++      name: "some-really-long-repo-name-for-test-purposes",
++    });
++
++    expect(document.getElementsByClassName("header")[0].textContent).toBe(
++      "some-really-long-repo-name-for-test...",
++    );
++  });
++
+   it("should trim description", () => {
+     document.body.innerHTML = renderRepoCard({
+       ...data_repo.repository,
+diff --git a/tests/utils.test.js b/tests/utils.test.js
+index 15c4d97481590..4fdd6a8e8b12b 100644
+--- a/tests/utils.test.js
++++ b/tests/utils.test.js
+@@ -117,4 +117,11 @@ describe("wrapTextMultiline", () => {
+     );
+     expect(multiLineText).toEqual(["Hello", "world long..."]);
+   });
++  it("should wrap chinese by punctuation", () => {
++    let multiLineText = wrapTextMultiline(
++      "专门为刚开始刷题的同学准备的算法基地，没有最细只有更细，立志用动画将晦涩难懂的算法说的通俗易懂！",
++    );
++    expect(multiLineText.length).toEqual(3);
++    expect(multiLineText[0].length).toEqual(18 * 8); // &#xxxxx; x 8
++  });
+ });

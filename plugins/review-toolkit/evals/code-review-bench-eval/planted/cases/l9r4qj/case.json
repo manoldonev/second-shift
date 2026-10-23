@@ -1,0 +1,14 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-337",
+  "license": "MIT",
+  "base": "36c4e94f014a78c186b354f003c048fdb5562464",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 244,
+  "pr": 337,
+  "commit": "feat: dayjs() instanceof dayjs is true",
+  "truth": {
+    "class": "control"
+  }
+}

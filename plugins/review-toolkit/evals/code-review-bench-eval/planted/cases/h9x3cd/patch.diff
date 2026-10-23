@@ -1,0 +1,70 @@
+diff --git a/docs/plans/axios-5659-plan.md b/docs/plans/axios-5659-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/axios-5659-plan.md
+@@ -0,0 +1,10 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 isFormData never calls toString on a Buffer, with or without append (test/unit/utils/utils.js) [AC-1]
++- [ ] 1.2 isFormData detects a custom FormData by its toStringTag and append (test/unit/utils/utils.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Check the kind and the append method before toString (lib/utils.js)
+diff --git a/lib/utils.js b/lib/utils.js
+index 6a388721c1..80ae34c0c4 100644
+--- a/lib/utils.js
++++ b/lib/utils.js
+@@ -188,12 +188,16 @@ const isStream = (val) => isObject(val) && isFunction(val.pipe);
+  * @returns {boolean} True if value is an FormData, otherwise false
+  */
+ const isFormData = (thing) => {
+-  const pattern = '[object FormData]';
++  let kind;
+   return thing && (
+-    (typeof FormData === 'function' && thing instanceof FormData) ||
+-    toString.call(thing) === pattern ||
+-    (isFunction(thing.toString) && thing.toString() === pattern)
+-  );
++    (typeof FormData === 'function' && thing instanceof FormData) || (
++      isFunction(thing.append) && (
++        (kind = kindOf(thing)) === 'formdata' ||
++        // detect form-data instance
++        (kind === 'object' && isFunction(thing.toString) && thing.toString() === '[object FormData]')
++      )
++    )
++  )
+ }
+
+ /**
+diff --git a/test/unit/utils/utils.js b/test/unit/utils/utils.js
+index 73f378878b..8d40250318 100644
+--- a/test/unit/utils/utils.js
++++ b/test/unit/utils/utils.js
+@@ -22,6 +22,24 @@ describe('utils', function (){
+       });
+       assert.equal(utils.isFormData(new FormData()), true);
+     });
++
++    it('should not call toString method on built-in objects instances', () => {
++      const buf = Buffer.from('123');
++
++      buf.toString = () => assert.fail('should not be called');
++
++      assert.equal(utils.isFormData(buf), false);
++    });
++
++    it('should not call toString method on built-in objects instances, even if append method exists', () => {
++      const buf = Buffer.from('123');
++
++      buf.append = () => {};
++
++      buf.toString = () => assert.fail('should not be called');
++
++      assert.equal(utils.isFormData(buf), false);
++    });
+   });
+
+   describe('toJSON', function (){

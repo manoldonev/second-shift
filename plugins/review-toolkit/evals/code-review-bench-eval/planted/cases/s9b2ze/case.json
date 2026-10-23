@@ -1,0 +1,18 @@
+{
+  "upstream": "https://github.com/expressjs/express.git",
+  "instance": "expressjs__express-5555",
+  "license": "MIT",
+  "base": "a1fa90fcea7d8e844e1c9938ad095d62669c3abd",
+  "base_branch": "master",
+  "overlay": "expressjs__express",
+  "issue": 5554,
+  "pr": 5555,
+  "commit": "fix: res.location accepts a URL instance again",
+  "truth": {
+    "class": "P5",
+    "description": "res.location declares loc with const, which code in lib/ never uses because Express 4 still runs on Node versions without it.",
+    "locations": [
+      {"file": "lib/response.js", "start": 908, "end": 908, "side": "head"}
+    ]
+  }
+}

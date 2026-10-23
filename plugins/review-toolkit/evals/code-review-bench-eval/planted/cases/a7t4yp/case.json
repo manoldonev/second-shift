@@ -1,0 +1,20 @@
+{
+  "upstream": "https://github.com/axios/axios.git",
+  "instance": "axios__axios-5085",
+  "license": "MIT",
+  "base": "85740c3e7a1fa48346dfcbd4497f463ccb1c1b05",
+  "base_branch": "v1.x",
+  "overlay": "axios__axios",
+  "issue": 5028,
+  "pr": 5085,
+  "commit": "fix: keep array header values as arrays",
+  "truth": {
+    "class": "P2",
+    "row": "D-3",
+    "description": "toJSON gains an asStrings parameter, but index.d.ts still declares toJSON() with none, so TypeScript callers cannot pass it.",
+    "locations": [
+      {"file": "lib/core/AxiosHeaders.js", "start": 219, "end": 219, "side": "head"},
+      {"file": "index.d.ts", "start": 42, "end": 42, "side": "head"}
+    ]
+  }
+}

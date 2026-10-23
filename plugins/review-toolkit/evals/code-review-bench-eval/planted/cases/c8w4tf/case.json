@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-2175",
+  "license": "MIT",
+  "base": "e4468a46de423e7590f045a9e0f4b4a7251298e0",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 2095,
+  "pr": 2175,
+  "commit": "fix: dayjs(null) with objectSupport returns an invalid date",
+  "truth": {
+    "class": "P4",
+    "description": "Utils.u now reports null as undefined for every caller, so a setter called with null, such as dayjs().hour(null), returns the getter's number instead of a Dayjs instance.",
+    "locations": [
+      {"file": "src/utils.js", "start": 46, "end": 46, "side": "head"},
+      {"file": "src/index.js", "start": 128, "end": 131, "side": "head"}
+    ]
+  }
+}
