@@ -69,7 +69,7 @@ CO="$T/lane/checkout"
 [ "$(git -C "$CO" rev-parse refs/remotes/origin/main)" = "$(git -C "$CO" rev-parse HEAD~2)" ] && ok "origin/main is set locally, at the overlay commit" || bad "origin/main: $(git -C "$CO" rev-parse refs/remotes/origin/main 2>&1)"
 [ "$(field "$T/lane.json" gates)" = '{"plan_coverage": 0, "fails_without_change": 0}' ] && [ "$(field "$T/lane.json" stopped)" = False ] \
   && ok "plan coverage and fails without the change both pass, and the case goes to review" || bad "gates: $(field "$T/lane.json" gates) stopped=$(field "$T/lane.json" stopped)"
-grep -q 'fails on the record commit' "$T/lane/state/fails-without-1.log" 2>/dev/null && ok "fails without the change ran the configured runner on the record commit's tree" || bad "fwc log: $(cat "$T/lane/state/fails-without-1.log" 2>&1 | head -n 5)"
+grep -q 'fails on the record commit' "$T/lane/state/fails-without-1.log" 2>/dev/null && ok "fails without the change ran the configured runner on the record commit's tree" || bad "fwc log: $(head -n 5 "$T/lane/state/fails-without-1.log" 2>&1)"
 P="$T/lane/state/review.prompt"
 FIRST="$(git -C "$CO" rev-parse HEAD~1)"
 grep -q "^You review PR #42 of this repository" "$P" && grep -qF "git show $FIRST:docs/plans/tool-41-decisions.md" "$P" \
@@ -117,7 +117,7 @@ if leaks "$PP" "$T/plain-log.txt" > "$T/plain-leaks.txt"; then bad "a marker in 
 echo "== a gate stops a case =="
 py render --case def456 --arm lane --dest "$T/stop" --clones "$T/clones" > "$T/stop.json" 2> "$T/stop.err"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(field "$T/stop.json" stopped)" = True ] && [ "$(field "$T/stop.json" gates fails_without_change)" = 1 ] && [ ! -e "$T/stop/state/review.prompt" ] \
-  && ok "a tagged test that passes without the change stops the case before any prompt" || bad "stop: rc=$rc $(cat "$T/stop.json" 2>&1 | head -c 300)"
+  && ok "a tagged test that passes without the change stops the case before any prompt" || bad "stop: rc=$rc $(head -c 300 "$T/stop.json" 2>&1)"
 [ "$(git -C "$T/stop/checkout" rev-parse --abbrev-ref HEAD)" = fix-41 ] && ok "the gate puts the checkout back on its branch" || bad "branch after the gate: $(git -C "$T/stop/checkout" rev-parse --abbrev-ref HEAD)"
 
 echo "== review, with a fake claude =="
