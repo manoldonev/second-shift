@@ -110,7 +110,7 @@ review.
    for this review.
 
    <!-- LOCKSTEP-BEGIN review-completeness -->
-   Review the diff for completeness. Check every acceptance criterion of the ticket and every row of the record against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a finding, unless the record's test intent exempts it.
+   Review the diff for completeness. Check every acceptance criterion of the ticket and every row of the record against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a completeness finding, not a test-coverage problem, so it can be a `[blocker]`, unless the record's test intent exempts it.
    <!-- LOCKSTEP-END review-completeness -->
 
    <!-- LOCKSTEP-BEGIN review-correctness -->

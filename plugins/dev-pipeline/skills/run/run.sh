@@ -1100,7 +1100,7 @@ review_prompt() { # review_prompt <pr> <review-input-file> [<the previous verdic
   echo "Read .claude/second-shift/review-context.md at the head when it exists. It is the repo's context for this review."
   grep -v 'LOCKSTEP-' <<'REVIEW'
 # LOCKSTEP-BEGIN review-completeness
-Review the diff for completeness. Check every acceptance criterion of the ticket and every row of the record against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a finding, unless the record's test intent exempts it.
+Review the diff for completeness. Check every acceptance criterion of the ticket and every row of the record against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a completeness finding, not a test-coverage problem, so it can be a `[blocker]`, unless the record's test intent exempts it.
 # LOCKSTEP-END review-completeness
 # LOCKSTEP-BEGIN review-correctness
 Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers. Check that each of them still works with the change. When the change adds a rule over stored data, read the data that the rule meets. Check the rule against the data that already exists. Walk every path through the change: each branch, each early return, each error and each empty input. Report each problem as a finding with its file:line and a concrete scenario: the input or state, and the wrong outcome it produces. A problem with no scenario is not a finding.
