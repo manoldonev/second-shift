@@ -124,6 +124,10 @@ echo "== review, with a fake claude =="
 mkdir -p "$T/fakebin"
 cat > "$T/fakebin/claude" <<'EOF'
 #!/usr/bin/env bash
+if [ -p /dev/stdin ]; then
+  echo "fake claude: the prompt is a pipe, which claude -p gives up on after 3 s" >&2
+  exit 1
+fi
 prompt="$(cat)"
 echo "fake claude: read a prompt of ${#prompt} bytes" >&2
 if [ -n "${FAKE_HANG:-}" ]; then
