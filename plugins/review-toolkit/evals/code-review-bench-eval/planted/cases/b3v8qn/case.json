@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vuejs/core.git",
+  "instance": "vuejs__core-9572",
+  "license": "MIT",
+  "base": "f6babf32363185ff3ab3512d952a8a9aa9603762",
+  "base_branch": "minor",
+  "overlay": "vuejs__core",
+  "issue": 9916,
+  "pr": 9572,
+  "commit": "feat(apiWatch): support passing the number type for deep to control the watch depth",
+  "truth": {
+    "class": "P4",
+    "pattern": "two-hop-caller",
+    "description": "traverse now returns at once when it gets no depth, and withDirectives still calls it with none for a directive marked deep, so the deep flag of vModelCheckbox and vModelSelect no longer tracks the bound array, and a push to a checkbox group's array no longer re-renders the checkboxes.",
+    "locations": [
+      {"file": "packages/runtime-core/src/apiWatch.ts", "start": 471, "end": 475, "side": "head"},
+      {"file": "packages/runtime-core/src/directives.ts", "start": 153, "end": 155, "side": "head"},
+      {"file": "packages/runtime-dom/src/directives/vModel.ts", "start": 121, "end": 122, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/runtime-core/__tests__/apiWatch.spec.ts", "start": 1676, "end": 1695, "side": "head",
+     "why": "reactiveGetter treats deep: 0 like deep: false and still traverses the root level, so the change to bar triggers the callback while the change under foo does not."}
+  ]
+}

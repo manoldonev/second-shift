@@ -1,0 +1,24 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-1314",
+  "license": "MIT",
+  "base": "4dbb9e93b9be070169228d89bff9a82342587a81",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats",
+  "issue": 1261,
+  "pr": 1314,
+  "commit": "feat(layout): improve flexLayout & fixed layout overlaps",
+  "truth": {
+    "class": "P4",
+    "pattern": "dead-guard",
+    "description": "The new createLanguageNode returns nothing only for an empty language name, but its one caller renderRepoCard always passes Unspecified for a repo with no primary language, so such a repo now shows an Unspecified language that the card used to hide.",
+    "locations": [
+      {"file": "src/cards/repo-card.js", "start": 16, "end": 18, "side": "head"},
+      {"file": "src/cards/repo-card.js", "start": 53, "end": 55, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "tests/flexLayout.test.js", "start": 47, "end": 59, "side": "head",
+     "why": "flexLayout reads a missing size as 0, so the third item sits one gap after the second, at 120 + 0 + 20 = 140."}
+  ]
+}

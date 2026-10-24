@@ -1,0 +1,24 @@
+{
+  "upstream": "https://github.com/vuejs/core.git",
+  "instance": "vuejs__core-8511",
+  "license": "MIT",
+  "base": "634519720a21fb5a6871454e1cadad7053a568b8",
+  "base_branch": "main",
+  "overlay": "vuejs__core",
+  "issue": 8482,
+  "pr": 8511,
+  "commit": "fix(compiler-sfc): support infer generic type",
+  "truth": {
+    "class": "P4",
+    "pattern": "omitted-option",
+    "description": "resolveBuiltin still calls resolveTypeElements on a utility type's argument without the new typeParameters map, so a generic parameter inside Readonly or Partial is never bound, and defineProps<Props<Foo>>() with type Aliased<T> = Readonly<Partial<T>> fails to compile with an unresolvable type reference.",
+    "locations": [
+      {"file": "packages/compiler-sfc/src/script/resolveType.ts", "start": 214, "end": 226, "side": "head"},
+      {"file": "packages/compiler-sfc/src/script/resolveType.ts", "start": 593, "end": 599, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/compiler-sfc/src/script/resolveType.ts", "start": 292, "end": 295, "side": "head",
+     "why": "Each child scope reads its parent's types through Object.create, so a member whose scope sits a few levels deep still resolves every outer type and every generic parameter."}
+  ]
+}

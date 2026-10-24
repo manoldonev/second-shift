@@ -746,7 +746,7 @@ a full 10-PR arm is about 45 session-minutes on the seat the checkouts' remote r
 ### The planted mode: does the lane review beat a plain review with the ticket?
 
 The known-bug set has no ticket, no record and no repo context, so it cannot measure what the lane
-adds. `code-review-bench-eval/planted/` can. Each of its 29 cases is a real TypeScript or JavaScript
+adds. `code-review-bench-eval/planted/` can. Each of its 35 cases is a real TypeScript or JavaScript
 issue and fix from Multi-SWE-bench, pinned by upstream and base sha, with one planted defect or none:
 
 | Class | Pillar | What is planted |
@@ -757,7 +757,17 @@ issue and fix from Multi-SWE-bench, pinned by upstream and base sha, with one pl
 | P4 | correctness | The change breaks an existing caller, or existing stored data. No upstream in the corpus stores data, so every P4 case breaks a caller. |
 | P5 | prior art | The change breaks a convention that the case's `review-context.md` declares. |
 
-There are eight P1 cases, four cases in each other class and five clean controls. Four of the P1
+There are eight P1 cases, ten P4 cases, four cases in each other class and five clean controls.
+Each P4 case outside the 29 that predate the rule names its `truth.pattern`, one of four shapes:
+`rejects-held-input` (a new rule rejects a value an existing caller passes back from an object it
+holds), `dead-guard` (the new guard's only producer makes its condition constant),
+`two-hop-caller` (the broken caller sits two calls away, in a file the patch does not touch) and
+`omitted-option` (an existing caller omits a new optional argument and so skips the new check);
+`check` fails when a shape has no case. Each case outside those 29 also changes at least 80 lines
+outside `docs/plans/`, and lists at least one `distractions` entry (`{file, start, end, side,
+why}`): a change inside a hunk that looks wrong but is correct, more than three lines from every
+truth range, with a one-sentence `why`. The scorer ignores distractions, so a blocker on one is
+noise. The 29 older case ids are frozen in `planted.py`. Four of the P1
 cases break an AC only where an unchanged caller meets the new code, so the change's own tests
 pass. A P1 truth names the AC it leaves unmet; a broken caller outside every AC is P4. A case
 carries its ticket (the upstream issue text and an `## Acceptance criteria` block), its decision

@@ -1,0 +1,24 @@
+{
+  "upstream": "https://github.com/vuejs/core.git",
+  "instance": "vuejs__core-10989",
+  "license": "MIT",
+  "base": "f44c3b37d446d5f8e34539029dae0d806b25bb47",
+  "base_branch": "main",
+  "overlay": "vuejs__core",
+  "issue": 10929,
+  "pr": 10989,
+  "commit": "fix(runtime-core): force patch checked",
+  "truth": {
+    "class": "P4",
+    "pattern": "rejects-held-input",
+    "description": "Mount now writes checked only when the prop is a boolean, but the template compiler stores a bare checked attribute in the element's props as an empty string, so a template's <input type=\"checkbox\" checked> mounts unchecked.",
+    "locations": [
+      {"file": "packages/runtime-core/src/renderer.ts", "start": 694, "end": 696, "side": "head"},
+      {"file": "packages/compiler-core/src/transforms/transformElement.ts", "start": 533, "end": 535, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/runtime-core/src/renderer.ts", "start": 1048, "end": 1050, "side": "head",
+     "why": "runtime-dom's patchProp never reads the previous value of checked, and the mount path already passes null for it, so null as the old value changes nothing."}
+  ]
+}

@@ -1,0 +1,457 @@
+diff --git a/docs/plans/github-readme-stats-1261-plan.md b/docs/plans/github-readme-stats-1261-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/github-readme-stats-1261-plan.md
+@@ -0,0 +1,12 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 flexLayout places each item after the sizes of the items before it (tests/flexLayout.test.js) [AC-1] [AC-2]
++- [ ] 1.2 Drop the repo card test of the fixed star offset (tests/renderRepoCard.test.js)
++
++## 2. Fix
++
++- [ ] 2.1 Let flexLayout take the item sizes (src/common/utils.js)
++- [ ] 2.2 Lay out the repo card's language, stars and forks by their measured sizes (src/cards/repo-card.js)
++- [ ] 2.3 Lay out the compact language columns by the longest name (src/cards/top-languages-card.js)
+diff --git a/src/cards/repo-card.js b/src/cards/repo-card.js
+--- a/src/cards/repo-card.js
++++ b/src/cards/repo-card.js
+@@ -5,12 +5,26 @@ const {
+   getCardColors,
+   flexLayout,
+   wrapTextMultiline,
++  measureText,
+ } = require("../common/utils");
+ const I18n = require("../common/I18n");
+ const Card = require("../common/Card");
+ const icons = require("../common/icons");
+ const { repoCardLocales } = require("../translations");
+
++const createLanguageNode = (langName, langColor) => {
++  if (!langName) {
++    return "";
++  }
++
++  return `
++    <g data-testid="primary-lang">
++      <circle data-testid="lang-color" cx="0" cy="-5" r="6" fill="${langColor}" />
++      <text data-testid="lang-name" class="gray" x="15">${langName}</text>
++    </g>
++    `;
++};
++
+ const renderRepoCard = (repo, options = {}) => {
+   const {
+     name,
+@@ -38,8 +52,7 @@ const renderRepoCard = (repo, options = {}) => {
+   const header = show_owner ? nameWithOwner : name;
+   const langName = (primaryLanguage && primaryLanguage.name) || "Unspecified";
+   const langColor = (primaryLanguage && primaryLanguage.color) || "#333";
+-
+-  const shiftText = langName.length > 15 ? 0 : 30;
++  const svgLanguage = createLanguageNode(langName, langColor);
+
+   let desc = description || "No description provided";
+
+@@ -61,20 +74,15 @@ const renderRepoCard = (repo, options = {}) => {
+   });
+
+   // returns theme based colors with proper overrides and defaults
+-  const {
+-    titleColor,
+-    textColor,
+-    iconColor,
+-    bgColor,
+-    borderColor,
+-  } = getCardColors({
+-    title_color,
+-    icon_color,
+-    text_color,
+-    bg_color,
+-    border_color,
+-    theme,
+-  });
++  const { titleColor, textColor, iconColor, bgColor, borderColor } =
++    getCardColors({
++      title_color,
++      icon_color,
++      text_color,
++      bg_color,
++      border_color,
++      theme,
++    });
+
+   const totalStars = kFormatter(stargazers.totalCount);
+   const totalForks = kFormatter(forkCount);
+@@ -94,23 +102,17 @@ const renderRepoCard = (repo, options = {}) => {
+     </g>
+   `;
+
+-  const svgLanguage = primaryLanguage
+-    ? `
+-    <g data-testid="primary-lang" transform="translate(30, 0)">
+-      <circle data-testid="lang-color" cx="0" cy="-5" r="6" fill="${langColor}" />
+-      <text data-testid="lang-name" class="gray" x="15">${langName}</text>
+-    </g>
+-    `
+-    : "";
+-
++  const iconSize = 16;
+   const iconWithLabel = (icon, label, testid) => {
+-    return `
+-      <svg class="icon" y="-12" viewBox="0 0 16 16" version="1.1" width="16" height="16">
++    const iconSvg = `
++      <svg class="icon" y="-12" viewBox="0 0 16 16" version="1.1" width="${iconSize}" height="${iconSize}">
+         ${icon}
+       </svg>
+-      <text data-testid="${testid}" class="gray" x="25">${label}</text>
+     `;
++    const text = `<text data-testid="${testid}" class="gray">${label}</text>`;
++    return flexLayout({ items: [iconSvg, text], gap: 20 }).join("");
+   };
++
+   const svgStars =
+     stargazers.totalCount > 0 &&
+     iconWithLabel(icons.star, totalStars, "stargazers");
+@@ -118,8 +120,13 @@ const renderRepoCard = (repo, options = {}) => {
+     forkCount > 0 && iconWithLabel(icons.fork, totalForks, "forkcount");
+
+   const starAndForkCount = flexLayout({
+-    items: [svgStars, svgForks],
+-    gap: 65,
++    items: [svgLanguage, svgStars, svgForks],
++    sizes: [
++      measureText(langName, 12),
++      iconSize + measureText(`${totalStars}`, 12),
++      iconSize + measureText(`${totalForks}`, 12),
++    ],
++    gap: 25,
+   }).join("");
+
+   const card = new Card({
+@@ -163,15 +170,8 @@ const renderRepoCard = (repo, options = {}) => {
+         .join("")}
+     </text>
+
+-    <g transform="translate(0, ${height - 75})">
+-      ${svgLanguage}
+-
+-      <g
+-        data-testid="star-fork-group"
+-        transform="translate(${primaryLanguage ? 155 - shiftText : 25}, 0)"
+-      >
+-        ${starAndForkCount}
+-      </g>
++    <g transform="translate(30, ${height - 75})">
++      ${starAndForkCount}
+     </g>
+   `);
+ };
+diff --git a/src/cards/top-languages-card.js b/src/cards/top-languages-card.js
+--- a/src/cards/top-languages-card.js
++++ b/src/cards/top-languages-card.js
+@@ -7,6 +7,8 @@ const {
+   getCardColors,
+   flexLayout,
+   lowercaseTrim,
++  measureText,
++  chunkArray,
+ } = require("../common/utils");
+
+ const DEFAULT_CARD_WIDTH = 300;
+@@ -33,12 +35,12 @@ const createProgressTextNode = ({ width, color, name, progress }) => {
+   `;
+ };
+
+-const createCompactLangNode = ({ lang, totalSize, x, y }) => {
++const createCompactLangNode = ({ lang, totalSize }) => {
+   const percentage = ((lang.size / totalSize) * 100).toFixed(2);
+   const color = lang.color || "#858585";
+
+   return `
+-    <g transform="translate(${x}, ${y})">
++    <g>
+       <circle cx="5" cy="6" r="5" fill="${color}" />
+       <text data-testid="lang-name" x="15" y="10" class='lang-name'>
+         ${lang.name} ${percentage}%
+@@ -47,25 +49,38 @@ const createCompactLangNode = ({ lang, totalSize, x, y }) => {
+   `;
+ };
+
+-const createLanguageTextNode = ({ langs, totalSize, x, y }) => {
+-  return langs.map((lang, index) => {
+-    if (index % 2 === 0) {
+-      return createCompactLangNode({
++const getLongestLang = (arr) =>
++  arr.reduce(
++    (savedLang, lang) =>
++      lang.name.length > savedLang.name.length ? lang : savedLang,
++    { name: "" },
++  );
++
++const createLanguageTextNode = ({ langs, totalSize }) => {
++  const longestLang = getLongestLang(langs);
++  const chunked = chunkArray(langs, langs.length / 2);
++  const layouts = chunked.map((array) => {
++    const items = array.map((lang, index) =>
++      createCompactLangNode({
+         lang,
+-        x,
+-        y: 12.5 * index + y,
+         totalSize,
+         index,
+-      });
+-    }
+-    return createCompactLangNode({
+-      lang,
+-      x: 150,
+-      y: 12.5 + 12.5 * index,
+-      totalSize,
+-      index,
+-    });
++      }),
++    );
++    return flexLayout({
++      items,
++      gap: 25,
++      direction: "column",
++    }).join("");
+   });
++
++  const percent = ((longestLang.size / totalSize) * 100).toFixed(2);
++  const minGap = 150;
++  const maxGap = 20 + measureText(`${longestLang.name} ${percent}%`, 11);
++  return flexLayout({
++    items: layouts,
++    gap: maxGap < minGap ? minGap : maxGap,
++  }).join("");
+ };
+
+ /**
+@@ -132,12 +147,14 @@ const renderCompactLayout = (langs, width, totalLanguageSize) => {
+       <rect x="0" y="0" width="${offsetWidth}" height="8" fill="white" rx="5" />
+     </mask>
+     ${compactProgressBar}
+-    ${createLanguageTextNode({
+-      x: 0,
+-      y: 25,
+-      langs,
+-      totalSize: totalLanguageSize,
+-    }).join("")}
++
++    <g transform="translate(0, 25)">
++      ${createLanguageTextNode({
++        langs,
++        totalSize: totalLanguageSize,
++        width,
++      })}
++    </g>
+   `;
+ };
+
+diff --git a/src/common/utils.js b/src/common/utils.js
+--- a/src/common/utils.js
++++ b/src/common/utils.js
+@@ -89,21 +89,26 @@ function request(data, headers) {
+
+ /**
+  *
+- * @param {String[]} items
++ * @param {string[]} items
+  * @param {Number} gap
+- * @param {string} direction
++ * @param {"column" | "row"} direction
++ *
++ * @returns {string[]}
+  *
+  * @description
+  * Auto layout utility, allows us to layout things
+  * vertically or horizontally with proper gaping
+  */
+-function flexLayout({ items, gap, direction }) {
++function flexLayout({ items, gap, direction, sizes = [] }) {
++  let lastSize = 0;
+   // filter() for filtering out empty strings
+   return items.filter(Boolean).map((item, i) => {
+-    let transform = `translate(${gap * i}, 0)`;
++    const size = sizes[i] || 0;
++    let transform = `translate(${lastSize}, 0)`;
+     if (direction === "column") {
+-      transform = `translate(0, ${gap * i})`;
++      transform = `translate(0, ${lastSize})`;
+     }
++    lastSize += size + gap;
+     return `<g transform="${transform}">${item}</g>`;
+   });
+ }
+@@ -232,6 +237,26 @@ function measureText(str, fontSize = 10) {
+ }
+ const lowercaseTrim = (name) => name.toLowerCase().trim();
+
++/**
++ * @template T
++ * @param {Array<T>} arr
++ * @param {number} perChunk
++ * @returns {Array<T>}
++ */
++function chunkArray(arr, perChunk) {
++  return arr.reduce((resultArray, item, index) => {
++    const chunkIndex = Math.floor(index / perChunk);
++
++    if (!resultArray[chunkIndex]) {
++      resultArray[chunkIndex] = []; // start a new chunk
++    }
++
++    resultArray[chunkIndex].push(item);
++
++    return resultArray;
++  }, []);
++}
++
+ module.exports = {
+   renderError,
+   kFormatter,
+@@ -250,4 +275,5 @@ module.exports = {
+   CONSTANTS,
+   CustomError,
+   lowercaseTrim,
++  chunkArray,
+ };
+diff --git a/tests/flexLayout.test.js b/tests/flexLayout.test.js
+new file mode 100644
+--- /dev/null
++++ b/tests/flexLayout.test.js
+@@ -0,0 +1,60 @@
++const { flexLayout } = require("../src/common/utils");
++
++describe("flexLayout", () => {
++  it("should work with row & col layouts", () => {
++    const layout = flexLayout({
++      items: ["<text>1</text>", "<text>2</text>"],
++      gap: 60,
++    });
++
++    expect(layout).toStrictEqual([
++      `<g transform="translate(0, 0)"><text>1</text></g>`,
++      `<g transform="translate(60, 0)"><text>2</text></g>`,
++    ]);
++
++    const columns = flexLayout({
++      items: ["<text>1</text>", "<text>2</text>"],
++      gap: 60,
++      direction: "column",
++    });
++
++    expect(columns).toStrictEqual([
++      `<g transform="translate(0, 0)"><text>1</text></g>`,
++      `<g transform="translate(0, 60)"><text>2</text></g>`,
++    ]);
++  });
++
++  it("should work with sizes", () => {
++    const layout = flexLayout({
++      items: [
++        "<text>1</text>",
++        "<text>2</text>",
++        "<text>3</text>",
++        "<text>4</text>",
++      ],
++      gap: 20,
++      sizes: [200, 100, 55, 25],
++    });
++
++    expect(layout).toStrictEqual([
++      `<g transform="translate(0, 0)"><text>1</text></g>`,
++      `<g transform="translate(220, 0)"><text>2</text></g>`,
++      `<g transform="translate(340, 0)"><text>3</text></g>`,
++      `<g transform="translate(415, 0)"><text>4</text></g>`,
++    ]);
++  });
++
++  it("should work with fewer sizes than items", () => {
++    const layout = flexLayout({
++      items: ["<text>1</text>", "<text>2</text>", "<text>3</text>"],
++      gap: 20,
++      sizes: [100],
++    });
++
++    expect(layout).toStrictEqual([
++      `<g transform="translate(0, 0)"><text>1</text></g>`,
++      `<g transform="translate(120, 0)"><text>2</text></g>`,
++      `<g transform="translate(140, 0)"><text>3</text></g>`,
++    ]);
++  });
++});
+diff --git a/tests/renderRepoCard.test.js b/tests/renderRepoCard.test.js
+--- a/tests/renderRepoCard.test.js
++++ b/tests/renderRepoCard.test.js
+@@ -89,36 +89,6 @@ describe("Test renderRepoCard", () => {
+     );
+   });
+
+-  it("should shift the text position depending on language length", () => {
+-    document.body.innerHTML = renderRepoCard({
+-      ...data_repo.repository,
+-      primaryLanguage: {
+-        ...data_repo.repository.primaryLanguage,
+-        name: "Jupyter Notebook",
+-      },
+-    });
+-
+-    expect(queryByTestId(document.body, "primary-lang")).toBeInTheDocument();
+-    expect(queryByTestId(document.body, "star-fork-group")).toHaveAttribute(
+-      "transform",
+-      "translate(155, 0)",
+-    );
+-
+-    // Small lang
+-    document.body.innerHTML = renderRepoCard({
+-      ...data_repo.repository,
+-      primaryLanguage: {
+-        ...data_repo.repository.primaryLanguage,
+-        name: "Ruby",
+-      },
+-    });
+-
+-    expect(queryByTestId(document.body, "star-fork-group")).toHaveAttribute(
+-      "transform",
+-      "translate(125, 0)",
+-    );
+-  });
+-
+   it("should hide language if primaryLanguage is null & fallback to correct values", () => {
+     document.body.innerHTML = renderRepoCard({
+       ...data_repo.repository,
+diff --git a/tests/utils.test.js b/tests/utils.test.js
+--- a/tests/utils.test.js
++++ b/tests/utils.test.js
+@@ -44,27 +44,6 @@ describe("Test utils.js", () => {
+     ).toHaveTextContent(/Secondary Message/gim);
+   });
+
+-  it("should test flexLayout", () => {
+-    const layout = flexLayout({
+-      items: ["<text>1</text>", "<text>2</text>"],
+-      gap: 60,
+-    }).join("");
+-
+-    expect(layout).toBe(
+-      `<g transform=\"translate(0, 0)\"><text>1</text></g><g transform=\"translate(60, 0)\"><text>2</text></g>`,
+-    );
+-
+-    const columns = flexLayout({
+-      items: ["<text>1</text>", "<text>2</text>"],
+-      gap: 60,
+-      direction: "column",
+-    }).join("");
+-
+-    expect(columns).toBe(
+-      `<g transform=\"translate(0, 0)\"><text>1</text></g><g transform=\"translate(0, 60)\"><text>2</text></g>`,
+-    );
+-  });
+-
+   it("getCardColors: should return expected values", () => {
+     let colors = getCardColors({
+       title_color: "f00",

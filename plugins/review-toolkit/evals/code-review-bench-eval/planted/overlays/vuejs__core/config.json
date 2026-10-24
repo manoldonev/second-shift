@@ -1,0 +1,12 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "core": {
+      "lint": "pnpm lint",
+      "test": "pnpm test run"
+    }
+  }
+}
