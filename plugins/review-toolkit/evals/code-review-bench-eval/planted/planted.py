@@ -776,12 +776,14 @@ async def review_one(case: dict, arm: str, run_no: int, work: Path, clones: Path
         out_path, err_path = Path(r["state"]) / "session.stdout", Path(r["state"]) / "session.stderr"
         base.update(session_stdout=str(out_path), session_stderr=str(err_path))
         started = dt.datetime.now(dt.timezone.utc)
-        with out_path.open("wb") as out_f, err_path.open("wb") as err_f:
+        # The prompt is the session's stdin file, as run.sh gives it: `claude -p` waits only 3 s for piped
+        # stdin, and under a full run's load a pipe written after the spawn can miss that.
+        with Path(r["prompt"]).open("rb") as in_f, out_path.open("wb") as out_f, err_path.open("wb") as err_f:
             proc = await asyncio.create_subprocess_exec(
-                *session_args(arm, r, sid, model), stdin=asyncio.subprocess.PIPE, stdout=out_f, stderr=err_f,
+                *session_args(arm, r, sid, model), stdin=in_f, stdout=out_f, stderr=err_f,
                 cwd=r["checkout"], env=env)
             try:
-                await asyncio.wait_for(proc.communicate(Path(r["prompt"]).read_bytes()), timeout_s)
+                await asyncio.wait_for(proc.wait(), timeout_s)
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()

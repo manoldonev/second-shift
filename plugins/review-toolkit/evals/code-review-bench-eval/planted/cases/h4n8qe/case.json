@@ -1,0 +1,14 @@
+{
+  "upstream": "https://github.com/iamkun/dayjs.git",
+  "instance": "iamkun__dayjs-1414",
+  "license": "MIT",
+  "base": "b1abdc40ee6c9d18ff46c311a114e0755677ea6f",
+  "base_branch": "dev",
+  "overlay": "iamkun__dayjs",
+  "issue": 1363,
+  "pr": 1414,
+  "commit": "fix: the Spanish locales write month names in lowercase",
+  "truth": {
+    "class": "control"
+  }
+}
