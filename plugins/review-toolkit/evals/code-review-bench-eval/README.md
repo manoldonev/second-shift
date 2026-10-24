@@ -129,6 +129,8 @@ REVIEWER_MODEL=<id|alias> JUDGE_MODEL=<id|alias> planted/run.sh --arm lane --cas
 
 A case is `planted/cases/<id>/`: `case.json` (the upstream, its license, the base sha, the issue and
 PR numbers, the commit subject and the ground truth), `ticket.md`, `record.md` and `patch.diff`.
+A ground-truth location is a range `{file, start, end, side}` or a path-level `{file, side}`, and
+at least one range falls inside a hunk of the patch.
 The patch applies to the base after the overlay, and adds the plan at
 `docs/plans/<repo>-<issue>-plan.md`. Its ids are six random characters, because the reviewer sees
 the id in its scratch path and session name. Each overlay under `planted/overlays/` is shared by
@@ -137,4 +139,5 @@ the cases of one upstream. `NOTICE` names each upstream and its license.
 A case configures no test runner, so the lane's fails-without-the-change gate is not-applicable on
 every case; a runner added to an overlay's config makes the recipe run it on the record commit's
 tree, as the lane does. The checkouts, the clones and the per-run state live under the cache dir,
-never in the repo.
+never in the repo. Each review session's stdout and stderr are in `state/session.stdout` and
+`state/session.stderr` beside its checkout.

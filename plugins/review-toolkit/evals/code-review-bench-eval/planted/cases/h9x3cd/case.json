@@ -13,7 +13,7 @@
     "description": "The test that the plan names for AC-2, a custom FormData detected by its toStringTag and its append method, is not in the change, so AC-2 has no test.",
     "locations": [
       {"file": "docs/plans/axios-5659-plan.md", "start": 6, "end": 6, "side": "head"},
-      {"file": "test/unit/utils/utils.js", "start": 25, "end": 43, "side": "head"},
+      {"file": "test/unit/utils/utils.js", "side": "head"},
       {"file": "lib/utils.js", "start": 193, "end": 199, "side": "head"}
     ]
   }

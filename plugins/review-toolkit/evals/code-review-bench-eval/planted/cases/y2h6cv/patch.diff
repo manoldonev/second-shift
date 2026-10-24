@@ -1,0 +1,198 @@
+diff --git a/docs/plans/github-readme-stats-1548-plan.md b/docs/plans/github-readme-stats-1548-plan.md
+new file mode 100644
+index 0000000..8b5cdc5
+--- /dev/null
++++ b/docs/plans/github-readme-stats-1548-plan.md
+@@ -0,0 +1,11 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 With merge_others and more languages than langs_count, the card shows langs_count - 1 languages and Others (tests/renderTopLanguages.test.js) [AC-1]
++- [ ] 1.2 With merge_others and no more languages than langs_count, the card shows every language and no Others (tests/renderTopLanguages.test.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 useLanguages merges the languages past langs_count - 1 into Others when merge_others is set (src/cards/top-languages-card.js)
++- [ ] 2.2 Add merge_others to the top languages options type and the readme (src/cards/types.d.ts, readme.md)
+diff --git a/readme.md b/readme.md
+index 678c5c0..697b053 100644
+--- a/readme.md
++++ b/readme.md
+@@ -304,6 +304,7 @@ You can provide multiple comma-separated values in the bg_color option to render
+ -   `langs_count` - Show more languages on the card, between 1-10 _(number)_. Default `5`.
+ -   `exclude_repo` - Exclude specified repositories _(Comma-separated values)_. Default: `[] (blank array)`.
+ -   `custom_title` - Sets a custom title for the card _(string)_. Default `Most Used Languages`.
++-   `merge_others` - Shows an "Other" percentage when limiting the amount of languages _(boolean)_. Default: `false`.
+ -   `disable_animations` - Disables all animations in the card _(boolean)_. Default: `false`.
+
+ > **Warning**
+diff --git a/src/cards/top-languages-card.js b/src/cards/top-languages-card.js
+index 9396ff8..84f8559 100644
+--- a/src/cards/top-languages-card.js
++++ b/src/cards/top-languages-card.js
+@@ -233,11 +233,12 @@ const calculateNormalLayoutHeight = (totalLangs) => {
+  * @param {Record<string, Lang>} topLangs Top languages.
+  * @param {string[]} hide Languages to hide.
+  * @param {string} langs_count Number of languages to show.
++ * @param {boolean} merge_others Merge the rest of the languages into "Others" category.
+  */
+-const useLanguages = (topLangs, hide, langs_count) => {
++const useLanguages = (topLangs, hide, langs_count, merge_others) => {
+   let langs = Object.values(topLangs);
+   let langsToHide = {};
+-  let langsCount = clampValue(parseInt(langs_count), 1, 10);
++  let langsCountClamped = clampValue(parseInt(langs_count), 1, 10);
+
+   // populate langsToHide map for quick lookup
+   // while filtering out
+@@ -252,8 +253,23 @@ const useLanguages = (topLangs, hide, langs_count) => {
+     .sort((a, b) => b.size - a.size)
+     .filter((lang) => {
+       return !langsToHide[lowercaseTrim(lang.name)];
+-    })
+-    .slice(0, langsCount);
++    });
++
++  if (merge_others && langs.length > langsCountClamped) {
++    // Return 'langs_count' -1 top languages and merge the rest of the languages into "others" category.
++    const others = langs.splice(langsCountClamped - 1);
++    const othersSize = others.reduce((accumulator, object) => {
++      return accumulator + object.size;
++    }, 0);
++    langs.push({
++      name: "Others",
++      color: "#9E9F9E",
++      size: othersSize,
++    });
++  } else {
++    // Return 'langs_count' top languages.
++    langs = langs.slice(0, langsCountClamped);
++  }
+
+   const totalLanguageSize = langs.reduce((acc, curr) => acc + curr.size, 0);
+
+@@ -283,6 +299,7 @@ const renderTopLanguages = (topLangs, options = {}) => {
+     langs_count = DEFAULT_LANGS_COUNT,
+     border_radius,
+     border_color,
++    merge_others,
+     disable_animations,
+   } = options;
+
+@@ -295,6 +312,7 @@ const renderTopLanguages = (topLangs, options = {}) => {
+     topLangs,
+     hide,
+     String(langs_count),
++    merge_others,
+   );
+
+   let width = isNaN(card_width)
+diff --git a/src/cards/types.d.ts b/src/cards/types.d.ts
+index c5945d4..80f8b42 100644
+--- a/src/cards/types.d.ts
++++ b/src/cards/types.d.ts
+@@ -37,6 +37,7 @@ export type TopLangOptions = CommonOptions & {
+   layout: "compact" | "normal";
+   custom_title: string;
+   langs_count: number;
++  merge_others: boolean;
+   disable_animations: boolean;
+ };
+
+diff --git a/tests/renderTopLanguages.test.js b/tests/renderTopLanguages.test.js
+index 8ae4bbd..f79f9da 100644
+--- a/tests/renderTopLanguages.test.js
++++ b/tests/renderTopLanguages.test.js
+@@ -58,6 +58,91 @@ describe("Test renderTopLanguages", () => {
+     );
+   });
+
++  it("should merge others when langs is more than langs_count", () => {
++    document.body.innerHTML = renderTopLanguages(
++      {
++        ...langs,
++        python: {
++          color: "#ff0",
++          name: "python",
++          size: 100,
++        },
++      },
++      {
++        langs_count: 3,
++        merge_others: true,
++      },
++    );
++
++    expect(queryAllByTestId(document.body, "lang-name")[0]).toHaveTextContent(
++      "HTML",
++    );
++    expect(queryAllByTestId(document.body, "lang-name")[1]).toHaveTextContent(
++      "javascript",
++    );
++    expect(queryAllByTestId(document.body, "lang-name")[2]).toHaveTextContent(
++      "Others",
++    );
++    expect(queryAllByTestId(document.body, "lang-progress")[0]).toHaveAttribute(
++      "width",
++      "33.33%",
++    );
++    expect(queryAllByTestId(document.body, "lang-progress")[1]).toHaveAttribute(
++      "width",
++      "33.33%",
++    );
++    expect(queryAllByTestId(document.body, "lang-progress")[2]).toHaveAttribute(
++      "width",
++      "33.33%",
++    );
++  });
++
++  it("shouldn't merge others when langs is less than langs_count", () => {
++    document.body.innerHTML = renderTopLanguages(
++      {
++        ...langs,
++        python: {
++          color: "#ff0",
++          name: "python",
++          size: 100,
++        },
++      },
++      {
++        langs_count: 4,
++        merge_others: true,
++      },
++    );
++
++    expect(queryAllByTestId(document.body, "lang-name")[0]).toHaveTextContent(
++      "HTML",
++    );
++    expect(queryAllByTestId(document.body, "lang-name")[1]).toHaveTextContent(
++      "javascript",
++    );
++    expect(queryAllByTestId(document.body, "lang-name")[2]).toHaveTextContent(
++      "css",
++    );
++    expect(queryAllByTestId(document.body, "lang-name")[3]).toHaveTextContent(
++      "python",
++    );
++    expect(queryAllByTestId(document.body, "lang-progress")[0]).toHaveAttribute(
++      "width",
++      "33.33%",
++    );
++    expect(queryAllByTestId(document.body, "lang-progress")[1]).toHaveAttribute(
++      "width",
++      "33.33%",
++    );
++    expect(queryAllByTestId(document.body, "lang-progress")[2]).toHaveAttribute(
++      "width",
++      "16.67%",
++    );
++    expect(queryAllByTestId(document.body, "lang-progress")[3]).toHaveAttribute(
++      "width",
++      "16.67%",
++    );
++  });
++
+   it("should hide languages when hide is passed", () => {
+     document.body.innerHTML = renderTopLanguages(langs, {
+       hide: ["HTML"],

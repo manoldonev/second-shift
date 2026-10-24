@@ -1,0 +1,65 @@
+diff --git a/docs/plans/dayjs-1205-plan.md b/docs/plans/dayjs-1205-plan.md
+new file mode 100644
+index 0000000..539d1a4
+--- /dev/null
++++ b/docs/plans/dayjs-1205-plan.md
+@@ -0,0 +1,10 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 '2020-12-01T20:00:00+09' parses with ZZ to the same time as Moment.js (test/plugin/customParseFormat.test.js) [AC-1]
++- [ ] 1.2 An offset in the input is ignored when the format has no zone token, as in Moment.js (test/plugin/customParseFormat.test.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Make the minutes of the zone offset optional, and read missing minutes as 0 (src/plugin/customParseFormat/index.js)
+diff --git a/src/plugin/customParseFormat/index.js b/src/plugin/customParseFormat/index.js
+index 940bb43..f2eabb2 100644
+--- a/src/plugin/customParseFormat/index.js
++++ b/src/plugin/customParseFormat/index.js
+@@ -8,14 +8,15 @@ const match3 = /\d{3}/ // 000 - 999
+ const match4 = /\d{4}/ // 0000 - 9999
+ const match1to2 = /\d\d?/ // 0 - 99
+ const matchSigned = /[+-]?\d+/ // -inf - inf
+-const matchOffset = /[+-]\d\d:?\d\d/ // +00:00 -00:00 +0000 or -0000
++const matchOffset = /[+-]\d\d:?(\d\d)?/ // +00:00 -00:00 +0000 or -0000 +00
+ const matchWord = /\d*[^\s\d-:/()]+/ // Word
+
+ let locale
+
+ function offsetFromString(string) {
++  if (!string) return 0
+   const parts = string.match(/([+-]|\d\d)/g)
+-  const minutes = +(parts[1] * 60) + +parts[2]
++  const minutes = +(parts[1] * 60) + (+parts[2] || 0)
+   return minutes === 0 ? 0 : parts[0] === '+' ? -minutes : minutes // eslint-disable-line no-nested-ternary
+ }
+
+diff --git a/test/plugin/customParseFormat.test.js b/test/plugin/customParseFormat.test.js
+index 03b446a..ef8bfd6 100644
+--- a/test/plugin/customParseFormat.test.js
++++ b/test/plugin/customParseFormat.test.js
+@@ -101,6 +101,22 @@ it('timezone with no hour', () => {
+   expect(dayjs(input, format).valueOf()).toBe(moment(input, format).valueOf())
+ })
+
++describe('Timezone Offset', () => {
++  it('timezone with 2-digit offset', () => {
++    const input = '2020-12-01T20:00:00+09'
++    const format = 'YYYY-MM-DD[T]HH:mm:ssZZ'
++    const result = dayjs(input, format)
++    expect(result.valueOf()).toBe(moment(input, format).valueOf())
++    expect(result.valueOf()).toBe(1606820400000)
++  })
++  it('no timezone format token should parse in local time', () => {
++    const input = '2020-12-01T20:00:00+01:00'
++    const format = 'YYYY-MM-DD[T]HH:mm:ss'
++    const result = dayjs(input, format)
++    expect(result.valueOf()).toBe(moment(input, format).valueOf())
++  })
++})
++
+ it('parse hh:mm', () => {
+   const input = '12:00'
+   const format = 'hh:mm'

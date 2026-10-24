@@ -125,6 +125,11 @@ mkdir -p "$T/fakebin"
 cat > "$T/fakebin/claude" <<'EOF'
 #!/usr/bin/env bash
 prompt="$(cat)"
+echo "fake claude: read a prompt of ${#prompt} bytes" >&2
+if [ -n "${FAKE_HANG:-}" ]; then
+  echo '{"type": "system", "subtype": "init"}'
+  exec sleep 60
+fi
 if grep -q '^You review PR #' <<<"$prompt"; then
   d="$(mktemp -d)"
   printf 'verdict: approve\nreviewed: %s\n\n## Summary\nMergeable as it is.\nNothing to do.\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n| D-1 | honored | src/sum.sh:1 adds its arguments. |\n\n## Findings\n\nNone.\n' "$(git rev-parse HEAD)" > "$d/v.md"
@@ -142,6 +147,19 @@ PATH="$T/fakebin:$PATH" py review --case abc123 --arm lane --dest "$T/rv-lane" -
 PATH="$T/fakebin:$PATH" py review --case abc123 --arm plain --dest "$T/rv-plain" --clones "$T/clones" --reviewer-model fake --no-bench > "$T/rv-plain.json" 2> "$T/rv-plain.err"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(field "$T/rv-plain.json" status)" = ok ] && [ "$(field "$T/rv-plain.json" findings 0 path)" = src/sum.sh ] && [ "$(field "$T/rv-plain.json" findings 0 line)" = 1 ] \
   && ok "plain's verdict file is read: one [blocker] at src/sum.sh:1" || bad "plain review: rc=$rc $(head -c 600 "$T/rv-plain.json") $(tail -n 3 "$T/rv-plain.err")"
+
+echo "== the session's output is kept =="
+S="$T/rv-lane/work/state"
+[ "$(field "$T/rv-lane.json" session_stdout)" = "$S/session.stdout" ] && [ "$(field "$T/rv-lane.json" session_stderr)" = "$S/session.stderr" ] \
+  && ok "the record names the session's stdout and stderr files under state/" || bad "record paths: $(field "$T/rv-lane.json" session_stdout) $(field "$T/rv-lane.json" session_stderr)"
+grep -qF '"total_cost_usd": 0.5' "$S/session.stdout" 2>/dev/null && grep -q '^fake claude: read a prompt of [0-9]* bytes$' "$S/session.stderr" 2>/dev/null \
+  && ok "the session's stdout and stderr land in state/session.stdout and state/session.stderr" || bad "session files: $(head -c 200 "$S/session.stdout" 2>&1) | $(head -c 200 "$S/session.stderr" 2>&1)"
+FAKE_HANG=1 PATH="$T/fakebin:$PATH" py review --case abc123 --arm plain --dest "$T/rv-hang" --clones "$T/clones" --reviewer-model fake --reviewer-timeout-s 3 --no-bench > "$T/rv-hang.json" 2> "$T/rv-hang.err"; rc=$?
+H="$T/rv-hang/work/state"
+[ "$rc" -eq 0 ] && [ "$(field "$T/rv-hang.json" status)" = timeout ] && [ "$(field "$T/rv-hang.json" session_stdout)" = "$H/session.stdout" ] && [ "$(field "$T/rv-hang.json" session_stderr)" = "$H/session.stderr" ] \
+  && ok "a session that outlives its timeout is a timeout, and its record names both files" || bad "hang: rc=$rc $(head -c 600 "$T/rv-hang.json") $(tail -n 3 "$T/rv-hang.err")"
+grep -qxF '{"type": "system", "subtype": "init"}' "$H/session.stdout" 2>/dev/null && grep -q '^fake claude: read a prompt' "$H/session.stderr" 2>/dev/null \
+  && ok "a timed-out session keeps what it wrote before the kill" || bad "hang files: $(head -c 200 "$H/session.stdout" 2>&1) | $(head -c 200 "$H/session.stderr" 2>&1)"
 
 echo "render-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

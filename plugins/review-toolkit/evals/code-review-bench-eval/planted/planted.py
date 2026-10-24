@@ -64,6 +64,7 @@ REVIEW_MAX_TURNS = 300
 DISALLOWED = "AskUserQuestion,EnterWorktree,ExitWorktree"
 FINDING_RE = re.compile(r"^- \[(blocker|note)\] ([BN]\d+) ?(.*)$")
 LOC_RE = re.compile(r"([A-Za-z0-9_@./\[\]-]+\.[A-Za-z0-9]+):(\d+)(?:\s*[-–]\s*(\d+))?")
+BARE_PATH_RE = re.compile(r"[A-Za-z0-9_@.\[\]-]*(?:/[A-Za-z0-9_@.\[\]-]+)*/[A-Za-z0-9_@\[\]-][A-Za-z0-9_@.\[\]-]*\.[A-Za-z0-9]+")
 
 
 class BuildError(RuntimeError):
@@ -181,6 +182,10 @@ def markers_in(text: str, truth: dict | None = None) -> list[str]:
     return hits
 
 
+def path_level(loc: dict) -> bool:
+    return "start" not in loc and "end" not in loc
+
+
 def check_case(case: dict, root: Path) -> list[str]:
     p, cid, d = [], case["id"], case["dir"]
 
@@ -273,14 +278,18 @@ def check_case(case: dict, root: Path) -> list[str]:
             bad("truth has no locations")
         hit = False
         for loc in locs:
-            if loc.get("side") not in ("head", "base") or not isinstance(loc.get("start"), int) \
-                    or not isinstance(loc.get("end"), int) or not 1 <= loc["start"] <= loc["end"] or not loc.get("file"):
-                bad(f"truth location {loc} is not {{file, start <= end, side: head|base}}")
+            if loc.get("side") not in ("head", "base") or not loc.get("file"):
+                bad(f"truth location {loc} is not {{file, side: head|base}} with an optional start <= end")
+                continue
+            if path_level(loc):
+                continue
+            if not isinstance(loc.get("start"), int) or not isinstance(loc.get("end"), int) or not 1 <= loc["start"] <= loc["end"]:
+                bad(f"truth location {loc} is not {{file, side: head|base}} with an optional start <= end")
                 continue
             lines = {n for s, n in touched.get(loc["file"], []) if s == loc["side"]}
             hit = hit or any(loc["start"] <= n <= loc["end"] for n in lines)
         if locs and not hit:
-            bad("no truth location falls inside a hunk of the patch")
+            bad("no ranged truth location falls inside a hunk of the patch")
         if cls == "P2":
             if truth.get("row") not in rows:
                 bad(f"truth.row {truth.get('row')!r} is not a D-n row of the record")
@@ -514,6 +523,14 @@ def parse_arm(path: Path) -> dict:
 
 # --- a verdict -------------------------------------------------------------------------------
 
+def bare_path(first: str) -> str | None:
+    for tok in first.split():
+        tok = tok.replace("`", "").rstrip(".,:;)")
+        if BARE_PATH_RE.fullmatch(tok):
+            return tok
+    return None
+
+
 def parse_verdict(text: str) -> dict:
     lines = text.replace("\r", "").split("\n")
     m = re.match(r"^verdict: (approve|needs-work)\s*$", lines[0] if lines else "")
@@ -534,9 +551,10 @@ def parse_verdict(text: str) -> dict:
             if f:
                 first = re.sub(r"^\[[^\]]+\]\s*", "", f[3])
                 loc = LOC_RE.search(first)
+                path = loc[1] if loc else bare_path(first)
                 v["findings"].append({
                     "severity": f[1], "id": f[2], "text": f[3].strip(),
-                    "path": loc[1].removeprefix("./") if loc else None, "line": int(loc[2]) if loc else None,
+                    "path": path.removeprefix("./") if path else None, "line": int(loc[2]) if loc else None,
                     "end": int(loc[3]) if loc and loc[3] else (int(loc[2]) if loc else None)})
             elif line.startswith("  ") and v["findings"]:
                 v["findings"][-1]["text"] += " " + line.strip()
@@ -577,18 +595,29 @@ def path_matches(found: str | None, want: str) -> bool:
 
 def in_range(finding: dict, truth: dict) -> bool:
     for loc in truth.get("locations") or []:
-        if finding.get("line") is None or not path_matches(finding.get("path"), loc["file"]):
+        if not path_matches(finding.get("path"), loc["file"]):
             continue
-        if finding["line"] <= loc["end"] + WINDOW and finding["end"] >= loc["start"] - WINDOW:
+        if path_level(loc):
+            return True
+        if finding.get("line") is not None and finding["line"] <= loc["end"] + WINDOW and finding["end"] >= loc["start"] - WINDOW:
             return True
     return False
 
 
+def judged(finding: dict, truth: dict) -> bool:
+    if in_range(finding, truth):
+        return True
+    return finding["severity"] == "blocker" and finding.get("path") is None \
+        and any(path_level(loc) for loc in truth.get("locations") or [])
+
+
 async def judge_findings(truth: dict, review: dict, judge) -> dict[str, bool]:
-    """The judge runs on a finding only when its path:line falls inside a planted range, within the window."""
+    """The judge runs on a finding only when its path:line falls inside a planted range, within the window,
+    or its path names a path-level location's file. On a case with a path-level location, a [blocker] that
+    names no path goes to the judge too."""
     if truth["class"] == CONTROL:
         return {}
-    picks = [f for f in review.get("findings", []) if in_range(f, truth)]
+    picks = [f for f in review.get("findings", []) if judged(f, truth)]
     verdicts = await asyncio.gather(*(judge(truth["description"], f["text"]) for f in picks))
     return {f["id"]: bool(ok) for f, ok in zip(picks, verdicts)}
 
@@ -744,15 +773,20 @@ async def review_one(case: dict, arm: str, run_no: int, work: Path, clones: Path
         if arm == "lane":
             env.update(PATH=f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", GH_LOCAL_DIR=r["ghdir"],
                        SECOND_SHIFT_CONFIG=str(Path(r["scratch"]) / "second-shift.config.json"))
+        out_path, err_path = Path(r["state"]) / "session.stdout", Path(r["state"]) / "session.stderr"
+        base.update(session_stdout=str(out_path), session_stderr=str(err_path))
         started = dt.datetime.now(dt.timezone.utc)
-        proc = await asyncio.create_subprocess_exec(
-            *session_args(arm, r, sid, model), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, cwd=r["checkout"], env=env)
-        try:
-            stdout, _err = await asyncio.wait_for(proc.communicate(Path(r["prompt"]).read_bytes()), timeout_s)
-        except asyncio.TimeoutError:
-            proc.kill()
-            return {**base, "status": "timeout", "session": sid}
+        with out_path.open("wb") as out_f, err_path.open("wb") as err_f:
+            proc = await asyncio.create_subprocess_exec(
+                *session_args(arm, r, sid, model), stdin=asyncio.subprocess.PIPE, stdout=out_f, stderr=err_f,
+                cwd=r["checkout"], env=env)
+            try:
+                await asyncio.wait_for(proc.communicate(Path(r["prompt"]).read_bytes()), timeout_s)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return {**base, "status": "timeout", "session": sid}
+        stdout = out_path.read_bytes()
         wall = round((dt.datetime.now(dt.timezone.utc) - started).total_seconds())
         envelope = {}
         if bench:
@@ -925,7 +959,7 @@ def cmd_score(args) -> int:
     asyncio.run(score_records(cases, records, judge))
     arms = tally(cases, records)
     g = gate(arms)
-    print(json.dumps({"records": [{k: r.get(k) for k in ("arm", "case", "run", "status", "problems", "score")} for r in records],
+    print(json.dumps({"records": [{k: r.get(k) for k in ("arm", "case", "run", "status", "problems", "findings", "score")} for r in records],
                       "arms": arms, "gate": g, "judge_calls": calls}, indent=1))
     print(report(cases, arms, g), file=sys.stderr)
     return 0
@@ -959,6 +993,10 @@ def cmd_verify(args) -> int:
             rc = 1
         for loc in truth.get("locations") or []:
             rev = b["head"] if loc["side"] == "head" else b["base"]
+            if path_level(loc):
+                held = git(["ls-tree", "--name-only", rev, "--", loc["file"]], cwd=Path(b["checkout"]), check=False)
+                print(f"--- {loc['side']} {loc['file']}, the whole file{'' if held else ', which the ' + loc['side'] + ' does not hold'}")
+                continue
             text = git(["show", f"{rev}:{loc['file']}"], cwd=Path(b["checkout"]), check=False).split("\n")
             print(f"--- {loc['side']} {loc['file']}:{loc['start']}-{loc['end']}")
             for n in range(loc["start"], loc["end"] + 1):
