@@ -4,6 +4,168 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.7.0
+
+### `dev-pipeline` 17.6.0 → 17.7.0
+
+- **feat(dev-pipeline): the lane review reviews the diff itself, in one session (#1108)** (#1108)
+  the lane's review session reviews the PR diff itself, in one
+  session, against the ticket and the decision record, instead of running
+  review-lead and its reviewer panel. It reads the ticket itself, writes the
+  knowledge-base contributions block itself, and dispatches only the
+  design-fidelity reviewer on a record with design frames. A review that
+  cannot read the ticket or dispatch that reviewer ends the run as
+  env-not-ready (reason: ticket-unreadable, reason: seat-unavailable). The
+  code-review bench gains a lane-review arm, and the release checklist names it.
+  Migration: on the lane, the config keys reviewers.add, reviewers.remove,
+  reviewers.default and reviewers.webComponentGlobs become no-ops; the ad hoc
+  /review-toolkit:review-lead still reads them. Per-reviewer files under
+  .claude/second-shift/review-context/ are not read on the lane.
+- **feat: deprecate reviewers.default and describe the one-session lane review (#1110)** (#1110)
+  reviewers.default is deprecated. The config grill warns, in
+  /second-shift:doctor and /second-shift:onboard, when a config sets it,
+  and the commit hook no longer rejects an unknown name in it. Intake no
+  longer asks for a review panel record row. Doctor's upgrade-skew check
+  fails on a review-toolkit that lacks workflows/intake-fanout.mjs or
+  workflows/intake-review.mjs while intake-toolkit is enabled, and no
+  longer requires workflows/code-review.mjs. The docs describe the lane's
+  review as one session.
+  Migration: delete reviewers.default from the config; it is still valid
+  and nothing reads it.
+- **fix(dev-pipeline): an AC with no proving test is a completeness finding that can block (#1112)** (#1112)
+  the lane review treats an acceptance criterion with no proving test
+  as a completeness finding that can block the merge, not as a test-coverage
+  note.
+  Migration: none.
+- **feat(dev-pipeline): the build's permission hook allows chmod +x on worktree files (#1114)** (#1114)
+  a lane build can make a file it adds executable with `chmod +x`,
+  and the run reaches the review instead of stopping at build-inflight.
+  Migration: none.
+- **feat(dev-pipeline): the lane review reads the record after its code review and blocks on breaks of existing callers or data (#1129)** (#1129)
+  the lane review reviews the code from the ticket alone before it
+  opens the decision record. A record row no longer dismisses or downgrades
+  a code finding, and a finding that breaks an existing caller or existing
+  data is a blocker unless the ticket or a user-answered row accepts that
+  exact case. The review also reports maintainability, test-coverage and
+  convention notes. Planted-corpus lane rows recorded before this change
+  used the one-pass prompt.
+  Migration: none.
+
+### `intake-toolkit` 8.4.1 → 8.5.0
+
+- **feat: deprecate reviewers.default and describe the one-session lane review (#1110)** (#1110)
+  reviewers.default is deprecated. The config grill warns, in
+  /second-shift:doctor and /second-shift:onboard, when a config sets it,
+  and the commit hook no longer rejects an unknown name in it. Intake no
+  longer asks for a review panel record row. Doctor's upgrade-skew check
+  fails on a review-toolkit that lacks workflows/intake-fanout.mjs or
+  workflows/intake-review.mjs while intake-toolkit is enabled, and no
+  longer requires workflows/code-review.mjs. The docs describe the lane's
+  review as one session.
+  Migration: delete reviewers.default from the config; it is still valid
+  and nothing reads it.
+
+### `review-toolkit` 11.2.0 → 11.3.0
+
+- **feat(review-toolkit): a rerunnable code-review benchmark (#1100)** (#1100)
+  review-toolkit ships code-review-bench-eval, an operator-run harness
+  that scores a reviewer on a vendored public PR set with known bugs and appends
+  precision/recall/F1 rows to its changelog; the release checklist asks for a
+  row before a model default changes. Migration: none.
+  a code-review-bench arm can measure the checkout's own plugin
+  (`plugin-dir`); the row records `src=checkout|installed`. Migration: none.
+  code-review-bench's blindness scan no longer voids a run for the
+  content of a file the reviewer wrote; `--rescore <results-*.json>` re-judges
+  a prior run without new reviews. Migration: none.
+  code-review-bench treats a judge call without a verdict as a failed
+  run, never as a miss. Migration: none.
+  code-review-bench takes `--installed` to measure the installed
+  plugin with an arm that otherwise loads the checkout. Migration: none.
+- **feat(dev-pipeline): the lane review reviews the diff itself, in one session (#1108)** (#1108)
+  the lane's review session reviews the PR diff itself, in one
+  session, against the ticket and the decision record, instead of running
+  review-lead and its reviewer panel. It reads the ticket itself, writes the
+  knowledge-base contributions block itself, and dispatches only the
+  design-fidelity reviewer on a record with design frames. A review that
+  cannot read the ticket or dispatch that reviewer ends the run as
+  env-not-ready (reason: ticket-unreadable, reason: seat-unavailable). The
+  code-review bench gains a lane-review arm, and the release checklist names it.
+  Migration: on the lane, the config keys reviewers.add, reviewers.remove,
+  reviewers.default and reviewers.webComponentGlobs become no-ops; the ad hoc
+  /review-toolkit:review-lead still reads them. Per-reviewer files under
+  .claude/second-shift/review-context/ are not read on the lane.
+- **feat: deprecate reviewers.default and describe the one-session lane review (#1110)** (#1110)
+  reviewers.default is deprecated. The config grill warns, in
+  /second-shift:doctor and /second-shift:onboard, when a config sets it,
+  and the commit hook no longer rejects an unknown name in it. Intake no
+  longer asks for a review panel record row. Doctor's upgrade-skew check
+  fails on a review-toolkit that lacks workflows/intake-fanout.mjs or
+  workflows/intake-review.mjs while intake-toolkit is enabled, and no
+  longer requires workflows/code-review.mjs. The docs describe the lane's
+  review as one session.
+  Migration: delete reviewers.default from the config; it is still valid
+  and nothing reads it.
+- **feat(review-toolkit): a planted-defect corpus measures the lane review against a plain review (#1113)** (#1113)
+  the code-review bench gains a planted mode
+  (evals/code-review-bench-eval/planted/): 25 planted-defect cases on real
+  upstream fixes and an operator-run recipe that scores the lane's review
+  against a plain review with the ticket. CI runs only its model-free
+  selftests.
+  Migration: none.
+- **chore(review-toolkit): record the first planted-corpus baseline rows (#1116)** (#1116)
+- **fix(review-toolkit): the planted corpus judges path-only findings and drops its unclean controls (#1117)** (#1117)
+  the planted mode of the code-review bench judges a path-only finding against a
+  path-level truth location, replaces two unclean controls, adds four P1 cases, and keeps each
+  review session's stdout and stderr under its run directory.
+  Migration: none.
+- **chore(review-toolkit): record the planted-corpus rerun rows (#1118)** (#1118)
+- **fix(review-toolkit): the planted recipe gives each session its prompt as a file, and replaces an unclean control (#1120)** (#1120)
+  the planted mode of the code-review bench gives each review session its prompt as a
+  stdin file, so no session starts without one, and replaces a control whose fix had a defect.
+  Migration: none.
+- **feat(review-toolkit): the planted corpus gains six hard P4 cases and checks their size, distraction and pattern (#1123)** (#1123)
+  the planted corpus holds ten P4 cases across four caller-breakage
+  patterns, and `planted.py check` enforces a size floor, a distraction and a
+  `truth.pattern` on every case outside the 29 frozen ids.
+  Migration: none.
+- **feat(review-toolkit): the planted corpus gains review-hard and runner P1 cases and caps each upstream at 40% (#1125)** (#1125)
+  the planted bench corpus grows to 43 cases with eight P1 cases,
+  four of them runner cases that exercise the lane's fails-without-the-change
+  gate; `planted.py check` caps every upstream at 40% of the corpus and checks
+  each runner case's jest-json runner, and `planted.py verify` installs a
+  runner case's dependencies with npm and passes it only on its expected stop.
+  Migration: none.
+- **feat(dev-pipeline): the lane review reads the record after its code review and blocks on breaks of existing callers or data (#1129)** (#1129)
+  the lane review reviews the code from the ticket alone before it
+  opens the decision record. A record row no longer dismisses or downgrades
+  a code finding, and a finding that breaks an existing caller or existing
+  data is a blocker unless the ticket or a user-answered row accepts that
+  exact case. The review also reports maintainability, test-coverage and
+  convention notes. Planted-corpus lane rows recorded before this change
+  used the one-pass prompt.
+  Migration: none.
+- **chore(review-toolkit): record the planted-corpus rerun on the 43-case corpus (#1130)** (#1130)
+- **fix(review-toolkit): the planted selftests skip their lane assertions where dev-pipeline is not beside review-toolkit (#1131)** (#1131)
+  the planted bench's selftests run every assertion that needs no
+  dev-pipeline, then exit 77 with a SKIP line when dev-pipeline's run.sh and
+  tools are not beside review-toolkit, as in an installed plugin cache.
+  `planted.py check` skips the runner cases' plan-tag rule there and says so.
+  Migration: none.
+
+### `second-shift` 13.3.0 → 13.4.0
+
+- **feat: deprecate reviewers.default and describe the one-session lane review (#1110)** (#1110)
+  reviewers.default is deprecated. The config grill warns, in
+  /second-shift:doctor and /second-shift:onboard, when a config sets it,
+  and the commit hook no longer rejects an unknown name in it. Intake no
+  longer asks for a review panel record row. Doctor's upgrade-skew check
+  fails on a review-toolkit that lacks workflows/intake-fanout.mjs or
+  workflows/intake-review.mjs while intake-toolkit is enabled, and no
+  longer requires workflows/code-review.mjs. The docs describe the lane's
+  review as one session.
+  Migration: delete reviewers.default from the config; it is still valid
+  and nothing reads it.
+
 ## v17.6.0
 
 ### `design-toolkit` 8.2.0 → 8.3.0
