@@ -1,0 +1,24 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-2075",
+  "license": "MIT",
+  "base": "60012707c7eaa51fd0377ce8ae46da6ebad24342",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats",
+  "issue": 2055,
+  "pr": 2075,
+  "commit": "feat: allow users to pass ring_color param",
+  "truth": {
+    "class": "P4",
+    "pattern": "rejects-held-input",
+    "description": "The rewritten isValidHexColor no longer accepts eight-digit colors, and every card passes its stored theme back through getCardColors, so the transparent theme's ffffff00 background now falls back to the default opaque fill on the stats, repo, language and WakaTime cards.",
+    "locations": [
+      {"file": "src/common/utils.js", "start": 71, "end": 73, "side": "head"},
+      {"file": "themes/index.js", "start": 15, "end": 19, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/cards/stats-card.js", "start": 108, "end": 112, "side": "head",
+     "why": "getCardColors takes one options object and the card reads its result by name, so the new order of the keys changes no color."}
+  ]
+}

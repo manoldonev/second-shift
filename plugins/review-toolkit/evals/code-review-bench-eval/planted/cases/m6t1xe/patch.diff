@@ -1,0 +1,145 @@
+diff --git a/docs/plans/core-10929-plan.md b/docs/plans/core-10929-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/core-10929-plan.md
+@@ -0,0 +1,9 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A radio group re-renders each radio's checked prop after a change event (packages/runtime-core/__tests__/rendererComponent.spec.ts) [AC-1] [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Set checked after the other props on mount, and force it on every patch, as value is (packages/runtime-core/src/renderer.ts)
+diff --git a/packages/runtime-core/__tests__/rendererComponent.spec.ts b/packages/runtime-core/__tests__/rendererComponent.spec.ts
+--- a/packages/runtime-core/__tests__/rendererComponent.spec.ts
++++ b/packages/runtime-core/__tests__/rendererComponent.spec.ts
+@@ -1,4 +1,5 @@
+ import {
++  Fragment,
+   type Ref,
+   type SetupContext,
+   type VNode,
+@@ -375,4 +376,71 @@ describe('renderer: component', () => {
+       `Property '$attrs' was accessed via 'this'. Avoid using 'this' in templates.`,
+     ).toHaveBeenWarned()
+   })
++
++  // #10929
++  it('Render a radio button group with a checked prop and an onChange event', async () => {
++    const values = ['foo', 'bar'] as const
++    type RadioValue = (typeof values)[number]
++    const checked = ref<RadioValue>('foo')
++    const options = ref<RadioValue[]>(['foo', 'bar'])
++
++    const type = 'radio'
++    const name = 'test'
++
++    function onChange(val: RadioValue) {
++      checked.value = val
++    }
++
++    const Comp = {
++      setup() {
++        watch(checked, (n, o) => {
++          swapOptions(n, o)
++        })
++
++        function swapOptions(v1: RadioValue, v2: RadioValue) {
++          options.value = swap(
++            [...options.value],
++            options.value.findIndex(item => item === v1),
++            options.value.findIndex(item => item === v2),
++          )
++        }
++
++        function swap(arr: RadioValue[], i1: number, i2: number) {
++          ;[arr[i2], arr[i1]] = [arr[i1], arr[i2]]
++          return arr
++        }
++
++        return () => {
++          return h(Fragment, null, [
++            h('input', {
++              type,
++              name,
++              checked: options.value[0] === checked.value,
++              value: options.value[0],
++              onChange: () => onChange(options.value[0]),
++            }),
++            h('input', {
++              type,
++              name,
++              checked: options.value[1] === checked.value,
++              value: options.value[1],
++              onChange: () => onChange(options.value[0]),
++            }),
++          ])
++        }
++      },
++    }
++
++    const root = nodeOps.createElement('div')
++    render(h(Comp), root)
++    expect(serializeInner(root)).toBe(
++      `<input type="radio" name="test" value="foo" checked=true></input><input type="radio" name="test" value="bar" checked=false></input>`,
++    )
++
++    onChange('bar')
++    await nextTick()
++    expect(serializeInner(root)).toBe(
++      `<input type="radio" name="test" value="bar" checked=true></input><input type="radio" name="test" value="foo" checked=false></input>`,
++    )
++  })
+ })
+diff --git a/packages/runtime-core/src/renderer.ts b/packages/runtime-core/src/renderer.ts
+--- a/packages/runtime-core/src/renderer.ts
++++ b/packages/runtime-core/src/renderer.ts
+@@ -665,7 +665,7 @@ function baseCreateRenderer(
+     // props
+     if (props) {
+       for (const key in props) {
+-        if (key !== 'value' && !isReservedProp(key)) {
++        if (key !== 'value' && key !== 'checked' && !isReservedProp(key)) {
+           hostPatchProp(
+             el,
+             key,
+@@ -691,6 +691,9 @@ function baseCreateRenderer(
+       if ('value' in props) {
+         hostPatchProp(el, 'value', null, props.value, namespace)
+       }
++      if ('checked' in props && typeof props.checked === 'boolean') {
++        hostPatchProp(el, 'checked', null, props.checked, namespace)
++      }
+       if ((vnodeHook = props.onVnodeBeforeMount)) {
+         invokeVNodeHook(vnodeHook, parentComponent, vnode)
+       }
+@@ -903,7 +906,7 @@ function baseCreateRenderer(
+             const prev = oldProps[key]
+             const next = newProps[key]
+             // #1471 force patch value
+-            if (next !== prev || key === 'value') {
++            if (next !== prev || key === 'value' || key === 'checked') {
+               hostPatchProp(
+                 el,
+                 key,
+@@ -1025,7 +1028,7 @@ function baseCreateRenderer(
+         const next = newProps[key]
+         const prev = oldProps[key]
+         // defer patching value
+-        if (next !== prev && key !== 'value') {
++        if (next !== prev && key !== 'value' && key !== 'checked') {
+           hostPatchProp(
+             el,
+             key,
+@@ -1042,6 +1045,9 @@ function baseCreateRenderer(
+       if ('value' in newProps) {
+         hostPatchProp(el, 'value', oldProps.value, newProps.value, namespace)
+       }
++      if ('checked' in newProps) {
++        hostPatchProp(el, 'checked', null, newProps.checked, namespace)
++      }
+     }
+   }
+

@@ -1,0 +1,24 @@
+{
+  "upstream": "https://github.com/vuejs/core.git",
+  "instance": "vuejs__core-9213",
+  "license": "MIT",
+  "base": "dadb3632a0f824f6e6a1c246ed8788bea5cbcad6",
+  "base_branch": "main",
+  "overlay": "vuejs__core",
+  "issue": 7256,
+  "pr": 9213,
+  "commit": "fix(runtime-core): properly diff slot node and fallback node",
+  "truth": {
+    "class": "P4",
+    "pattern": "dead-guard",
+    "description": "renderSlot, the only code that sets isSlotFallback, now sets it only to true and leaves it undefined on a fragment with content, so the new check in processFragment, which needs both sides defined and different, can never pass, and a slot that switches between its content and its fallback still takes the broken patch path.",
+    "locations": [
+      {"file": "packages/runtime-core/src/renderer.ts", "start": 1073, "end": 1081, "side": "head"},
+      {"file": "packages/runtime-core/src/helpers/renderSlot.ts", "start": 85, "end": 85, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/runtime-core/__tests__/rendererOptimizedMode.spec.ts", "start": 764, "end": 764, "side": "head",
+     "why": "Only the fallback function assigns block, and it runs only when the slot renders no content, so block still holds the null that beforeEach set while the content shows."}
+  ]
+}

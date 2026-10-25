@@ -42,6 +42,13 @@ CONTROL = "control"
 MIN_PER_CLASS, MIN_CONTROLS = 4, 5
 LICENSES = ("MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "ISC")
 WINDOW = 3
+MIN_CHANGED_LINES = 80
+PATTERNS = ("rejects-held-input", "dead-guard", "two-hop-caller", "omitted-option")
+# the cases that predate the size floor, the distraction rule and truth.pattern; every other case meets all three
+FROZEN = frozenset("""
+    a7t4yp b6r1vy c8w4tf e4u9ob f1h8ku f6t2gy g7s3hq h4n8qe h9x3cd j3q6mr j7m5ux k5e2hw k8w3dq m2g6wc n3f6wu
+    n4d9sw o6z3fl q4m8zt r2n5ax r8b3kz s9b2ze t5j8ke u1c9nb v6d1ij w2k7np x5l9dn y2h6cv y8k1rv z8c2lm
+""".split())
 ARMS = ("plain", "lane")
 SENDBACK_SCORES = ("violated", "undeterminable")
 CASE_ID_RE = re.compile(r"[a-z0-9]{6}")
@@ -174,6 +181,11 @@ def added_text(patch: str, path: str) -> str:
     return "\n".join(t for k, _, t in parse_patch(patch).get(path, []) if k == "+")
 
 
+def changed_lines(patch: str) -> int:
+    return sum(1 for f, rows in parse_patch(patch).items() if not f.startswith("docs/plans/")
+               for k, _, _ in rows if k in ("+", "-"))
+
+
 def markers_in(text: str, truth: dict | None = None) -> list[str]:
     hits = sorted({m.group(0) for m in MARKER_RE.finditer(text)})
     desc = (truth or {}).get("description", "")
@@ -184,6 +196,41 @@ def markers_in(text: str, truth: dict | None = None) -> list[str]:
 
 def path_level(loc: dict) -> bool:
     return "start" not in loc and "end" not in loc
+
+
+def near_truth(d: dict, locs: list[dict]) -> bool:
+    """A finding on the distraction would reach the judge as a finding on the truth: the same file, and within
+    WINDOW of a ranged location or anywhere in a path-level one, on either side, as in_range reads it."""
+    for loc in locs:
+        if not isinstance(loc, dict) or loc.get("file") != d["file"]:
+            continue
+        if path_level(loc):
+            return True
+        s, e = loc.get("start"), loc.get("end")
+        if isinstance(s, int) and isinstance(e, int) and d["start"] <= e + WINDOW and d["end"] >= s - WINDOW:
+            return True
+    return False
+
+
+def check_distractions(case: dict, touched: dict[str, list[tuple[str, int]]], bad) -> None:
+    ds = case.get("distractions")
+    if not ds:
+        bad("case.json has no distractions")
+        return
+    locs = (case.get("truth") or {}).get("locations") or []
+    for d in ds:
+        if not isinstance(d, dict) or not d.get("file") or d.get("side") not in ("head", "base") \
+                or not isinstance(d.get("start"), int) or not isinstance(d.get("end"), int) or not 1 <= d["start"] <= d["end"]:
+            bad(f"distraction {d} is not {{file, start, end, side: head|base, why}} with start <= end")
+            continue
+        where = f"{d['file']}:{d['start']}-{d['end']}"
+        why = str(d.get("why", "")).strip()
+        if not why.endswith(".") or len(re.findall(r"[.!?](?:\s|$)", why)) != 1:
+            bad(f"distraction {where} has no one-sentence why")
+        if not any(s == d["side"] and d["start"] <= n <= d["end"] for s, n in touched.get(d["file"], [])):
+            bad(f"distraction {where} falls inside no hunk of the patch")
+        if near_truth(d, locs):
+            bad(f"distraction {where} sits within {WINDOW} lines of a truth location")
 
 
 def check_case(case: dict, root: Path) -> list[str]:
@@ -295,6 +342,17 @@ def check_case(case: dict, root: Path) -> list[str]:
                 bad(f"truth.row {truth.get('row')!r} is not a D-n row of the record")
         elif "row" in truth:
             bad("only a P2 case names truth.row")
+    if cls == "P4" and (cid not in FROZEN or "pattern" in truth):
+        if truth.get("pattern") not in PATTERNS:
+            bad(f"truth.pattern {truth.get('pattern')!r} is not one of {', '.join(PATTERNS)}")
+    elif "pattern" in truth:
+        bad("only a P4 case names truth.pattern")
+    if cid not in FROZEN:
+        if patch and changed_lines(patch) < MIN_CHANGED_LINES:
+            bad(f"the patch changes {changed_lines(patch)} lines outside docs/plans/, fewer than {MIN_CHANGED_LINES}")
+        check_distractions(case, touched, bad)
+    elif "distractions" in case:
+        check_distractions(case, touched, bad)
     for name, text in (("the case id", cid), ("the commit subject", case["commit"]),
                        ("ticket.md", ticket.read_text() if ticket.is_file() else ""),
                        ("record.md", rec.read_text() if rec.is_file() else ""), ("patch.diff", patch)):
@@ -304,26 +362,32 @@ def check_case(case: dict, root: Path) -> list[str]:
     return p
 
 
-def check_corpus(root: Path) -> tuple[list[str], dict[str, int]]:
+def check_corpus(root: Path) -> tuple[list[str], dict[str, int], dict[str, int]]:
     cases = load_cases(root)
     problems: list[str] = []
     counts = {c: 0 for c in (*CLASSES, CONTROL)}
+    patterns = {p: 0 for p in PATTERNS}
     for case in cases:
         problems += check_case(case, root)
-        cls = (case.get("truth") or {}).get("class")
-        if cls in counts:
-            counts[cls] += 1
+        truth = case.get("truth") or {}
+        if truth.get("class") in counts:
+            counts[truth["class"]] += 1
+        if truth.get("class") == "P4" and truth.get("pattern") in PATTERNS:
+            patterns[truth["pattern"]] += 1
     for c in CLASSES:
         if counts[c] < MIN_PER_CLASS:
             problems.append(f"corpus: class {c} has {counts[c]} cases, fewer than {MIN_PER_CLASS}")
     if counts[CONTROL] < MIN_CONTROLS:
         problems.append(f"corpus: {counts[CONTROL]} clean controls, fewer than {MIN_CONTROLS}")
+    for p, n in patterns.items():
+        if not n:
+            problems.append(f"corpus: no P4 case has pattern {p}")
     notice = root / "NOTICE"
     text = notice.read_text() if notice.is_file() else ""
     for url in sorted({c.get("upstream", "") for c in cases}):
         if url and url.removesuffix(".git") not in text:
             problems.append(f"corpus: NOTICE does not name {url.removesuffix('.git')}")
-    return problems, counts
+    return problems, counts, patterns
 
 
 # --- building a case -------------------------------------------------------------------------
@@ -823,7 +887,7 @@ async def review_one(case: dict, arm: str, run_no: int, work: Path, clones: Path
 
 async def run_recipe(args, bench) -> None:
     root = Path(args.root)
-    problems, counts = check_corpus(root)
+    problems, _, _ = check_corpus(root)
     if problems:
         sys.exit("[planted] the corpus does not pass its check:\n  " + "\n  ".join(problems))
     cache = Path(args.cache_dir).expanduser()
@@ -905,12 +969,13 @@ def write_results(cache: Path, stamp: str, doc: dict) -> Path:
 # --- the subcommands -------------------------------------------------------------------------
 
 def cmd_check(args) -> int:
-    problems, counts = check_corpus(Path(args.root))
+    problems, counts, patterns = check_corpus(Path(args.root))
     for p in problems:
         print(f"check: {p}")
     if problems:
         return 1
-    print("check: ok (" + ", ".join(f"{c} {n}" for c, n in counts.items()) + ")")
+    print("check: ok (" + ", ".join(f"{c} {n}" for c, n in counts.items()) + "; P4 patterns: "
+          + ", ".join(f"{p} {n}" for p, n in patterns.items()) + ")")
     return 0
 
 

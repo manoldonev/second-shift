@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # corpus-selftest.sh — the shipped corpus passes `planted.py check`, and a copy that lacks any part a case
-# must carry, or holds a marker, or falls short of a class, fails naming it. No network and no model.
+# must carry, or holds a marker, or falls short of a class or a P4 pattern, or a new case that misses the
+# size floor or the distraction rule, fails naming it. No network and no model.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASS=0 FAIL=0
@@ -24,8 +25,8 @@ edit_case() { # edit_case <root> <id> <jq filter>
 
 echo "== the shipped corpus =="
 out="$(check "$HERE")"; rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "check: ok (P1 8, P2 4, P3 4, P4 4, P5 4, control 5)" ] \
-  && ok "the shipped corpus passes, with eight P1 cases, four cases in each other class and five clean controls" || bad "shipped corpus: rc=$rc $out"
+[ "$rc" -eq 0 ] && [ "$out" = "check: ok (P1 8, P2 4, P3 4, P4 10, P5 4, control 5; P4 patterns: rejects-held-input 2, dead-guard 2, two-hop-caller 1, omitted-option 1)" ] \
+  && ok "the shipped corpus passes, with ten P4 cases that cover all four patterns" || bad "shipped corpus: rc=$rc $out"
 [ ! -e "$HERE/cases/d4p7sx" ] && ok "the control whose fix pads a negative year wrongly is gone, and five controls remain" || bad "d4p7sx is still in the corpus"
 n_up="$(jq -r .upstream "$HERE"/cases/*/case.json | sort -u | grep -c .)"
 [ "$n_up" -ge 2 ] && ok "the cases come from $n_up upstreams" || bad "upstreams: $n_up"
@@ -94,6 +95,45 @@ R="$(copy few-controls)"; rm -r "$R/cases/f6t2gy"
 expect_red "$R" "four clean controls" "corpus: 4 clean controls, fewer than 5"
 R="$(copy notice)"; grep -v 'github.com/axios/axios' "$HERE/NOTICE" > "$R/NOTICE"
 expect_red "$R" "a NOTICE that omits an upstream" "corpus: NOTICE does not name https://github.com/axios/axios"
+
+echo "== the P4 patterns =="
+R="$(copy no-two-hop)"; rm -r "$R/cases/b3v8qn"
+expect_red "$R" "a corpus whose only two-hop case is gone" "corpus: no P4 case has pattern two-hop-caller"
+R="$(copy no-omitted)"; rm -r "$R/cases/q7d2hv"
+expect_red "$R" "a corpus whose only omitted-option case is gone" "corpus: no P4 case has pattern omitted-option"
+R="$(copy no-pattern)"; edit_case "$R" e7k3wb 'del(.truth.pattern)'
+expect_red "$R" "a new P4 case with no pattern" "e7k3wb: truth.pattern None is not one of"
+R="$(copy odd-pattern)"; edit_case "$R" e7k3wb '.truth.pattern = "far-caller"'
+expect_red "$R" "a new P4 case with an unknown pattern" "e7k3wb: truth.pattern 'far-caller' is not one of"
+R="$(copy pattern-on-p2)"; edit_case "$R" a7t4yp '.truth.pattern = "dead-guard"'
+expect_red "$R" "a pattern on a case outside P4" "a7t4yp: only a P4 case names truth.pattern"
+
+echo "== distractions =="
+R="$(copy no-distraction)"; edit_case "$R" q7d2hv 'del(.distractions)'
+expect_red "$R" "a new case with no distraction" "q7d2hv: case.json has no distractions"
+R="$(copy empty-distractions)"; edit_case "$R" q7d2hv '.distractions = []'
+expect_red "$R" "a new case with an empty distraction list" "q7d2hv: case.json has no distractions"
+R="$(copy near-truth)"; edit_case "$R" q7d2hv '.distractions[0].start = 221 | .distractions[0].end = 224'
+expect_red "$R" "a distraction within WINDOW of a truth range" "q7d2hv: distraction packages/compiler-sfc/src/script/resolveType.ts:221-224 sits within 3 lines of a truth location"
+R="$(copy edge-truth)"; edit_case "$R" e7k3wb '.distractions[0] = {"file": "packages/runtime-core/src/renderer.ts", "start": 1063, "end": 1069, "side": "head", "why": "A line just outside the reach of the truth."}'
+out="$(check "$R")"; rc=$?
+[ "$rc" -eq 0 ] && ok "a distraction four lines from a truth range is accepted" || bad "edge-truth: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
+R="$(copy edge-near)"; edit_case "$R" e7k3wb '.distractions[0] = {"file": "packages/runtime-core/src/renderer.ts", "start": 1063, "end": 1070, "side": "head", "why": "A line just inside the reach of the truth."}'
+expect_red "$R" "a distraction three lines from a truth range" "e7k3wb: distraction packages/runtime-core/src/renderer.ts:1063-1070 sits within 3 lines of a truth location"
+R="$(copy off-hunk)"; edit_case "$R" q7d2hv '.distractions[0].start = 700 | .distractions[0].end = 701'
+expect_red "$R" "a distraction outside every hunk" "q7d2hv: distraction packages/compiler-sfc/src/script/resolveType.ts:700-701 falls inside no hunk of the patch"
+R="$(copy two-whys)"; edit_case "$R" q7d2hv '.distractions[0].why = "It is fine. It is correct."'
+expect_red "$R" "a distraction whose why is two sentences" "q7d2hv: distraction packages/compiler-sfc/src/script/resolveType.ts:292-295 has no one-sentence why"
+
+echo "== the size floor =="
+R="$(copy short-patch)"; awk '/^diff --git/{skip = ($0 ~ /__tests__/)} !skip' "$HERE/cases/e7k3wb/patch.diff" > "$R/cases/e7k3wb/patch.diff"; edit_case "$R" e7k3wb 'del(.distractions)'
+expect_red "$R" "a new case cut to its source hunks" "e7k3wb: the patch changes 25 lines outside docs/plans/, fewer than 80"
+R="$(copy unfrozen)"; cp -R "$R/cases/f6t2gy" "$R/cases/z9w4xa"
+expect_red "$R" "a copy of a frozen under-80 case under a new id" "z9w4xa: the patch changes"
+out="$(check "$HERE")"
+n_small="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import planted, pathlib; print(sum(1 for c in planted.load_cases(pathlib.Path(sys.argv[1])) if c["id"] in planted.FROZEN and planted.changed_lines((c["dir"] / "patch.diff").read_text()) < planted.MIN_CHANGED_LINES))' "$HERE")"
+[ "$n_small" -ge 20 ] && grep -q '^check: ok' <<<"$out" && ! grep -q 'fewer than 80' <<<"$out" \
+  && ok "the $n_small frozen cases under 80 lines still pass" || bad "frozen: $n_small under 80, $out"
 
 echo "corpus-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

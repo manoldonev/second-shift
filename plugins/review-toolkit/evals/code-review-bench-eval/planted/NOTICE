@@ -12,6 +12,8 @@ its case.json names; no upstream source tree is vendored here.
   Reader Ltd.
 - GitHub Readme Stats — https://github.com/anuraghazra/github-readme-stats — MIT License,
   Copyright (c) 2021 Anurag Hazra
+- Vue.js — https://github.com/vuejs/core — MIT License, Copyright (c) 2018-present, Yuxi (Evan)
+  You and Vue contributors
 
 The ticket texts are the upstream issues' text, each with an acceptance-criteria block written
 for its case. Multi-SWE-bench is distributed under its own license on its dataset page.

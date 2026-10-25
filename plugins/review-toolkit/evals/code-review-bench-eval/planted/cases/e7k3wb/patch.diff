@@ -1,0 +1,162 @@
+diff --git a/docs/plans/core-7256-plan.md b/docs/plans/core-7256-plan.md
+new file mode 100644
+--- /dev/null
++++ b/docs/plans/core-7256-plan.md
+@@ -0,0 +1,10 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A slot whose content toggles with v-if switches between its content and its fallback and back (packages/runtime-core/__tests__/rendererOptimizedMode.spec.ts) [AC-1] [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Mark the fragment that renderSlot returns when it renders the fallback (packages/runtime-core/src/helpers/renderSlot.ts, packages/runtime-core/src/vnode.ts)
++- [ ] 2.2 Replace the old fragment instead of patching it when one side is a fallback and the other is not (packages/runtime-core/src/renderer.ts)
+diff --git a/packages/runtime-core/__tests__/rendererOptimizedMode.spec.ts b/packages/runtime-core/__tests__/rendererOptimizedMode.spec.ts
+--- a/packages/runtime-core/__tests__/rendererOptimizedMode.spec.ts
++++ b/packages/runtime-core/__tests__/rendererOptimizedMode.spec.ts
+@@ -8,6 +8,8 @@ import {
+   createApp,
+   createBlock,
+   createCommentVNode,
++  createElementBlock,
++  createElementVNode,
+   createTextVNode,
+   createVNode,
+   defineComponent,
+@@ -697,6 +699,79 @@ describe('renderer: optimized mode', () => {
+     )
+   })
+
++  test('diff slot and slot fallback node', async () => {
++    const Comp = {
++      props: ['show'],
++      setup(props: any, { slots }: SetupContext) {
++        return () => {
++          return (
++            openBlock(),
++            createElementBlock('div', null, [
++              renderSlot(slots, 'default', { hide: !props.show }, () => [
++                (openBlock(),
++                (block = createElementBlock(
++                  Fragment,
++                  { key: 0 },
++                  [createTextVNode('foo')],
++                  PatchFlags.STABLE_FRAGMENT,
++                ))),
++              ]),
++            ])
++          )
++        }
++      },
++    }
++
++    const show = ref(true)
++    const app = createApp({
++      render() {
++        return (
++          openBlock(),
++          createBlock(
++            Comp,
++            { show: show.value },
++            {
++              default: withCtx(({ hide }: { hide: boolean }) => [
++                !hide
++                  ? (openBlock(),
++                    createElementBlock(
++                      Fragment,
++                      { key: 0 },
++                      [
++                        createCommentVNode('comment'),
++                        createElementVNode(
++                          'div',
++                          null,
++                          'bar',
++                          PatchFlags.HOISTED,
++                        ),
++                      ],
++                      PatchFlags.STABLE_FRAGMENT,
++                    ))
++                  : createCommentVNode('v-if', true),
++              ]),
++              _: SlotFlags.STABLE,
++            },
++            PatchFlags.PROPS,
++            ['show'],
++          )
++        )
++      },
++    })
++
++    app.mount(root)
++    expect(inner(root)).toBe('<div><!--comment--><div>bar</div></div>')
++    expect(block).toBe(null)
++
++    show.value = false
++    await nextTick()
++    expect(inner(root)).toBe('<div>foo</div>')
++
++    show.value = true
++    await nextTick()
++    expect(inner(root)).toBe('<div><!--comment--><div>bar</div></div>')
++  })
++
+   // 3569
+   test('should force bailout when the user manually calls the slot function', async () => {
+     const index = ref(0)
+diff --git a/packages/runtime-core/src/helpers/renderSlot.ts b/packages/runtime-core/src/helpers/renderSlot.ts
+--- a/packages/runtime-core/src/helpers/renderSlot.ts
++++ b/packages/runtime-core/src/helpers/renderSlot.ts
+@@ -82,6 +82,7 @@ export function renderSlot(
+   if (slot && (slot as ContextualRenderFn)._c) {
+     ;(slot as ContextualRenderFn)._d = true
+   }
++  if (!validSlotContent) rendered.isSlotFallback = true
+   return rendered
+ }
+
+diff --git a/packages/runtime-core/src/renderer.ts b/packages/runtime-core/src/renderer.ts
+--- a/packages/runtime-core/src/renderer.ts
++++ b/packages/runtime-core/src/renderer.ts
+@@ -1060,7 +1060,25 @@ function baseCreateRenderer(
+     const fragmentStartAnchor = (n2.el = n1 ? n1.el : hostCreateText(''))!
+     const fragmentEndAnchor = (n2.anchor = n1 ? n1.anchor : hostCreateText(''))!
+
+-    let { patchFlag, dynamicChildren, slotScopeIds: fragmentSlotScopeIds } = n2
++    let {
++      patchFlag,
++      dynamicChildren,
++      slotScopeIds: fragmentSlotScopeIds,
++      isSlotFallback,
++    } = n2
++
++    // #9200 when patching the slot vnode and the slot fallback vnode
++    // cannot take the fast path, nor can reuse the old vnode because they
++    // are from different templates
++    if (
++      n1 &&
++      n1.isSlotFallback !== undefined &&
++      isSlotFallback !== undefined &&
++      n1.isSlotFallback !== isSlotFallback
++    ) {
++      unmount(n1!, parentComponent, parentSuspense, true)
++      n1 = null
++    }
+
+     if (
+       __DEV__ &&
+diff --git a/packages/runtime-core/src/vnode.ts b/packages/runtime-core/src/vnode.ts
+--- a/packages/runtime-core/src/vnode.ts
++++ b/packages/runtime-core/src/vnode.ts
+@@ -240,6 +240,10 @@ export interface VNode<
+    * @internal custom element interception hook
+    */
+   ce?: (instance: ComponentInternalInstance) => void
++  /**
++   * @internal is slot fallback node
++   */
++  isSlotFallback?: boolean
+ }
+
+ // Since v-if and v-for are the two possible ways node structure can dynamically
