@@ -31,14 +31,33 @@ review.
    Under jira, use the `getJiraIssue` MCP tool, under whichever Atlassian namespace this session
    exposes. If you cannot read the ticket, you cannot review the PR: post `verdict: needs-work`
    with line 3 `reason: ticket-unreadable`.
-   **Read the build's own account last.** First write the row scores of step 5 and the findings of
-   step 6. Only then read the PR description and the build's PR comments. Use them to reconcile
-   the departures and rebuttals they state. Measurements show that an author's framing lowers
-   what a reviewer finds. If that reading changes a score or a finding, say so in the verdict's
-   `## Notes`: `revised after reading the build's account: <what changed>`.
+   The filter is not a read of the build's account. Read no other part of the body before step 8.
 2. Check out the PR head. Confirm that `git rev-parse HEAD` equals `headRefOid`. You review that
    sha, and you name it.
-3. **Read the record at its first commit and at the head.** The first commit is the commit that
+3. **Pass 1: review the diff from the ticket and the code alone.** Until step 4, do not open the
+   decision record, the plan, the PR description, a PR comment or an earlier verdict. The diff is
+   `origin/<base>...HEAD`, where `<base>` is the PR's base branch. Read it without the plans
+   directory: `git diff origin/<base>...HEAD -- . ':(exclude)<plansDir>'`. Review it yourself, in
+   this session, against the ticket. Read `.claude/second-shift/review-context.md` at the head
+   when it exists. It is the repo's context for this review.
+
+   <!-- LOCKSTEP-BEGIN review-completeness -->
+   Review the diff for completeness. Check every acceptance criterion of the ticket against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a completeness finding, not a test-coverage problem, so it can be a `[blocker]`.
+   <!-- LOCKSTEP-END review-completeness -->
+
+   <!-- LOCKSTEP-BEGIN review-correctness -->
+   Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers. Check that each of them still works with the change. When the change adds a rule over stored data, read the data that the rule meets. Check the rule against the data that already exists. Walk every path through the change: each branch, each early return, each error and each empty input. Report each problem as a finding with its file:line and a concrete scenario: the input or state, and the wrong outcome it produces. A problem with no scenario is not a finding.
+   A completeness or correctness problem is a `[blocker]` when it must change before merge. A maintainability, test-coverage or repo-convention problem is a `[note]` only, never a `[blocker]`.
+   A finding that shows existing data or an existing caller breaking under the change is a `[blocker]`. The ticket's scope list, a record row or parity with an older version never makes it a note. It drops to a note only when the ticket or a record row names that exact case, accepts it, and names who decided. The ticket's own text counts as the operator's. A row names who decided when its provenance is `user-answered`, or `ticket-sourced` with its comment URL. A `user-delegated` or `codebase-derived` row never accepts a break. The finding then quotes that line. A finding that shows the change does not do what the ticket asks, for input that existing callers send, is a completeness `[blocker]`.
+   The review runs in two passes. Pass 1 is the completeness and correctness review, from the ticket and the code alone. Pass 1 does not open the decision record, the plan or the PR description. It reads the diff with the plans directory excluded. It writes its findings to the scratch directory before pass 2 starts. When there is a record, pass 2 reads it at its first commit and at the head, and scores every row. A record row never removes, dismisses or downgrades a pass-1 finding. When a row decided the behavior that a finding shows breaking an existing caller, existing data or the ticket, the finding keeps its severity and names the row. Only two record grounds make a pass-1 finding a note: the accepted break above, and the test intent's exemption of an acceptance criterion from a test. A pass-1 finding is never posted as `Dismissed.` or `Suppressed.` on a record's ground.
+   <!-- LOCKSTEP-END review-correctness -->
+
+   End pass 1 with the notes pass. Report maintainability, test-coverage and repo-convention
+   problems in the diff as `[note]`s with file:line. Report only what you would post. A note never
+   gates. Write every pass-1 finding to a file in this session's scratchpad. Then start step 4.
+
+   Dispatch no reviewer, except the one design-fidelity reviewer of step 7.
+4. **Pass 2: read the record at its first commit and at the head.** The first commit is the commit that
    added the record: `FIRST=$(git log --format=%H --diff-filter=A -- <record> | tail -n 1)`. Read
    `git show $FIRST:<record>`. It shows what was decided before the build started. Then read the
    file at the head.
@@ -48,7 +67,11 @@ review.
    - When the PR body has `Record baseline: <sha>`, that sha is the baseline. The baseline can
      differ from the `FIRST` you computed, or it can be no ancestor of the head. Then the record
      commit was rewritten, and that alone is a blocker.
-4. **Look at what the scheduler would have given you.** Read `git diff $FIRST..HEAD` and check
+
+   Check every row of the record against the diff. The record's test intent can exempt an
+   acceptance criterion from a test. Then the pass-1 finding that the criterion has no test becomes
+   a `[note]` that quotes the exemption.
+5. **Look at what the scheduler would have given you.** Read `git diff $FIRST..HEAD` and check
    each item below. Each item is a question that the diff must answer, whatever the stack.
    - Deleted or renamed test files. A top-level `tests/`, `__tests__/`, `test_*.py`,
      `conftest.py`, `_spec.` and `*-selftest.*` count too.
@@ -76,7 +99,7 @@ review.
    AC added after the baseline counts when a `D-n` row added or edited since the baseline carries
    `user-answered` or `user-delegated` provenance. The check names the row and its provenance, not
    who wrote it: the build records its own changes as `user-delegated`. You score that row anyway in
-   step 5. Every baseline AC is still read from the baseline.
+   step 6. Every baseline AC is still read from the baseline.
    - Exit 1 is a `[blocker]` that names what the check printed. The causes are an AC with no test
      task, a tag neither record defines, a tag only the head defines with no `user-answered` or
      `user-delegated` ledger change, an unparseable task line, or no plan.
@@ -93,32 +116,18 @@ review.
    path, the latest lane comment on the ticket is a `build-handoff` comment, and the body has no
    `## second-shift run` block. Nothing ran the check there. Say so in `## Notes` as
    `fails without the change: not run on the handoff path`. This is a note, never a blocker.
-5. **Score EVERY row of the record** against the code. The scores are `honored`, `violated`,
+6. **Score EVERY row of the record** against the code. The scores are `honored`, `violated`,
    `departed` or `undeterminable`. A departed row was edited: name who decided, per its
    provenance. For an undeterminable row, say what you could not read. A violated or
    undeterminable row is a blocker. Do not approve when a row has either score.
    A row can name a deferred, unmeasured or inherited cost, load or performance risk. Still score
    that row on whether the code matches it. The row is the operator's decision. A score never
    overrides it. Its risk is also required performance work: the review states the worst-case
-   bound as a finding. The finding is a `[blocker]` when the bound breaks what the row decided,
-   and a `[note]` otherwise. The row permits the out-of-diff reads that check the bound. The row
-   can name a file that the diff does not touch. That fact scores the row. It does not bound the
-   risk.
-6. **Review the diff yourself, in this session.** The diff is `origin/<base>...HEAD`, where
-   `<base>` is the PR's base branch. Review it against the ticket and the record. Read
-   `.claude/second-shift/review-context.md` at the head when it exists. It is the repo's context
-   for this review.
-
-   <!-- LOCKSTEP-BEGIN review-completeness -->
-   Review the diff for completeness. Check every acceptance criterion of the ticket and every row of the record against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a completeness finding, not a test-coverage problem, so it can be a `[blocker]`, unless the record's test intent exempts it.
-   <!-- LOCKSTEP-END review-completeness -->
-
-   <!-- LOCKSTEP-BEGIN review-correctness -->
-   Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers. Check that each of them still works with the change. When the change adds a rule over stored data, read the data that the rule meets. Check the rule against the data that already exists. Walk every path through the change: each branch, each early return, each error and each empty input. Report each problem as a finding with its file:line and a concrete scenario: the input or state, and the wrong outcome it produces. A problem with no scenario is not a finding.
-   A completeness or correctness problem is a `[blocker]` when it must change before merge. A maintainability, test-coverage or repo-convention problem is a `[note]` only, never a `[blocker]`.
-   <!-- LOCKSTEP-END review-correctness -->
-
-   Dispatch no reviewer, except the one design-fidelity reviewer of step 7.
+   bound as a finding. A bound that breaks an existing caller or existing data is a `[blocker]`
+   under the severity rule of step 3. Any other bound is a `[blocker]` when it breaks what the row
+   decided, and a `[note]` otherwise. The row permits the out-of-diff reads that check the bound.
+   The row can name a file that the diff does not touch. That fact scores the row. It does not
+   bound the risk.
 7. **Design frames.** The `## Design frames` (or `## Design`) section of the record can have
    `| RS-n |` rows. Then do two things.
    - Dispatch one design-fidelity reviewer with the Agent tool. A handoff URL in the section
@@ -131,7 +140,13 @@ review.
    - Render every screen at the head with the repo's render command
      (`design.liveRender.command`). Compare each screen with its frame. If you cannot render, you
      cannot approve: post `verdict: needs-work` with line 3 `reason: render-unavailable`.
-8. **Post ONE PR comment.** Post it through [`gh-bot.sh`](../../tools/gh-bot.sh) when its
+8. **Read the build's own account last, after pass 2.** Only then read the PR description and the
+   build's PR comments. Use them to reconcile the departures and rebuttals they state.
+   Measurements show that an author's framing lowers what a reviewer finds. If that reading
+   changes a score or a finding, say so in the verdict's `## Notes`:
+   `revised after reading the build's account: <what changed>`.
+
+   **Post ONE PR comment.** Post it through [`gh-bot.sh`](../../tools/gh-bot.sh) when its
    `--status` is `ok`, and through plain `gh` otherwise. Pass the body with `--body-file`. The body
    follows this grammar exactly. The review prompt of `run.sh` states the same grammar:
 
