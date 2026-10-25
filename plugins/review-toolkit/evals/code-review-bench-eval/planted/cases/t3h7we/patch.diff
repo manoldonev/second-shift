@@ -1,0 +1,342 @@
+diff --git a/api/index.js b/api/index.js
+index 392b694..94f734c 100644
+--- a/api/index.js
++++ b/api/index.js
+@@ -18,7 +18,9 @@ module.exports = async (req, res) => {
+   } = req.query;
+   let stats;
+
++  res.setHeader("Cache-Control", "public, max-age=1800");
+   res.setHeader("Content-Type", "image/svg+xml");
++
+   try {
+     stats = await fetchStats(username);
+   } catch (err) {
+diff --git a/api/pin.js b/api/pin.js
+index 2d69c0e..8659c50 100644
+--- a/api/pin.js
++++ b/api/pin.js
+@@ -14,6 +14,8 @@ module.exports = async (req, res) => {
+   } = req.query;
+
+   let repoData;
++
++  res.setHeader("Cache-Control", "public, max-age=1800");
+   res.setHeader("Content-Type", "image/svg+xml");
+
+   try {
+diff --git a/docs/plans/github-readme-stats-51-plan.md b/docs/plans/github-readme-stats-51-plan.md
+new file mode 100644
+index 0000000..5bf0bef
+--- /dev/null
++++ b/docs/plans/github-readme-stats-51-plan.md
+@@ -0,0 +1,15 @@
++# Plan — rotate the GitHub tokens when one is rate limited
++
++## 1. Tests
++
++- [ ] 1.1 The retryer moves to the next token when the current one is rate limited (tests/retryer.test.js::`Test Retryer > retryer should return value and have 2 retries`) [AC-1]
++- [ ] 1.2 The retryer gives up after the eighth token (tests/retryer.test.js::`Test Retryer > retryer should throw error if maximum retries reached`) [AC-1]
++- [ ] 1.3 fetchStats shows GitHub's error message (tests/fetchStats.test.js::`Test fetchStats > should throw error`) [AC-2]
++- [ ] 1.4 fetchRepo goes through the token rotation (tests/fetchRepo.test.js::`Test fetchRepo > should fetch the repo through the token rotation`) [AC-3]
++
++## 2. The retryer
++
++- [ ] 2.1 Add the retryer over PAT_1 to PAT_8 (src/retryer.js)
++- [ ] 2.2 Let `request` take its headers from the caller (src/utils.js)
++- [ ] 2.3 Send the stats and repo queries through the retryer (src/fetchStats.js, src/fetchRepo.js)
++- [ ] 2.4 Cache both cards for 30 minutes (api/index.js, api/pin.js)
+diff --git a/src/fetchRepo.js b/src/fetchRepo.js
+index c7b7c3e..710061e 100644
+--- a/src/fetchRepo.js
++++ b/src/fetchRepo.js
+@@ -1,12 +1,10 @@
+ const { request } = require("./utils");
++const retryer = require("./retryer");
+
+-async function fetchRepo(username, reponame) {
+-  if (!username || !reponame) {
+-    throw new Error("Invalid username or reponame");
+-  }
+-
+-  const res = await request({
+-    query: `
++const fetcher = (variables, token) => {
++  return request(
++    {
++      query: `
+       fragment RepoInfo on Repository {
+         name
+         stargazers {
+@@ -33,11 +31,20 @@ async function fetchRepo(username, reponame) {
+         }
+       }
+     `,
+-    variables: {
+-      login: username,
+-      repo: reponame,
++      variables,
+     },
+-  });
++    {
++      Authorization: `bearer ${token}`,
++    }
++  );
++};
++
++async function fetchRepo(username, reponame) {
++  if (!username || !reponame) {
++    throw new Error("Invalid username or reponame");
++  }
++
++  let res = await retryer(fetcher, { login: username, repo: reponame });
+
+   const data = res.data.data;
+
+diff --git a/src/fetchStats.js b/src/fetchStats.js
+index dc28590..f8bb715 100644
+--- a/src/fetchStats.js
++++ b/src/fetchStats.js
+@@ -1,26 +1,26 @@
+ const { request } = require("./utils");
++const retryer = require("./retryer");
+ const calculateRank = require("./calculateRank");
+ require("dotenv").config();
+
+-async function fetchStats(username) {
+-  if (!username) throw Error("Invalid username");
+-
+-  const res = await request({
+-    query: `
++const fetcher = (variables, token) => {
++  return request(
++    {
++      query: `
+       query userInfo($login: String!) {
+         user(login: $login) {
+           name
+           login
+-          repositoriesContributedTo(first: 100, contributionTypes: [COMMIT, ISSUE, PULL_REQUEST, REPOSITORY]) {
+-            totalCount
+-          }
+           contributionsCollection {
+             totalCommitContributions
+           }
+-          pullRequests(first: 100) {
++          repositoriesContributedTo(first: 1, contributionTypes: [COMMIT, ISSUE, PULL_REQUEST, REPOSITORY]) {
++            totalCount
++          }
++          pullRequests(first: 1) {
+             totalCount
+           }
+-          issues(first: 100) {
++          issues(first: 1) {
+             totalCount
+           }
+           followers {
+@@ -36,9 +36,17 @@ async function fetchStats(username) {
+           }
+         }
+       }
+-    `,
+-    variables: { login: username },
+-  });
++      `,
++      variables,
++    },
++    {
++      Authorization: `bearer ${token}`,
++    }
++  );
++};
++
++async function fetchStats(username) {
++  if (!username) throw Error("Invalid username");
+
+   const stats = {
+     name: "",
+@@ -47,12 +55,14 @@ async function fetchStats(username) {
+     totalIssues: 0,
+     totalStars: 0,
+     contributedTo: 0,
+-    rank: "C",
++    rank: { level: "C", score: 0 },
+   };
+
++  let res = await retryer(fetcher, { login: username });
++
+   if (res.data.errors) {
+     console.log(res.data.errors);
+-    throw Error("Could not fetch user");
++    throw Error(res.data.errors[0].message || "Could not fetch user");
+   }
+
+   const user = res.data.data.user;
+diff --git a/src/retryer.js b/src/retryer.js
+new file mode 100644
+index 0000000..b62bd8a
+--- /dev/null
++++ b/src/retryer.js
+@@ -0,0 +1,43 @@
++const retryer = async (fetcher, variables, retries = 0) => {
++  if (retries > 7) {
++    throw new Error("Maximum retries exceeded");
++  }
++  try {
++    console.log(`Trying PAT_${retries + 1}`);
++
++    // try to fetch with the first token since RETRIES is 0 index i'm adding +1
++    let response = await fetcher(
++      variables,
++      process.env[`PAT_${retries + 1}`],
++      retries
++    );
++
++    // prettier-ignore
++    const isRateExceeded = response.data.errors && response.data.errors[0].type === "RATE_LIMITED";
++
++    // if rate limit is hit increase the RETRIES and recursively call the retryer
++    // with username, and current RETRIES
++    if (isRateExceeded) {
++      console.log(`PAT_${retries + 1} Failed`);
++      retries++;
++      // directly return from the function
++      return retryer(fetcher, variables, retries);
++    }
++
++    // finally return the response
++    return response;
++  } catch (err) {
++    // prettier-ignore
++    // also checking for bad credentials if any tokens gets invalidated
++    const isBadCredential = err.response.data && err.response.data.message === "Bad credentials";
++
++    if (isBadCredential) {
++      console.log(`PAT_${retries + 1} Failed`);
++      retries++;
++      // directly return from the function
++      return retryer(fetcher, variables, retries);
++    }
++  }
++};
++
++module.exports = retryer;
+diff --git a/src/utils.js b/src/utils.js
+index 470a9e8..b6b74f5 100644
+--- a/src/utils.js
++++ b/src/utils.js
+@@ -33,13 +33,13 @@ function isValidHexColor(hexColor) {
+   ).test(hexColor);
+ }
+
+-function request(data) {
++function request(data, headers) {
+   return new Promise((resolve, reject) => {
+     axios({
+       url: "https://api.github.com/graphql",
+       method: "post",
+       headers: {
+-        Authorization: `bearer ${process.env.GITHUB_TOKEN}`,
++        ...headers,
+       },
+       data,
+     })
+@@ -48,4 +48,10 @@ function request(data) {
+   });
+ }
+
+-module.exports = { renderError, kFormatter, encodeHTML, isValidHexColor, request };
++module.exports = {
++  renderError,
++  kFormatter,
++  encodeHTML,
++  isValidHexColor,
++  request,
++};
+diff --git a/tests/fetchRepo.test.js b/tests/fetchRepo.test.js
+index a49f0bc..f4cfcca 100644
+--- a/tests/fetchRepo.test.js
++++ b/tests/fetchRepo.test.js
+@@ -44,6 +44,13 @@ describe("Test fetchRepo", () => {
+     expect(repo).toStrictEqual(data_repo);
+   });
+
++  it("should fetch the repo through the token rotation", async () => {
++    mock.onPost("https://api.github.com/graphql").reply(200, data_user);
++
++    let repo = await fetchRepo("anuraghazra", "convoychat");
++    expect(repo).toStrictEqual(data_repo);
++  });
++
+   it("should fetch correct org repo", async () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, data_org);
+
+diff --git a/tests/fetchStats.test.js b/tests/fetchStats.test.js
+index 8ae45fa..ebcfde4 100644
+--- a/tests/fetchStats.test.js
++++ b/tests/fetchStats.test.js
+@@ -74,7 +74,7 @@ describe("Test fetchStats", () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, error);
+
+     await expect(fetchStats("anuraghazra")).rejects.toThrow(
+-      "Could not fetch user"
++      "Could not resolve to a User with the login of 'noname'."
+     );
+   });
+ });
+diff --git a/tests/retryer.test.js b/tests/retryer.test.js
+new file mode 100644
+index 0000000..8b8a928
+--- /dev/null
++++ b/tests/retryer.test.js
+@@ -0,0 +1,50 @@
++require("@testing-library/jest-dom");
++const retryer = require("../src/retryer");
++
++const fetcher = jest.fn((variables, token) => {
++  console.log(variables, token);
++  return new Promise((res, rej) => res({ data: "ok" }));
++});
++
++const fetcherFail = jest.fn(() => {
++  return new Promise((res, rej) =>
++    res({ data: { errors: [{ type: "RATE_LIMITED" }] } })
++  );
++});
++
++const fetcherFailOnSecondTry = jest.fn((_vars, _token, retries) => {
++  return new Promise((res, rej) => {
++    // faking rate limit
++    if (retries < 1) {
++      return res({ data: { errors: [{ type: "RATE_LIMITED" }] } });
++    }
++    return res({ data: "ok" });
++  });
++});
++
++describe("Test Retryer", () => {
++  it("retryer should return value and have zero retries on first try", async () => {
++    let res = await retryer(fetcher, {});
++
++    expect(fetcher).toBeCalledTimes(1);
++    expect(res).toStrictEqual({ data: "ok" });
++  });
++
++  it("retryer should return value and have 2 retries", async () => {
++    let res = await retryer(fetcherFailOnSecondTry, {});
++
++    expect(fetcherFailOnSecondTry).toBeCalledTimes(2);
++    expect(res).toStrictEqual({ data: "ok" });
++  });
++
++  it("retryer should throw error if maximum retries reached", async () => {
++    let res;
++
++    try {
++      res = await retryer(fetcherFail, {});
++    } catch (err) {
++      expect(fetcherFail).toBeCalledTimes(8);
++      expect(err.message).toBe("Maximum retries exceeded");
++    }
++  });
++});

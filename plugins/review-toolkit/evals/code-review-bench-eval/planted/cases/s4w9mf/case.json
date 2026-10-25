@@ -1,0 +1,23 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-721",
+  "license": "MIT",
+  "base": "99591915eceb5136c0882037aa893cda5b5dbb34",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats",
+  "issue": 108,
+  "pr": 721,
+  "commit": "feat: auto resize card if rank is hidden",
+  "truth": {
+    "class": "P1",
+    "description": "The width is measured on the default title after translations.js has run the name through encodeHTML, so each non-ASCII letter of a name such as José counts as an entity like &#233; and the shrunk card comes out wider than the title it shows.",
+    "locations": [
+      {"file": "src/cards/stats-card.js", "start": 185, "end": 187, "side": "head"},
+      {"file": "src/translations.js", "start": 8, "end": 8, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/common/utils.js", "start": 222, "end": 222, "side": "head",
+     "why": "Addition is commutative, so naming the accumulator cur and the item acc still sums every character width."}
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-3442",
+  "license": "MIT",
+  "base": "9c6eb2286284a44ea3ba983ab4d2d2f8a8c2203e",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats",
+  "issue": 3433,
+  "pr": 3442,
+  "commit": "feature: support Cloudflare workers deployment",
+  "truth": {
+    "class": "P1",
+    "description": "The worker routes /api/wakatime to the old default handler, whose fetcher still calls axios.get, so the WakaTime card sends its request with axios on Cloudflare Workers instead of fetch.",
+    "locations": [
+      {"file": "cloudflare/index.js", "start": 26, "end": 27, "side": "head"},
+      {"file": "src/fetchers/wakatime-fetcher.js", "start": 15, "end": 20, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/common/utils.js", "start": 237, "end": 237, "side": "head",
+     "why": "Every fetcher passes a new headers object literal on each call, so setting the User-Agent on it changes no other request."}
+  ]
+}

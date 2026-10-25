@@ -3,6 +3,7 @@
 # origin ref, the lane's gates in run.sh's order, both prompts rendered from the real sources with no model,
 # the local gh serving the ticket and an empty PR and capturing a posted verdict, and no planted marker in
 # either arm's prompt, commits, diff, ticket or record. `review` runs with a fake claude, so nothing is billed.
+# A runner case builds with a fake npm and a fake jest-json runner, and `verify` accepts only its expected stop.
 # shellcheck disable=SC2016  # the fixtures are shell and markdown text, written literally
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -164,6 +165,85 @@ H="$T/rv-hang/work/state"
   && ok "a session that outlives its timeout is a timeout, and its record names both files" || bad "hang: rc=$rc $(head -c 600 "$T/rv-hang.json") $(tail -n 3 "$T/rv-hang.err")"
 grep -qxF '{"type": "system", "subtype": "init"}' "$H/session.stdout" 2>/dev/null && grep -q '^fake claude: read a prompt' "$H/session.stderr" 2>/dev/null \
   && ok "a timed-out session keeps what it wrote before the kill" || bad "hang files: $(head -c 200 "$H/session.stdout" 2>&1) | $(head -c 200 "$H/session.stderr" 2>&1)"
+
+echo "== a runner case, with a fake npm and a fake jest-json runner =="
+J="$T/acme/calc"; mkdir -p "$J/src"
+printf 'sum() { echo $(( $1 - $2 )); }\n' > "$J/src/sum.sh"
+printf '{"name": "calc", "devDependencies": {"fakejest": "1.0.0"}}\n' > "$J/package.json"
+g -C "$J" init -q && g -C "$J" add -A && g -C "$J" commit -qm "initial import"
+g -C "$J" config uploadpack.allowAnySHA1InWant true
+JBASE="$(git -C "$J" rev-parse HEAD)"
+fix() { # fix <branch> <test body> <plan tag>
+  g -C "$J" checkout -q "$JBASE" && g -C "$J" checkout -qb "$1"
+  mkdir -p "$J/test" "$J/docs/plans"
+  printf 'sum() { echo $(( $1 + $2 )); }\n' > "$J/src/sum.sh"
+  printf '%s\n' "$2" > "$J/test/sum.test.sh"
+  printf '# Plan\n\n## 1. Sum\n\n- [ ] 1.1 A test that sum adds (test/sum.test.sh::adds) [%s]\n- [ ] 1.2 Make sum add (src/sum.sh)\n' "$3" > "$J/docs/plans/calc-41-plan.md"
+  g -C "$J" add -A && g -C "$J" commit -qm "$1"
+}
+fix vacuous "printf 'case\\tpassed\\tadds\\n'" AC-1
+fix real '. "$(dirname "$0")/../src/sum.sh"; if [ "$(sum 2 3)" = 5 ]; then printf '"'"'case\tpassed\tadds\n'"'"'; else printf '"'"'case\tfailed\tadds\n'"'"'; fi' AC-1
+fix untagged "printf 'case\\tpassed\\tadds\\n'" AC-2
+mkdir -p "$T/fake"
+cat > "$T/fake/jest.py" <<'EOF'
+import json, subprocess, sys
+report, files = sys.argv[1], sys.argv[2:]
+results = []
+for f in files:
+    out = subprocess.run(["bash", f], capture_output=True, text=True).stdout
+    rows = [l.split("\t") for l in out.splitlines() if l.startswith("case\t")]
+    tests = [{"ancestorTitles": [], "title": r[2], "status": r[1]} for r in rows if len(r) == 3]
+    status = "failed" if any(t["status"] == "failed" for t in tests) else "passed"
+    results.append({"name": f, "status": status, "message": "", "assertionResults": tests})
+json.dump({"testResults": results}, open(report, "w"))
+sys.exit(1 if any(r["status"] == "failed" for r in results) else 0)
+EOF
+mkdir -p "$T/npmbin"
+cat > "$T/npmbin/npm" <<'EOF'
+#!/usr/bin/env bash
+echo "$PWD $*" >> "$FAKE_NPM_LOG"
+[ -f package.json ] || exit 1
+[ -z "${FAKE_NPM_EMPTY:-}" ] || exit 0
+mkdir -p node_modules/fakejest && cp "$FAKE_JEST" node_modules/fakejest/jest.py
+EOF
+chmod +x "$T/npmbin/npm"
+for ov in acme__calc acme__calc-noreport; do mkdir -p "$R/overlays/$ov"; printf '# Review context\n\nShell functions print their result on stdout.\n' > "$R/overlays/$ov/review-context.md"; done
+printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"calc": {"test": "bash test/sum.test.sh", "testRunners": [{"when": ["test/*.test.sh"], "command": "python3 node_modules/fakejest/jest.py {report} {files}", "format": "jest-json"}]}}}\n' > "$R/overlays/acme__calc/config.json"
+printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"calc": {"test": "bash test/sum.test.sh", "testRunners": [{"when": ["test/*.test.sh"], "command": "python3 node_modules/fakejest/jest.py %s/elsewhere.json {files}", "format": "jest-json"}]}}}\n' "$T" > "$R/overlays/acme__calc-noreport/config.json"
+mkrunner() { # mkrunner <id> <fix branch> <overlay>
+  local d="$R/cases/$1"; mkdir -p "$d"
+  printf '{"upstream": "file://%s", "instance": "acme__calc-42", "license": "MIT", "base": "%s", "base_branch": "main", "overlay": "%s", "issue": 41, "pr": 42, "commit": "fix: sum adds its arguments", "expect_stop": "fails_without_change", "truth": {"class": "P1", "description": "%s", "locations": [{"file": "test/sum.test.sh", "start": 1, "end": 1, "side": "head"}]}}\n' "$J" "$JBASE" "$3" "$DESC" > "$d/case.json"
+  printf '# Sum subtracts\n\n`sum 2 3` prints -1.\n\n## Acceptance criteria\n\n- AC-1: `sum 2 3` prints 5.\n' > "$d/ticket.md"
+  printf '# Decision record — #41 Sum subtracts\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | How sum combines | It adds its two arguments. | user-answered | intent |\n\n## Test intent\n\nACs: AC-1\n\nAC-1: sum 2 3 prints 5\n' > "$d/record.md"
+  git -C "$J" diff "$JBASE" "$2" > "$d/patch.diff"
+}
+mkrunner vac111 vacuous acme__calc
+mkrunner rea222 real acme__calc
+mkrunner unt333 untagged acme__calc
+mkrunner nor444 vacuous acme__calc-noreport
+export FAKE_NPM_LOG="$T/npm.log" FAKE_JEST="$T/fake/jest.py"
+vfy() { PATH="$T/npmbin:$PATH" py verify --case "$1" --dest "$T/verify-$1" --clones "$T/rclones" > "$T/verify-$1.out" 2>&1; }
+vfy vac111; rc=$?
+[ "$rc" -eq 0 ] && grep -qx 'expected stop fails_without_change: met' "$T/verify-vac111.out" \
+  && ok "verify passes a runner case whose tagged test passes without the change, so the lane stops on fails without the change" || bad "vac111: rc=$rc $(tail -n 5 "$T/verify-vac111.out" | tr '\n' '|')"
+grep -q "^RED: AC-1 — test/sum.test.sh::adds passes on the record commit's tree" "$T/verify-vac111/vac111/lane/state/fails-without-1.log" 2>/dev/null \
+  && ok "the gate ran the jest-json runner from the installed node_modules and named the tagged test" || bad "vac111 log: $(head -n 8 "$T/verify-vac111/vac111/lane/state/fails-without-1.log" 2>&1 | tr '\n' '|')"
+vfy rea222; rc=$?
+[ "$rc" -eq 1 ] && grep -qx 'expected stop fails_without_change: NOT met — the lane did not stop' "$T/verify-rea222.out" \
+  && ok "verify fails a runner case whose tagged test fails without the change, since the lane goes on to review" || bad "rea222: rc=$rc $(tail -n 5 "$T/verify-rea222.out" | tr '\n' '|')"
+vfy unt333; rc=$?
+[ "$rc" -eq 1 ] && grep -qx 'expected stop fails_without_change: NOT met — the lane stopped on plan coverage (exit 1)' "$T/verify-unt333.out" \
+  && ok "verify fails a runner case that stops on plan coverage" || bad "unt333: rc=$rc $(tail -n 5 "$T/verify-unt333.out" | tr '\n' '|')"
+vfy nor444; rc=$?
+[ "$rc" -eq 1 ] && grep -q "^expected stop fails_without_change: NOT met — a red other than a tagged test of a truth file passing on the record commit's tree: RED: .* left no readable report" "$T/verify-nor444.out" \
+  && ok "verify fails a runner case that stops because its runner wrote no report" || bad "nor444: rc=$rc $(tail -n 5 "$T/verify-nor444.out" | tr '\n' '|')"
+[ "$(grep -c . "$FAKE_NPM_LOG" 2>/dev/null)" = 1 ] && grep -q ' install --ignore-scripts' "$FAKE_NPM_LOG" && [ -d "$T/rclones/acme__calc.deps/$JBASE/node_modules" ] \
+  && ok "npm install ran once for the four cases on one base, both arms each, with its result kept beside the bare clones" || bad "npm calls: $({ tr '\n' '|' < "$FAKE_NPM_LOG"; } 2>&1)"
+[ -z "$(git -C "$T/verify-vac111/vac111/plain/checkout" status --porcelain)" ] && [ -f "$T/verify-vac111/vac111/plain/checkout/node_modules/fakejest/jest.py" ] \
+  && ok "each checkout holds the installed node_modules, and git does not list them" || bad "plain checkout: $(git -C "$T/verify-vac111/vac111/plain/checkout" status --porcelain | head -n 3 | tr '\n' '|')"
+FAKE_NPM_EMPTY=1 PATH="$T/npmbin:$PATH" py render --case vac111 --arm lane --dest "$T/empty" --clones "$T/eclones" > "$T/empty.out" 2>&1; rc=$?
+[ "$rc" -ne 0 ] && grep -q "vac111: the runner needs node_modules/fakejest/jest.py, which the install at .* did not provide" "$T/empty.out" \
+  && ok "an install that leaves no runner binary fails the build, naming the binary" || bad "empty install: rc=$rc $(tail -n 3 "$T/empty.out" | tr '\n' '|')"
 
 echo "render-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

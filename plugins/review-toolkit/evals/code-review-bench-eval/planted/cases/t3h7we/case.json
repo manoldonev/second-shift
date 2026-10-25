@@ -1,0 +1,23 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-58",
+  "license": "MIT",
+  "base": "2efb399f33d8f3dca7eb156404598384f419cb8b",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats-jest",
+  "issue": 51,
+  "pr": 58,
+  "commit": "fix: increase github rate limit with multiple PATs",
+  "expect_stop": "fails_without_change",
+  "truth": {
+    "class": "P1",
+    "description": "The fetchRepo test tagged for the token rotation answers the first request with the repo, so the retryer never moves past PAT_1 and the test passes with or without it.",
+    "locations": [
+      {"file": "tests/fetchRepo.test.js", "start": 47, "end": 52, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/retryer.js", "start": 2, "end": 2, "side": "head",
+     "why": "retries counts from zero, so stopping once it passes seven gives PAT_1 to PAT_8 one try each."}
+  ]
+}

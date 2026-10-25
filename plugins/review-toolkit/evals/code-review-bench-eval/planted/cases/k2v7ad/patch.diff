@@ -1,0 +1,1225 @@
+diff --git a/.gitignore b/.gitignore
+index b1d9a01..496732a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -14,3 +14,4 @@ vercel_token
+ *.code-workspace
+
+ .vercel
++.wrangler
+diff --git a/api/gist.js b/api/gist.js
+index 8821c7b..500913f 100644
+--- a/api/gist.js
++++ b/api/gist.js
+@@ -8,7 +8,7 @@ import { isLocaleAvailable } from "../src/translations.js";
+ import { renderGistCard } from "../src/cards/gist-card.js";
+ import { fetchGist } from "../src/fetchers/gist-fetcher.js";
+
+-export default async (req, res) => {
++export const handler = async (req, res, env) => {
+   const {
+     id,
+     title_color,
+@@ -39,7 +39,7 @@ export default async (req, res) => {
+   }
+
+   try {
+-    const gistData = await fetchGist(id);
++    const gistData = await fetchGist(env, id);
+
+     let cacheSeconds = clampValue(
+       parseInt(cache_seconds || CONSTANTS.SIX_HOURS, 10),
+@@ -102,3 +102,5 @@ export default async (req, res) => {
+     );
+   }
+ };
++
++export default async (req, res) => handler(req, res, process.env);
+diff --git a/api/index.js b/api/index.js
+index e1e1c27..22b7d3f 100644
+--- a/api/index.js
++++ b/api/index.js
+@@ -10,7 +10,7 @@ import {
+ import { fetchStats } from "../src/fetchers/stats-fetcher.js";
+ import { isLocaleAvailable } from "../src/translations.js";
+
+-export default async (req, res) => {
++export const handler = async (req, res, env) => {
+   const {
+     username,
+     hide,
+@@ -68,6 +68,7 @@ export default async (req, res) => {
+   try {
+     const showStats = parseArray(show);
+     const stats = await fetchStats(
++      env,
+       username,
+       parseBoolean(include_all_commits),
+       parseArray(exclude_repo),
+@@ -82,8 +83,8 @@ export default async (req, res) => {
+       CONSTANTS.SIX_HOURS,
+       CONSTANTS.ONE_DAY,
+     );
+-    cacheSeconds = process.env.CACHE_SECONDS
+-      ? parseInt(process.env.CACHE_SECONDS, 10) || cacheSeconds
++    cacheSeconds = env.CACHE_SECONDS
++      ? parseInt(env.CACHE_SECONDS, 10) || cacheSeconds
+       : cacheSeconds;
+
+     res.setHeader(
+@@ -138,3 +139,5 @@ export default async (req, res) => {
+     );
+   }
+ };
++
++export default async (req, res) => handler(req, res, process.env);
+diff --git a/api/pin.js b/api/pin.js
+index bdad925..6d9a2cc 100644
+--- a/api/pin.js
++++ b/api/pin.js
+@@ -9,7 +9,7 @@ import {
+ import { fetchRepo } from "../src/fetchers/repo-fetcher.js";
+ import { isLocaleAvailable } from "../src/translations.js";
+
+-export default async (req, res) => {
++export const handler = async (req, res, env) => {
+   const {
+     username,
+     repo,
+@@ -53,7 +53,7 @@ export default async (req, res) => {
+   }
+
+   try {
+-    const repoData = await fetchRepo(username, repo);
++    const repoData = await fetchRepo(env, username, repo);
+
+     let cacheSeconds = clampValue(
+       parseInt(cache_seconds || CONSTANTS.CARD_CACHE_SECONDS, 10),
+@@ -116,3 +116,5 @@ export default async (req, res) => {
+     );
+   }
+ };
++
++export default async (req, res) => handler(req, res, process.env);
+diff --git a/api/status/pat-info.js b/api/status/pat-info.js
+index 1f17bf6..83e01bf 100644
+--- a/api/status/pat-info.js
++++ b/api/status/pat-info.js
+@@ -5,6 +5,7 @@
+  * @description This function is currently rate limited to 1 request per 5 minutes.
+  */
+
++import process from "node:process";
+ import { logger, request, dateDiff } from "../../src/common/utils.js";
+ export const RATE_LIMIT_SECONDS = 60 * 5; // 1 request per 5 minutes
+
+@@ -18,9 +19,10 @@ export const RATE_LIMIT_SECONDS = 60 * 5; // 1 request per 5 minutes
+  *
+  * @param {AxiosRequestHeaders} variables Fetcher variables.
+  * @param {string} token GitHub token.
++ * @param {boolean} useFetch Use fetch instead of axios.
+  * @returns {Promise<AxiosResponse>} The response.
+  */
+-const uptimeFetcher = (variables, token) => {
++const uptimeFetcher = (variables, token, useFetch) => {
+   return request(
+     {
+       query: `
+@@ -35,11 +37,12 @@ const uptimeFetcher = (variables, token) => {
+     {
+       Authorization: `bearer ${token}`,
+     },
++    useFetch,
+   );
+ };
+
+-const getAllPATs = () => {
+-  return Object.keys(process.env).filter((key) => /PAT_\d*$/.exec(key));
++const getAllPATs = (env) => {
++  return Object.keys(env).filter((key) => /PAT_\d*$/.exec(key));
+ };
+
+ /**
+@@ -52,15 +55,16 @@ const getAllPATs = () => {
+  *
+  * @param {Fetcher} fetcher The fetcher function.
+  * @param {AxiosRequestHeaders} variables Fetcher variables.
++ * @param {object} env The environment variables.
+  * @returns {Promise<PATInfo>} The response.
+  */
+-const getPATInfo = async (fetcher, variables) => {
++const getPATInfo = async (fetcher, variables, env) => {
+   const details = {};
+-  const PATs = getAllPATs();
++  const PATs = getAllPATs(env);
+
+   for (const pat of PATs) {
+     try {
+-      const response = await fetcher(variables, process.env[pat]);
++      const response = await fetcher(variables, env[pat]);
+       const errors = response.data.errors;
+       const hasErrors = Boolean(errors);
+       const errorType = errors?.[0]?.type;
+@@ -135,13 +139,14 @@ const getPATInfo = async (fetcher, variables) => {
+  *
+  * @param {any} _ The request.
+  * @param {any} res The response.
++ * @param {object} env The environment variables.
+  * @returns {Promise<void>} The response.
+  */
+-export default async (_, res) => {
++export const handler = async (_, res, env) => {
+   res.setHeader("Content-Type", "application/json");
+   try {
+     // Add header to prevent abuse.
+-    const PATsInfo = await getPATInfo(uptimeFetcher, {});
++    const PATsInfo = await getPATInfo(uptimeFetcher, {}, env);
+     if (PATsInfo) {
+       res.setHeader(
+         "Cache-Control",
+@@ -156,3 +161,5 @@ export default async (_, res) => {
+     res.send("Something went wrong: " + err.message);
+   }
+ };
++
++export default async (req, res) => handler(req, res, process.env);
+diff --git a/api/status/up.js b/api/status/up.js
+index 786ac0b..10aa4e4 100644
+--- a/api/status/up.js
++++ b/api/status/up.js
+@@ -20,9 +20,10 @@ export const RATE_LIMIT_SECONDS = 60 * 5; // 1 request per 5 minutes
+  *
+  * @param {AxiosRequestHeaders} variables Fetcher variables.
+  * @param {string} token GitHub token.
++ * @param {boolean=} useFetch Use fetch instead of axios.
+  * @returns {Promise<AxiosResponse>} The response.
+  */
+-const uptimeFetcher = (variables, token) => {
++const uptimeFetcher = (variables, token, useFetch) => {
+   return request(
+     {
+       query: `
+@@ -37,6 +38,7 @@ const uptimeFetcher = (variables, token) => {
+     {
+       Authorization: `bearer ${token}`,
+     },
++    useFetch,
+   );
+ };
+
+@@ -78,9 +80,10 @@ const shieldsUptimeBadge = (up) => {
+  *
+  * @param {any} req The request.
+  * @param {any} res The response.
++ * @param {object} env The environment variables.
+  * @returns {Promise<void>} Nothing.
+  */
+-export default async (req, res) => {
++export const handler = async (req, res, env) => {
+   let { type } = req.query;
+   type = type ? type.toLowerCase() : "boolean";
+
+@@ -89,7 +92,7 @@ export default async (req, res) => {
+   try {
+     let PATsValid = true;
+     try {
+-      await retryer(uptimeFetcher, {});
++      await retryer(uptimeFetcher, {}, env);
+     } catch (err) {
+       PATsValid = false;
+     }
+@@ -121,3 +124,5 @@ export default async (req, res) => {
+     res.send("Something went wrong: " + err.message);
+   }
+ };
++
++export default async (req, res) => handler(req, res, process.env);
+diff --git a/api/top-langs.js b/api/top-langs.js
+index 0ca96fe..641c73a 100644
+--- a/api/top-langs.js
++++ b/api/top-langs.js
+@@ -10,7 +10,7 @@ import {
+ import { fetchTopLanguages } from "../src/fetchers/top-languages-fetcher.js";
+ import { isLocaleAvailable } from "../src/translations.js";
+
+-export default async (req, res) => {
++export const handler = async (req, res, env) => {
+   const {
+     username,
+     hide,
+@@ -64,6 +64,7 @@ export default async (req, res) => {
+
+   try {
+     const topLangs = await fetchTopLanguages(
++      env,
+       username,
+       parseArray(exclude_repo),
+       size_weight,
+@@ -124,3 +125,5 @@ export default async (req, res) => {
+     );
+   }
+ };
++
++export default async (req, res) => handler(req, res, process.env);
+diff --git a/api/wakatime.js b/api/wakatime.js
+index 732b05a..6a31b0b 100644
+--- a/api/wakatime.js
++++ b/api/wakatime.js
+@@ -8,6 +8,7 @@ import {
+ } from "../src/common/utils.js";
+ import { fetchWakatimeStats } from "../src/fetchers/wakatime-fetcher.js";
+ import { isLocaleAvailable } from "../src/translations.js";
++import process from "node:process";
+
+ export default async (req, res) => {
+   const {
+diff --git a/cloudflare/adapter.js b/cloudflare/adapter.js
+new file mode 100644
+index 0000000..7b599a7
+--- /dev/null
++++ b/cloudflare/adapter.js
+@@ -0,0 +1,59 @@
++export class RequestAdapter {
++  params = {};
++
++  /**
++   * @param {Request} request Cloudflare Workers request
++   */
++  constructor(request) {
++    this.request = request;
++
++    const url = new URL(request.url);
++    const queryString = url.search.slice(1).split("&");
++
++    queryString.forEach((item) => {
++      const kv = item.split("=");
++      if (kv[0]) {
++        this.params[kv[0]] = kv[1] || true;
++      }
++    });
++  }
++
++  /**
++   * @returns {string} request method
++   * @readonly
++   */
++  get query() {
++    return this.params;
++  }
++}
++
++export class ResponseAdapter {
++  headers = {};
++  body = "";
++
++  /**
++   * @param {string} key header key
++   * @param {string} value header value
++   * @returns {void}
++   */
++  setHeader(key, value) {
++    this.headers[key] = value;
++  }
++
++  /**
++   * @param {string} body response body
++   * @returns {void}
++   */
++  send(body) {
++    this.body = body;
++  }
++
++  /**
++   * @returns {Response} Cloudflare Workers response
++   */
++  toResponse() {
++    return new Response(this.body, {
++      headers: this.headers,
++    });
++  }
++}
+diff --git a/cloudflare/index.js b/cloudflare/index.js
+new file mode 100644
+index 0000000..cc48c02
+--- /dev/null
++++ b/cloudflare/index.js
+@@ -0,0 +1,38 @@
++import { RequestAdapter, ResponseAdapter } from "./adapter.js";
++import { handler as gistHandler } from "../api/gist.js";
++import { handler as indexHandler } from "../api/index.js";
++import { handler as pinHandler } from "../api/pin.js";
++import { handler as topLangsHandler } from "../api/top-langs.js";
++import wakatimeHandler from "../api/wakatime.js";
++import { handler as statusPatInfoHandler } from "../api/status/pat-info.js";
++import { handler as statusUpHandler } from "../api/status/up.js";
++
++export default {
++  async fetch(request, env) {
++    env.IS_CLOUDFLARE = "true"; // used to detect if running on Cloudflare
++
++    const req = new RequestAdapter(request);
++    const res = new ResponseAdapter();
++
++    const { pathname } = new URL(request.url);
++    if (pathname === "/api") {
++      await indexHandler(req, res, env);
++    } else if (pathname === "/api/gist") {
++      await gistHandler(req, res, env);
++    } else if (pathname === "/api/pin") {
++      await pinHandler(req, res, env);
++    } else if (pathname === "/api/top-langs") {
++      await topLangsHandler(req, res, env);
++    } else if (pathname === "/api/wakatime") {
++      await wakatimeHandler(req, res);
++    } else if (pathname === "/api/status/pat-info") {
++      await statusPatInfoHandler(req, res, env);
++    } else if (pathname === "/api/status/up") {
++      await statusUpHandler(req, res, env);
++    } else {
++      return new Response("not found", { status: 404 });
++    }
++
++    return res.toResponse();
++  },
++};
+diff --git a/docs/plans/github-readme-stats-3433-plan.md b/docs/plans/github-readme-stats-3433-plan.md
+new file mode 100644
+index 0000000..64b0a38
+--- /dev/null
++++ b/docs/plans/github-readme-stats-3433-plan.md
+@@ -0,0 +1,15 @@
++# Plan — deploy on Cloudflare Workers
++
++## 1. Tests
++
++- [ ] 1.1 The fetchers take the environment as their first argument and read the tokens from it (tests/fetchStats.test.js, tests/fetchRepo.test.js, tests/fetchGist.test.js, tests/fetchTopLanguages.test.js) [AC-2]
++- [ ] 1.2 The retryer reads its tokens and its retry count from the environment it is given (tests/retryer.test.js) [AC-2] [AC-3]
++
++## 2. Handlers
++
++- [ ] 2.1 Export a handler from each endpoint that takes the environment, and keep the default export on `process.env` (api)
++- [ ] 2.2 Pass the environment through the fetchers to the retryer, and let `request` use `fetch` on Cloudflare (src/fetchers, src/common/retryer.js, src/common/utils.js)
++
++## 3. The worker
++
++- [ ] 3.1 Add the worker entrypoint, the request and response adapters, and `wrangler.toml` (cloudflare/index.js) [AC-1]
+diff --git a/src/cards/gist-card.js b/src/cards/gist-card.js
+index 9e889e7..6b313fc 100644
+--- a/src/cards/gist-card.js
++++ b/src/cards/gist-card.js
+@@ -21,9 +21,16 @@ import { icons } from "../common/icons.js";
+  * since vercel is using v16.14.0 which does not yet support json imports without the
+  * --experimental-json-modules flag.
+  */
+-import { createRequire } from "module";
+-const require = createRequire(import.meta.url);
+-const languageColors = require("../common/languageColors.json"); // now works
++let languageColors = {};
++try {
++  import("module").then((mod) => {
++    const { createRequire } = mod.Module;
++    const require = createRequire(import.meta.url);
++    languageColors = require("../common/languageColors.json"); // works
++  });
++} catch (err) {
++  languageColors = await import("../common/languageColors.json");
++}
+
+ const ICON_SIZE = 16;
+ const CARD_DEFAULT_WIDTH = 400;
+diff --git a/src/cards/stats-card.js b/src/cards/stats-card.js
+index 5f57205..0aa0189 100644
+--- a/src/cards/stats-card.js
++++ b/src/cards/stats-card.js
+@@ -1,4 +1,5 @@
+ // @ts-check
++import process from "node:process";
+ import { Card } from "../common/Card.js";
+ import { I18n } from "../common/I18n.js";
+ import { icons, rankIcon } from "../common/icons.js";
+diff --git a/src/cards/wakatime-card.js b/src/cards/wakatime-card.js
+index a6a203d..838827e 100644
+--- a/src/cards/wakatime-card.js
++++ b/src/cards/wakatime-card.js
+@@ -17,9 +17,16 @@ import { wakatimeCardLocales } from "../translations.js";
+  * since vercel is using v16.14.0 which does not yet support json imports without the
+  * --experimental-json-modules flag.
+  */
+-import { createRequire } from "module";
+-const require = createRequire(import.meta.url);
+-const languageColors = require("../common/languageColors.json"); // now works
++let languageColors = {};
++try {
++  import("module").then((mod) => {
++    const { createRequire } = mod.Module;
++    const require = createRequire(import.meta.url);
++    languageColors = require("../common/languageColors.json"); // works
++  });
++} catch (err) {
++  languageColors = await import("../common/languageColors.json");
++}
+
+ /**
+  * Creates the no coding activity SVG node.
+diff --git a/src/common/Card.js b/src/common/Card.js
+index d32da56..18db709 100644
+--- a/src/common/Card.js
++++ b/src/common/Card.js
+@@ -1,4 +1,5 @@
+ import { encodeHTML, flexLayout } from "./utils.js";
++import process from "node:process";
+
+ class Card {
+   /**
+diff --git a/src/common/retryer.js b/src/common/retryer.js
+index 3f294d3..c8d6cf1 100644
+--- a/src/common/retryer.js
++++ b/src/common/retryer.js
+@@ -1,12 +1,11 @@
+ import { CustomError, logger } from "./utils.js";
+
+-// Script variables.
+-
+-// Count the number of GitHub API tokens available.
+-const PATs = Object.keys(process.env).filter((key) =>
+-  /PAT_\d*$/.exec(key),
+-).length;
+-const RETRIES = process.env.NODE_ENV === "test" ? 7 : PATs;
++const getMaxRetries = (env) => {
++  // Count the number of GitHub API tokens available.
++  const PATs = Object.keys(env).filter((key) => /PAT_\d*$/.exec(key)).length;
++  const RETRIES = env.NODE_ENV === "test" ? 7 : PATs;
++  return RETRIES;
++};
+
+ /**
+  * @typedef {import("axios").AxiosResponse} AxiosResponse Axios response.
+@@ -18,10 +17,14 @@ const RETRIES = process.env.NODE_ENV === "test" ? 7 : PATs;
+  *
+  * @param {FetcherFunction} fetcher The fetcher function.
+  * @param {object} variables Object with arguments to pass to the fetcher function.
++ * @param {object} env Environment variables.
+  * @param {number} retries How many times to retry.
+  * @returns {Promise<T>} The response from the fetcher function.
+  */
+-const retryer = async (fetcher, variables, retries = 0) => {
++const retryer = async (fetcher, variables, env, retries = 0) => {
++  const useFetch = "IS_CLOUDFLARE" in env; // Cloudflare Workers don't support axios.
++  const RETRIES = getMaxRetries(env);
++
+   if (!RETRIES) {
+     throw new CustomError("No GitHub API tokens found", CustomError.NO_TOKENS);
+   }
+@@ -35,12 +38,13 @@ const retryer = async (fetcher, variables, retries = 0) => {
+     // try to fetch with the first token since RETRIES is 0 index i'm adding +1
+     let response = await fetcher(
+       variables,
+-      process.env[`PAT_${retries + 1}`],
++      env[`PAT_${retries + 1}`],
++      useFetch,
+       retries,
+     );
+
+-    // prettier-ignore
+-    const isRateExceeded = response.data.errors && response.data.errors[0].type === "RATE_LIMITED";
++    const isRateExceeded =
++      response.data.errors && response.data.errors[0].type === "RATE_LIMITED";
+
+     // if rate limit is hit increase the RETRIES and recursively call the retryer
+     // with username, and current RETRIES
+@@ -48,7 +52,7 @@ const retryer = async (fetcher, variables, retries = 0) => {
+       logger.log(`PAT_${retries + 1} Failed`);
+       retries++;
+       // directly return from the function
+-      return retryer(fetcher, variables, retries);
++      return retryer(fetcher, variables, env, retries);
+     }
+
+     // finally return the response
+@@ -65,12 +69,12 @@ const retryer = async (fetcher, variables, retries = 0) => {
+       logger.log(`PAT_${retries + 1} Failed`);
+       retries++;
+       // directly return from the function
+-      return retryer(fetcher, variables, retries);
++      return retryer(fetcher, variables, env, retries);
+     } else {
+       return err.response;
+     }
+   }
+ };
+
+-export { retryer, RETRIES };
++export { retryer, getMaxRetries };
+ export default retryer;
+diff --git a/src/common/utils.js b/src/common/utils.js
+index 48ea051..bf3175a 100644
+--- a/src/common/utils.js
++++ b/src/common/utils.js
+@@ -3,6 +3,7 @@ import axios from "axios";
+ import toEmoji from "emoji-name-map";
+ import wrap from "word-wrap";
+ import { themes } from "../../themes/index.js";
++import process from "node:process";
+
+ const TRY_AGAIN_LATER = "Please try again later";
+
+@@ -226,11 +227,28 @@ const fallbackColor = (color, fallbackColor) => {
+  * Send GraphQL request to GitHub API.
+  *
+  * @param {AxiosRequestConfigData} data Request data.
+- * @param {AxiosRequestConfigHeaders} headers Request headers.
++ * @param {Record<string, string>} headers Request headers.
++ * @param {boolean=} useFetch Use fetch instead of axios.
+  * @returns {Promise<any>} Request response.
+  */
+-const request = (data, headers) => {
+-  return axios({
++const request = async (data, headers, useFetch = false) => {
++  // GitHub now requires User-Agent header
++  // https://docs.github.com/en/rest/overview/resources-in-the-rest-api?apiVersion=2022-11-28#user-agent-required
++  headers["User-Agent"] = "github-readme-stats";
++
++  if (useFetch) {
++    const resp = await fetch("https://api.github.com/graphql", {
++      method: "POST",
++      headers,
++      body: JSON.stringify(data),
++    });
++    return {
++      ...resp,
++      data: await resp.json(),
++    };
++  }
++
++  return await axios({
+     url: "https://api.github.com/graphql",
+     method: "post",
+     headers,
+diff --git a/src/fetchers/gist-fetcher.js b/src/fetchers/gist-fetcher.js
+index 4e0e0f5..6c4778e 100644
+--- a/src/fetchers/gist-fetcher.js
++++ b/src/fetchers/gist-fetcher.js
+@@ -37,12 +37,14 @@ query gistInfo($gistName: String!) {
+  *
+  * @param {AxiosRequestHeaders} variables Fetcher variables.
+  * @param {string} token GitHub token.
++ * @param {boolean=} useFetch Use fetch instead of axios.
+  * @returns {Promise<AxiosResponse>} The response.
+  */
+-const fetcher = async (variables, token) => {
++const fetcher = async (variables, token, useFetch) => {
+   return await request(
+     { query: QUERY, variables },
+     { Authorization: `token ${token}` },
++    useFetch,
+   );
+ };
+
+@@ -83,14 +85,15 @@ const calculatePrimaryLanguage = (files) => {
+ /**
+  * Fetch GitHub gist information by given username and ID.
+  *
++ * @param {object} env Environment variables.
+  * @param {string} id Github gist ID.
+  * @returns {Promise<GistData>} Gist data.
+  */
+-const fetchGist = async (id) => {
++const fetchGist = async (env, id) => {
+   if (!id) {
+     throw new MissingParamError(["id"], "/api/gist?id=GIST_ID");
+   }
+-  const res = await retryer(fetcher, { gistName: id });
++  const res = await retryer(fetcher, { gistName: id }, env);
+   if (res.data.errors) {
+     throw new Error(res.data.errors[0].message);
+   }
+diff --git a/src/fetchers/repo-fetcher.js b/src/fetchers/repo-fetcher.js
+index 6438f88..284cfa4 100644
+--- a/src/fetchers/repo-fetcher.js
++++ b/src/fetchers/repo-fetcher.js
+@@ -12,9 +12,10 @@ import { MissingParamError, request } from "../common/utils.js";
+  *
+  * @param {AxiosRequestHeaders} variables Fetcher variables.
+  * @param {string} token GitHub token.
++ * @param {boolean=} useFetch Use fetch instead of axios.
+  * @returns {Promise<AxiosResponse>} The response.
+  */
+-const fetcher = (variables, token) => {
++const fetcher = (variables, token, useFetch) => {
+   return request(
+     {
+       query: `
+@@ -53,6 +54,7 @@ const fetcher = (variables, token) => {
+     {
+       Authorization: `token ${token}`,
+     },
++    useFetch,
+   );
+ };
+
+@@ -65,11 +67,12 @@ const urlExample = "/api/pin?username=USERNAME&amp;repo=REPO_NAME";
+ /**
+  * Fetch repository data.
+  *
++ * @param {object} env Environment variables.
+  * @param {string} username GitHub username.
+  * @param {string} reponame GitHub repository name.
+  * @returns {Promise<RepositoryData>} Repository data.
+  */
+-const fetchRepo = async (username, reponame) => {
++const fetchRepo = async (env, username, reponame) => {
+   if (!username && !reponame) {
+     throw new MissingParamError(["username", "repo"], urlExample);
+   }
+@@ -80,7 +83,7 @@ const fetchRepo = async (username, reponame) => {
+     throw new MissingParamError(["repo"], urlExample);
+   }
+
+-  let res = await retryer(fetcher, { login: username, repo: reponame });
++  let res = await retryer(fetcher, { login: username, repo: reponame }, env);
+
+   const data = res.data.data;
+
+diff --git a/src/fetchers/stats-fetcher.js b/src/fetchers/stats-fetcher.js
+index 115cd50..6701d7a 100644
+--- a/src/fetchers/stats-fetcher.js
++++ b/src/fetchers/stats-fetcher.js
+@@ -86,11 +86,12 @@ const GRAPHQL_STATS_QUERY = `
+  *
+  * @param {object} variables Fetcher variables.
+  * @param {string} token GitHub token.
++ * @param {boolean=} useFetch Use fetch instead of axios.
+  * @returns {Promise<AxiosResponse>} Axios response.
+  */
+-const fetcher = (variables, token) => {
++const fetcher = (variables, token, useFetch) => {
+   const query = variables.after ? GRAPHQL_REPOS_QUERY : GRAPHQL_STATS_QUERY;
+-  return request(
++  const resp = request(
+     {
+       query,
+       variables,
+@@ -98,7 +99,9 @@ const fetcher = (variables, token) => {
+     {
+       Authorization: `bearer ${token}`,
+     },
++    useFetch,
+   );
++  return resp;
+ };
+
+ /**
+@@ -109,6 +112,7 @@ const fetcher = (variables, token) => {
+  * @param {boolean} variables.includeMergedPullRequests Include merged pull requests.
+  * @param {boolean} variables.includeDiscussions Include discussions.
+  * @param {boolean} variables.includeDiscussionsAnswers Include discussions answers.
++ * @param {object} variables.env Environment variables.
+  * @returns {Promise<AxiosResponse>} Axios response.
+  *
+  * @description This function supports multi-page fetching if the 'FETCH_MULTI_PAGE_STARS' environment variable is set to true.
+@@ -118,6 +122,7 @@ const statsFetcher = async ({
+   includeMergedPullRequests,
+   includeDiscussions,
+   includeDiscussionsAnswers,
++  env,
+ }) => {
+   let stats;
+   let hasNextPage = true;
+@@ -131,7 +136,7 @@ const statsFetcher = async ({
+       includeDiscussions,
+       includeDiscussionsAnswers,
+     };
+-    let res = await retryer(fetcher, variables);
++    let res = await retryer(fetcher, variables, env);
+     if (res.data.errors) {
+       return res;
+     }
+@@ -149,7 +154,7 @@ const statsFetcher = async ({
+       (node) => node.stargazers.totalCount !== 0,
+     );
+     hasNextPage =
+-      process.env.FETCH_MULTI_PAGE_STARS === "true" &&
++      env.FETCH_MULTI_PAGE_STARS === "true" &&
+       repoNodes.length === repoNodesWithStars.length &&
+       res.data.data.user.repositories.pageInfo.hasNextPage;
+     endCursor = res.data.data.user.repositories.pageInfo.endCursor;
+@@ -162,12 +167,13 @@ const statsFetcher = async ({
+  * Fetch all the commits for all the repositories of a given username.
+  *
+  * @param {string} username GitHub username.
++ * @param {object} env Environment variables.
+  * @returns {Promise<number>} Total commits.
+  *
+  * @description Done like this because the GitHub API does not provide a way to fetch all the commits. See
+  * #92#issuecomment-661026467 and #211 for more information.
+  */
+-const totalCommitsFetcher = async (username) => {
++const totalCommitsFetcher = async (username, env) => {
+   if (!githubUsernameRegex.test(username)) {
+     logger.log("Invalid username provided.");
+     throw new Error("Invalid username provided.");
+@@ -188,7 +194,7 @@ const totalCommitsFetcher = async (username) => {
+
+   let res;
+   try {
+-    res = await retryer(fetchTotalCommits, { login: username });
++    res = await retryer(fetchTotalCommits, { login: username }, env);
+   } catch (err) {
+     logger.log(err);
+     throw new Error(err);
+@@ -211,6 +217,7 @@ const totalCommitsFetcher = async (username) => {
+ /**
+  * Fetch stats for a given username.
+  *
++ * @param {object} env Environment variables.
+  * @param {string} username GitHub username.
+  * @param {boolean} include_all_commits Include all commits.
+  * @param {string[]} exclude_repo Repositories to exclude.
+@@ -220,6 +227,7 @@ const totalCommitsFetcher = async (username) => {
+  * @returns {Promise<StatsData>} Stats data.
+  */
+ const fetchStats = async (
++  env,
+   username,
+   include_all_commits = false,
+   exclude_repo = [],
+@@ -251,6 +259,7 @@ const fetchStats = async (
+     includeMergedPullRequests: include_merged_pull_requests,
+     includeDiscussions: include_discussions,
+     includeDiscussionsAnswers: include_discussions_answers,
++    env,
+   });
+
+   // Catch GraphQL errors.
+@@ -280,7 +289,7 @@ const fetchStats = async (
+
+   // if include_all_commits, fetch all commits using the REST API.
+   if (include_all_commits) {
+-    stats.totalCommits = await totalCommitsFetcher(username);
++    stats.totalCommits = await totalCommitsFetcher(username, env);
+   } else {
+     stats.totalCommits = user.contributionsCollection.totalCommitContributions;
+   }
+diff --git a/src/fetchers/top-languages-fetcher.js b/src/fetchers/top-languages-fetcher.js
+index 485cc8b..c460f97 100644
+--- a/src/fetchers/top-languages-fetcher.js
++++ b/src/fetchers/top-languages-fetcher.js
+@@ -18,9 +18,10 @@ import {
+  *
+  * @param {AxiosRequestHeaders} variables Fetcher variables.
+  * @param {string} token GitHub token.
++ * @param {boolean=} useFetch Use fetch instead of axios.
+  * @returns {Promise<AxiosResponse>} Languages fetcher response.
+  */
+-const fetcher = (variables, token) => {
++const fetcher = (variables, token, useFetch) => {
+   return request(
+     {
+       query: `
+@@ -49,6 +50,7 @@ const fetcher = (variables, token) => {
+     {
+       Authorization: `token ${token}`,
+     },
++    useFetch,
+   );
+ };
+
+@@ -59,6 +61,7 @@ const fetcher = (variables, token) => {
+ /**
+  * Fetch top languages for a given username.
+  *
++ * @param {object} env Environment variables.
+  * @param {string} username GitHub username.
+  * @param {string[]} exclude_repo List of repositories to exclude.
+  * @param {number} size_weight Weightage to be given to size.
+@@ -66,6 +69,7 @@ const fetcher = (variables, token) => {
+  * @returns {Promise<TopLangData>} Top languages data.
+  */
+ const fetchTopLanguages = async (
++  env,
+   username,
+   exclude_repo = [],
+   size_weight = 1,
+@@ -75,7 +79,7 @@ const fetchTopLanguages = async (
+     throw new MissingParamError(["username"]);
+   }
+
+-  const res = await retryer(fetcher, { login: username });
++  const res = await retryer(fetcher, { login: username }, env);
+
+   if (res.data.errors) {
+     logger.error(res.data.errors);
+diff --git a/tests/fetchGist.test.js b/tests/fetchGist.test.js
+index 13c29a8..7c1c209 100644
+--- a/tests/fetchGist.test.js
++++ b/tests/fetchGist.test.js
+@@ -78,7 +78,7 @@ describe("Test fetchGist", () => {
+   it("should fetch gist correctly", async () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, gist_data);
+
+-    let gist = await fetchGist("bbfce31e0217a3689c8d961a356cb10d");
++    let gist = await fetchGist(process.env, "bbfce31e0217a3689c8d961a356cb10d");
+
+     expect(gist).toStrictEqual({
+       name: "countries.json",
+@@ -96,21 +96,21 @@ describe("Test fetchGist", () => {
+       .onPost("https://api.github.com/graphql")
+       .reply(200, gist_not_found_data);
+
+-    await expect(fetchGist("bbfce31e0217a3689c8d961a356cb10d")).rejects.toThrow(
+-      "Gist not found",
+-    );
++    await expect(
++      fetchGist(process.env, "bbfce31e0217a3689c8d961a356cb10d"),
++    ).rejects.toThrow("Gist not found");
+   });
+
+   it("should throw error if reaponse contains them", async () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, gist_errors_data);
+
+-    await expect(fetchGist("bbfce31e0217a3689c8d961a356cb10d")).rejects.toThrow(
+-      "Some test GraphQL error",
+-    );
++    await expect(
++      fetchGist(process.env, "bbfce31e0217a3689c8d961a356cb10d"),
++    ).rejects.toThrow("Some test GraphQL error");
+   });
+
+   it("should throw error if id is not provided", async () => {
+-    await expect(fetchGist()).rejects.toThrow(
++    await expect(fetchGist(process.env)).rejects.toThrow(
+       'Missing params "id" make sure you pass the parameters in URL',
+     );
+   });
+diff --git a/tests/fetchRepo.test.js b/tests/fetchRepo.test.js
+index a980917..acd5680 100644
+--- a/tests/fetchRepo.test.js
++++ b/tests/fetchRepo.test.js
+@@ -42,7 +42,7 @@ describe("Test fetchRepo", () => {
+   it("should fetch correct user repo", async () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, data_user);
+
+-    let repo = await fetchRepo("anuraghazra", "convoychat");
++    let repo = await fetchRepo(process.env, "anuraghazra", "convoychat");
+
+     expect(repo).toStrictEqual({
+       ...data_repo.repository,
+@@ -53,7 +53,7 @@ describe("Test fetchRepo", () => {
+   it("should fetch correct org repo", async () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, data_org);
+
+-    let repo = await fetchRepo("anuraghazra", "convoychat");
++    let repo = await fetchRepo(process.env, "anuraghazra", "convoychat");
+     expect(repo).toStrictEqual({
+       ...data_repo.repository,
+       starCount: data_repo.repository.stargazers.totalCount,
+@@ -65,9 +65,9 @@ describe("Test fetchRepo", () => {
+       .onPost("https://api.github.com/graphql")
+       .reply(200, { data: { user: { repository: null }, organization: null } });
+
+-    await expect(fetchRepo("anuraghazra", "convoychat")).rejects.toThrow(
+-      "User Repository Not found",
+-    );
++    await expect(
++      fetchRepo(process.env, "anuraghazra", "convoychat"),
++    ).rejects.toThrow("User Repository Not found");
+   });
+
+   it("should throw error if org is found but repo is null", async () => {
+@@ -75,9 +75,9 @@ describe("Test fetchRepo", () => {
+       .onPost("https://api.github.com/graphql")
+       .reply(200, { data: { user: null, organization: { repository: null } } });
+
+-    await expect(fetchRepo("anuraghazra", "convoychat")).rejects.toThrow(
+-      "Organization Repository Not found",
+-    );
++    await expect(
++      fetchRepo(process.env, "anuraghazra", "convoychat"),
++    ).rejects.toThrow("Organization Repository Not found");
+   });
+
+   it("should throw error if both user & org data not found", async () => {
+@@ -85,9 +85,9 @@ describe("Test fetchRepo", () => {
+       .onPost("https://api.github.com/graphql")
+       .reply(200, { data: { user: null, organization: null } });
+
+-    await expect(fetchRepo("anuraghazra", "convoychat")).rejects.toThrow(
+-      "Not found",
+-    );
++    await expect(
++      fetchRepo(process.env, "anuraghazra", "convoychat"),
++    ).rejects.toThrow("Not found");
+   });
+
+   it("should throw error if repository is private", async () => {
+@@ -98,8 +98,8 @@ describe("Test fetchRepo", () => {
+       },
+     });
+
+-    await expect(fetchRepo("anuraghazra", "convoychat")).rejects.toThrow(
+-      "User Repository Not found",
+-    );
++    await expect(
++      fetchRepo(process.env, "anuraghazra", "convoychat"),
++    ).rejects.toThrow("User Repository Not found");
+   });
+ });
+diff --git a/tests/fetchStats.test.js b/tests/fetchStats.test.js
+index ca8d7bc..7206fca 100644
+--- a/tests/fetchStats.test.js
++++ b/tests/fetchStats.test.js
+@@ -104,7 +104,7 @@ afterEach(() => {
+
+ describe("Test fetchStats", () => {
+   it("should fetch correct stats", async () => {
+-    let stats = await fetchStats("anuraghazra");
++    let stats = await fetchStats(process.env, "anuraghazra");
+     const rank = calculateRank({
+       all_commits: false,
+       commits: 100,
+@@ -140,7 +140,7 @@ describe("Test fetchStats", () => {
+       .onPost("https://api.github.com/graphql")
+       .replyOnce(200, data_repo_zero_stars);
+
+-    let stats = await fetchStats("anuraghazra");
++    let stats = await fetchStats(process.env, "anuraghazra");
+     const rank = calculateRank({
+       all_commits: false,
+       commits: 100,
+@@ -172,7 +172,7 @@ describe("Test fetchStats", () => {
+     mock.reset();
+     mock.onPost("https://api.github.com/graphql").reply(200, error);
+
+-    await expect(fetchStats("anuraghazra")).rejects.toThrow(
++    await expect(fetchStats(process.env, "anuraghazra")).rejects.toThrow(
+       "Could not resolve to a User with the login of 'noname'.",
+     );
+   });
+@@ -182,7 +182,7 @@ describe("Test fetchStats", () => {
+       .onGet("https://api.github.com/search/commits?q=author:anuraghazra")
+       .reply(200, { total_count: 1000 });
+
+-    let stats = await fetchStats("anuraghazra", true);
++    let stats = await fetchStats(process.env, "anuraghazra", true);
+     const rank = calculateRank({
+       all_commits: true,
+       commits: 1000,
+@@ -211,7 +211,7 @@ describe("Test fetchStats", () => {
+   });
+
+   it("should throw specific error when include_all_commits true and invalid username", async () => {
+-    expect(fetchStats("asdf///---", true)).rejects.toThrow(
++    expect(fetchStats(process.env, "asdf///---", true)).rejects.toThrow(
+       new Error("Invalid username provided."),
+     );
+   });
+@@ -221,7 +221,7 @@ describe("Test fetchStats", () => {
+       .onGet("https://api.github.com/search/commits?q=author:anuraghazra")
+       .reply(200, { error: "Some test error message" });
+
+-    expect(fetchStats("anuraghazra", true)).rejects.toThrow(
++    expect(fetchStats(process.env, "anuraghazra", true)).rejects.toThrow(
+       new Error("Could not fetch total commits."),
+     );
+   });
+@@ -231,7 +231,9 @@ describe("Test fetchStats", () => {
+       .onGet("https://api.github.com/search/commits?q=author:anuraghazra")
+       .reply(200, { total_count: 1000 });
+
+-    let stats = await fetchStats("anuraghazra", true, ["test-repo-1"]);
++    let stats = await fetchStats(process.env, "anuraghazra", true, [
++      "test-repo-1",
++    ]);
+     const rank = calculateRank({
+       all_commits: true,
+       commits: 1000,
+@@ -262,7 +264,7 @@ describe("Test fetchStats", () => {
+   it("should fetch two pages of stars if 'FETCH_MULTI_PAGE_STARS' env variable is set to `true`", async () => {
+     process.env.FETCH_MULTI_PAGE_STARS = true;
+
+-    let stats = await fetchStats("anuraghazra");
++    let stats = await fetchStats(process.env, "anuraghazra");
+     const rank = calculateRank({
+       all_commits: false,
+       commits: 100,
+@@ -293,7 +295,7 @@ describe("Test fetchStats", () => {
+   it("should fetch one page of stars if 'FETCH_MULTI_PAGE_STARS' env variable is set to `false`", async () => {
+     process.env.FETCH_MULTI_PAGE_STARS = "false";
+
+-    let stats = await fetchStats("anuraghazra");
++    let stats = await fetchStats(process.env, "anuraghazra");
+     const rank = calculateRank({
+       all_commits: false,
+       commits: 100,
+@@ -324,7 +326,7 @@ describe("Test fetchStats", () => {
+   it("should fetch one page of stars if 'FETCH_MULTI_PAGE_STARS' env variable is not set", async () => {
+     process.env.FETCH_MULTI_PAGE_STARS = undefined;
+
+-    let stats = await fetchStats("anuraghazra");
++    let stats = await fetchStats(process.env, "anuraghazra");
+     const rank = calculateRank({
+       all_commits: false,
+       commits: 100,
+@@ -353,7 +355,7 @@ describe("Test fetchStats", () => {
+   });
+
+   it("should not fetch additional stats data when it not requested", async () => {
+-    let stats = await fetchStats("anuraghazra");
++    let stats = await fetchStats(process.env, "anuraghazra");
+     const rank = calculateRank({
+       all_commits: false,
+       commits: 100,
+@@ -382,7 +384,15 @@ describe("Test fetchStats", () => {
+   });
+
+   it("should fetch additional stats when it requested", async () => {
+-    let stats = await fetchStats("anuraghazra", false, [], true, true, true);
++    let stats = await fetchStats(
++      process.env,
++      "anuraghazra",
++      false,
++      [],
++      true,
++      true,
++      true,
++    );
+     const rank = calculateRank({
+       all_commits: false,
+       commits: 100,
+diff --git a/tests/fetchTopLanguages.test.js b/tests/fetchTopLanguages.test.js
+index e7bd54a..cc88c93 100644
+--- a/tests/fetchTopLanguages.test.js
++++ b/tests/fetchTopLanguages.test.js
+@@ -64,7 +64,13 @@ describe("FetchTopLanguages", () => {
+   it("should fetch correct language data while using the new calculation", async () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, data_langs);
+
+-    let repo = await fetchTopLanguages("anuraghazra", [], 0.5, 0.5);
++    let repo = await fetchTopLanguages(
++      process.env,
++      "anuraghazra",
++      [],
++      0.5,
++      0.5,
++    );
+     expect(repo).toStrictEqual({
+       HTML: {
+         color: "#0f0",
+@@ -84,7 +90,9 @@ describe("FetchTopLanguages", () => {
+   it("should fetch correct language data while excluding the 'test-repo-1' repository", async () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, data_langs);
+
+-    let repo = await fetchTopLanguages("anuraghazra", ["test-repo-1"]);
++    let repo = await fetchTopLanguages(process.env, "anuraghazra", [
++      "test-repo-1",
++    ]);
+     expect(repo).toStrictEqual({
+       HTML: {
+         color: "#0f0",
+@@ -104,7 +112,7 @@ describe("FetchTopLanguages", () => {
+   it("should fetch correct language data while using the old calculation", async () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, data_langs);
+
+-    let repo = await fetchTopLanguages("anuraghazra", [], 1, 0);
++    let repo = await fetchTopLanguages(process.env, "anuraghazra", [], 1, 0);
+     expect(repo).toStrictEqual({
+       HTML: {
+         color: "#0f0",
+@@ -124,7 +132,7 @@ describe("FetchTopLanguages", () => {
+   it("should rank languages by the number of repositories they appear in", async () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, data_langs);
+
+-    let repo = await fetchTopLanguages("anuraghazra", [], 0, 1);
++    let repo = await fetchTopLanguages(process.env, "anuraghazra", [], 0, 1);
+     expect(repo).toStrictEqual({
+       HTML: {
+         color: "#0f0",
+@@ -144,7 +152,7 @@ describe("FetchTopLanguages", () => {
+   it("should throw specific error when user not found", async () => {
+     mock.onPost("https://api.github.com/graphql").reply(200, error);
+
+-    await expect(fetchTopLanguages("anuraghazra")).rejects.toThrow(
++    await expect(fetchTopLanguages(process.env, "anuraghazra")).rejects.toThrow(
+       "Could not resolve to a User with the login of 'noname'.",
+     );
+   });
+@@ -154,7 +162,7 @@ describe("FetchTopLanguages", () => {
+       errors: [{ message: "Some test GraphQL error" }],
+     });
+
+-    await expect(fetchTopLanguages("anuraghazra")).rejects.toThrow(
++    await expect(fetchTopLanguages(process.env, "anuraghazra")).rejects.toThrow(
+       "Some test GraphQL error",
+     );
+   });
+@@ -164,7 +172,7 @@ describe("FetchTopLanguages", () => {
+       errors: [{ type: "TEST" }],
+     });
+
+-    await expect(fetchTopLanguages("anuraghazra")).rejects.toThrow(
++    await expect(fetchTopLanguages(process.env, "anuraghazra")).rejects.toThrow(
+       "Something went wrong while trying to retrieve the language data using the GraphQL API.",
+     );
+   });
+diff --git a/tests/retryer.test.js b/tests/retryer.test.js
+index b0b4bd7..94a8322 100644
+--- a/tests/retryer.test.js
++++ b/tests/retryer.test.js
+@@ -1,6 +1,6 @@
+ import { jest } from "@jest/globals";
+ import "@testing-library/jest-dom";
+-import { retryer, RETRIES } from "../src/common/retryer.js";
++import { retryer, getMaxRetries } from "../src/common/retryer.js";
+ import { logger } from "../src/common/utils.js";
+ import { expect, it, describe } from "@jest/globals";
+
+@@ -15,7 +15,7 @@ const fetcherFail = jest.fn(() => {
+   );
+ });
+
+-const fetcherFailOnSecondTry = jest.fn((_vars, _token, retries) => {
++const fetcherFailOnSecondTry = jest.fn((_vars, _token, _useFetch, retries) => {
+   return new Promise((res) => {
+     // faking rate limit
+     if (retries < 1) {
+@@ -27,14 +27,14 @@ const fetcherFailOnSecondTry = jest.fn((_vars, _token, retries) => {
+
+ describe("Test Retryer", () => {
+   it("retryer should return value and have zero retries on first try", async () => {
+-    let res = await retryer(fetcher, {});
++    let res = await retryer(fetcher, {}, process.env);
+
+     expect(fetcher).toBeCalledTimes(1);
+     expect(res).toStrictEqual({ data: "ok" });
+   });
+
+   it("retryer should return value and have 2 retries", async () => {
+-    let res = await retryer(fetcherFailOnSecondTry, {});
++    let res = await retryer(fetcherFailOnSecondTry, {}, process.env);
+
+     expect(fetcherFailOnSecondTry).toBeCalledTimes(2);
+     expect(res).toStrictEqual({ data: "ok" });
+@@ -42,9 +42,9 @@ describe("Test Retryer", () => {
+
+   it("retryer should throw specific error if maximum retries reached", async () => {
+     try {
+-      await retryer(fetcherFail, {});
++      await retryer(fetcherFail, {}, process.env);
+     } catch (err) {
+-      expect(fetcherFail).toBeCalledTimes(RETRIES + 1);
++      expect(fetcherFail).toBeCalledTimes(getMaxRetries(process.env) + 1);
+       expect(err.message).toBe("Downtime due to GitHub API rate limiting");
+     }
+   });
+diff --git a/wrangler.toml b/wrangler.toml
+new file mode 100644
+index 0000000..28c882f
+--- /dev/null
++++ b/wrangler.toml
+@@ -0,0 +1,6 @@
++name = "github-readme-stats"
++main = "cloudflare/index.js"
++compatibility_date = "2023-10-25"
++node_compat = true
++
++[vars]

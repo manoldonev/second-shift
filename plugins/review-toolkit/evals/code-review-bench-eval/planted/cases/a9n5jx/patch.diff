@@ -1,0 +1,228 @@
+diff --git a/api/index.js b/api/index.js
+index f1ad48b..6d18aa6 100644
+--- a/api/index.js
++++ b/api/index.js
+@@ -17,6 +17,7 @@ module.exports = async (req, res) => {
+     hide_border,
+     hide_rank,
+     show_icons,
++    count_private,
+     line_height,
+     title_color,
+     icon_color,
+@@ -30,7 +31,7 @@ module.exports = async (req, res) => {
+   res.setHeader("Content-Type", "image/svg+xml");
+
+   try {
+-    stats = await fetchStats(username);
++    stats = await fetchStats(username, parseBoolean(count_private));
+   } catch (err) {
+     return res.send(renderError(err.message));
+   }
+diff --git a/docs/plans/github-readme-stats-139-plan.md b/docs/plans/github-readme-stats-139-plan.md
+new file mode 100644
+index 0000000..56731d5
+--- /dev/null
++++ b/docs/plans/github-readme-stats-139-plan.md
+@@ -0,0 +1,12 @@
++# Plan — count private contributions on the stats card
++
++## 1. Tests
++
++- [ ] 1.1 The endpoint with count_private adds the private contributions to the card's total commits and rank (tests/api.test.js::`Test /api/ > should add private contributions`) [AC-1]
++- [ ] 1.2 fetchStats with count_private adds the private contributions to totalCommits (tests/fetchStats.test.js::`Test fetchStats > should fetch and add private contributions`) [AC-2]
++
++## 2. The option
++
++- [ ] 2.1 Query restrictedContributionsCount, and add it to totalCommits when count_private is set (src/fetchStats.js)
++- [ ] 2.2 Read count_private on `/api` and pass it to fetchStats (api/index.js)
++- [ ] 2.3 Document count_private (readme.md)
+diff --git a/readme.md b/readme.md
+index 54ae5f2..1d38011 100644
+--- a/readme.md
++++ b/readme.md
+@@ -65,6 +65,18 @@ To hide any specific stats, you can pass a query parameter `?hide=` with comma s
+ ![Anurag's github stats](https://github-readme-stats.vercel.app/api?username=anuraghazra&hide=contribs,prs])
+ ```
+
++### Adding private contributions count to total commits count
++
++You can add the count of all your private contributions to the total commits count by using the query parameter `?count_private=true`.
++
++_Note: If you are deploying this project yourself, the private contributions will be counted by default otherwise you need to chose to share your private contribution counts._
++
++> Options: `&count_private=true`
++
++```md
++![Anurag's github stats](https://github-readme-stats.vercel.app/api?username=anuraghazra&count_private=true)
++```
++
+ ### Showing icons
+
+ To enable icons, you can pass `show_icons=true` in the query param, like so:
+@@ -97,21 +109,22 @@ You can customize the appearance of your `Stats Card` or `Repo Card` however you
+
+ Customization Options:
+
+-| Option        | type      | description                          | Stats Card (default) | Repo Card (default) | Top Lang Card (default) |
+-| ------------- | --------- | ------------------------------------ | -------------------- | ------------------- | ----------------------- |
+-| title_color   | hex color | title color                          | 2f80ed               | 2f80ed              | 2f80ed                  |
+-| text_color    | hex color | body color                           | 333                  | 333                 | 333                     |
+-| icon_color    | hex color | icon color                           | 4c71f2               | 586069              | 586069                  |
+-| bg_color      | hex color | card bg color                        | FFFEFE               | FFFEFE              | FFFEFE                  |
+-| line_height   | number    | control the line-height between text | 30                   | N/A                 | N/A                     |
+-| hide          | CSV       | hides the items specified            | undefined            | N/A                 | undefined               |
+-| hide_rank     | boolean   | hides the ranking                    | false                | N/A                 | N/A                     |
+-| hide_title    | boolean   | hides the stats title                | false                | N/A                 | false                   |
+-| hide_border   | boolean   | hides the stats card border          | false                | N/A                 | N/A                     |
+-| show_owner    | boolean   | shows owner name in repo card        | N/A                  | false               | N/A                     |
+-| show_icons    | boolean   | shows icons                          | false                | N/A                 | N/A                     |
+-| theme         | string    | sets inbuilt theme                   | 'default'            | 'default_repocard'  | 'default                |
+-| cache_seconds | number    | manually set custom cache control    | 1800                 | 1800                | '1800'                  |
++| Option        | type      | description                                 | Stats Card (default) | Repo Card (default) | Top Lang Card (default) |
++| ------------- | --------- | ------------------------------------------- | -------------------- | ------------------- | ----------------------- |
++| title_color   | hex color | title color                                 | 2f80ed               | 2f80ed              | 2f80ed                  |
++| text_color    | hex color | body color                                  | 333                  | 333                 | 333                     |
++| icon_color    | hex color | icon color                                  | 4c71f2               | 586069              | 586069                  |
++| bg_color      | hex color | card bg color                               | FFFEFE               | FFFEFE              | FFFEFE                  |
++| line_height   | number    | control the line-height between text        | 30                   | N/A                 | N/A                     |
++| hide          | CSV       | hides the items specified                   | undefined            | N/A                 | undefined               |
++| hide_rank     | boolean   | hides the ranking                           | false                | N/A                 | N/A                     |
++| hide_title    | boolean   | hides the stats title                       | false                | N/A                 | false                   |
++| hide_border   | boolean   | hides the stats card border                 | false                | N/A                 | N/A                     |
++| show_owner    | boolean   | shows owner name in repo card               | N/A                  | false               | N/A                     |
++| show_icons    | boolean   | shows icons                                 | false                | N/A                 | N/A                     |
++| theme         | string    | sets inbuilt theme                          | 'default'            | 'default_repocard'  | 'default                |
++| cache_seconds | number    | manually set custom cache control           | 1800                 | 1800                | '1800'                  |
++| count_private | boolean   | counts private contributions too if enabled | false                | N/A                 | N/A                     |
+
+ > Note on cache: Repo cards have default cache of 30mins (1800 seconds) if the fork count & star count is less than 1k otherwise it's 2hours (7200). Also note that cache is clamped to minimum of 30min and maximum of 24hours
+
+diff --git a/src/fetchStats.js b/src/fetchStats.js
+index ea6010f..66df9d0 100644
+--- a/src/fetchStats.js
++++ b/src/fetchStats.js
+@@ -13,6 +13,7 @@ const fetcher = (variables, token) => {
+           login
+           contributionsCollection {
+             totalCommitContributions
++            restrictedContributionsCount
+           }
+           repositoriesContributedTo(first: 1, contributionTypes: [COMMIT, ISSUE, PULL_REQUEST, REPOSITORY]) {
+             totalCount
+@@ -45,7 +46,7 @@ const fetcher = (variables, token) => {
+   );
+ };
+
+-async function fetchStats(username) {
++async function fetchStats(username, count_private = false) {
+   if (!username) throw Error("Invalid username");
+
+   const stats = {
+@@ -66,10 +67,18 @@ async function fetchStats(username) {
+   }
+
+   const user = res.data.data.user;
++  const contributionCount = user.contributionsCollection;
+
+   stats.name = user.name || user.login;
+   stats.totalIssues = user.issues.totalCount;
+-  stats.totalCommits = user.contributionsCollection.totalCommitContributions;
++
++  stats.totalCommits = contributionCount.totalCommitContributions;
++  if (count_private) {
++    stats.totalCommits =
++      contributionCount.totalCommitContributions +
++      contributionCount.restrictedContributionsCount;
++  }
++
+   stats.totalPRs = user.pullRequests.totalCount;
+   stats.contributedTo = user.repositoriesContributedTo.totalCount;
+
+diff --git a/tests/api.test.js b/tests/api.test.js
+index a9a640b..8c79e70 100644
+--- a/tests/api.test.js
++++ b/tests/api.test.js
+@@ -30,7 +30,10 @@ const data = {
+     user: {
+       name: stats.name,
+       repositoriesContributedTo: { totalCount: stats.contributedTo },
+-      contributionsCollection: { totalCommitContributions: stats.totalCommits },
++      contributionsCollection: {
++        totalCommitContributions: stats.totalCommits,
++        restrictedContributionsCount: 100,
++      },
+       pullRequests: { totalCount: stats.totalPRs },
+       issues: { totalCount: stats.totalIssues },
+       followers: { totalCount: 0 },
+@@ -181,4 +184,36 @@ describe("Test /api/", () => {
+       ]);
+     }
+   });
++
++  it("should add private contributions", async () => {
++    const { req, res } = faker(
++      {
++        username: "anuraghazra",
++        count_private: true,
++      },
++      data
++    );
++
++    await api(req, res);
++
++    expect(res.setHeader).toBeCalledWith("Content-Type", "image/svg+xml");
++    expect(res.send).toBeCalledWith(
++      renderStatsCard(
++        {
++          ...stats,
++          totalCommits: stats.totalCommits + 100,
++          rank: calculateRank({
++            totalCommits: stats.totalCommits + 100,
++            totalRepos: 1,
++            followers: 0,
++            contributions: stats.contributedTo,
++            stargazers: stats.totalStars,
++            prs: stats.totalPRs,
++            issues: stats.totalIssues,
++          }),
++        },
++        {}
++      )
++    );
++  });
+ });
+diff --git a/tests/fetchStats.test.js b/tests/fetchStats.test.js
+index ebcfde4..ae2d987 100644
+--- a/tests/fetchStats.test.js
++++ b/tests/fetchStats.test.js
+@@ -9,7 +9,7 @@ const data = {
+     user: {
+       name: "Anurag Hazra",
+       repositoriesContributedTo: { totalCount: 61 },
+-      contributionsCollection: { totalCommitContributions: 100 },
++      contributionsCollection: { totalCommitContributions: 100, restrictedContributionsCount: 50 },
+       pullRequests: { totalCount: 300 },
+       issues: { totalCount: 200 },
+       followers: { totalCount: 100 },
+@@ -77,4 +77,18 @@ describe("Test fetchStats", () => {
+       "Could not resolve to a User with the login of 'noname'."
+     );
+   });
+-});
++
++  it("should fetch and add private contributions", async () => {
++    mock.onPost("https://api.github.com/graphql").reply(200, data);
++
++    let stats = await fetchStats("anuraghazra", true);
++
++    expect(stats).toMatchObject({
++      contributedTo: 61,
++      name: "Anurag Hazra",
++      totalIssues: 200,
++      totalPRs: 300,
++      totalStars: 400,
++    });
++  });
++});
+\ No newline at end of file

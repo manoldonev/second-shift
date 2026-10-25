@@ -1,0 +1,23 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-2099",
+  "license": "MIT",
+  "base": "daa1977ba310f5dcb44f7945e7ecb5537e708c05",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats",
+  "issue": 1650,
+  "pr": 2099,
+  "commit": "add pie chart layout to language card",
+  "truth": {
+    "class": "P1",
+    "description": "The donut strokes each arc with the raw color the top languages fetcher copies from GitHub, which is null for a language GitHub gives no color, so that arc renders with stroke null and no visible color while its legend dot falls back to gray.",
+    "locations": [
+      {"file": "src/cards/top-languages-card.js", "start": 414, "end": 414, "side": "head"},
+      {"file": "src/fetchers/top-languages-fetcher.js", "start": 134, "end": 134, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/cards/top-languages-card.js", "start": 410, "end": 410, "side": "head",
+     "why": "The donut's svg is as tall as it is wide, so taking the vertical center from the width puts it at the same point as the horizontal one."}
+  ]
+}

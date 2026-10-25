@@ -1,0 +1,20 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "github-readme-stats": {
+      "lint": "npm run lint",
+      "test": "npm test",
+      "testRunners": [
+        {
+          "when": ["tests/*.test.js"],
+          "command": "node --experimental-vm-modules node_modules/jest/bin/jest.js --ci --json --outputFile={report} --runTestsByPath {files}",
+          "format": "jest-json",
+          "timeoutSeconds": 300
+        }
+      ]
+    }
+  }
+}

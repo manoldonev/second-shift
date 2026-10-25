@@ -13,14 +13,17 @@ Subcommands, model-free unless named:
   render    build one case for one arm, run the lane's gates and render the arm's prompt
   review    render, then spawn the arm's session and collect its verdict (billed)
   score     score review records with a canned judge; score-selftest.sh drives it
-  verify    build every case and print each ground-truth range at the head (network)
+  verify    build every case, check a runner case's expected stop, and print each ground-truth range at
+            the head (network; npm for a runner case)
   run       the operator's recipe: the judge's calibration, the reviews, the judge, the report (billed)
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import collections
 import datetime as dt
+import fnmatch
 import importlib.util
 import json
 import os
@@ -43,6 +46,12 @@ MIN_PER_CLASS, MIN_CONTROLS = 4, 5
 LICENSES = ("MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "ISC")
 WINDOW = 3
 MIN_CHANGED_LINES = 80
+MAX_UPSTREAM_SHARE = 0.40
+RUNNER_FORMAT = "jest-json"
+EXPECT_STOPS = ("fails_without_change",)
+PLAN_COVERAGE = TOOLS / "plan-coverage.sh"
+STOP_RED_RE = re.compile(r"^RED: AC-\d+ — (.+?)::.+ passes on the record commit's tree ")
+RUNNER_BIN_RE = re.compile(r"node_modules/\S+")
 PATTERNS = ("rejects-held-input", "dead-guard", "two-hop-caller", "omitted-option")
 # the cases that predate the size floor, the distraction rule and truth.pattern; every other case meets all three
 FROZEN = frozenset("""
@@ -233,6 +242,60 @@ def check_distractions(case: dict, touched: dict[str, list[tuple[str, int]]], ba
             bad(f"distraction {where} sits within {WINDOW} lines of a truth location")
 
 
+def overlay_runners(cfg: dict) -> list:
+    cmds = cfg.get("commands") if isinstance(cfg, dict) else None
+    return [r for c in (cmds or {}).values() if isinstance(c, dict) for r in (c.get("testRunners") or [])]
+
+
+def plan_tests(case: dict, patch: str) -> tuple[list[tuple[str, str, str, str]], str]:
+    """The plan's tagged tests as run.sh's gate reads them: plan-coverage.sh --files on the case's record and
+    the plan the patch adds, one (kind, AC, file, case) per tagged test. The second item names a failure."""
+    with tempfile.TemporaryDirectory() as t:
+        plan = Path(t) / "plan.md"
+        plan.write_text(added_text(patch, plan_rel(case)) + "\n")
+        r = subprocess.run(["bash", str(PLAN_COVERAGE), "--files", str(case["dir"] / "record.md"), str(plan)],
+                           text=True, capture_output=True)
+    if r.returncode:
+        return [], f"plan-coverage.sh --files exits {r.returncode} on the plan: {(r.stdout + r.stderr).strip()[:300]}"
+    rows = [tuple((l.split("\t") + ["", "", "", ""])[:4]) for l in r.stdout.splitlines() if l.strip()]
+    return rows, ""
+
+
+def check_runner(case: dict, cfg: dict, patch: str, bad) -> None:
+    """A runner case names its expected stop and an overlay whose testRunners the gate can run; every other
+    case names an overlay with none, so the gate never runs on it."""
+    runners, stop, ov = overlay_runners(cfg), case.get("expect_stop"), case["overlay"]
+    if stop is not None and stop not in EXPECT_STOPS:
+        bad(f"expect_stop {stop!r} is not one of {', '.join(EXPECT_STOPS)}")
+        return
+    if runners and stop is None:
+        bad(f"overlay {ov} declares testRunners, but case.json names no expect_stop")
+        return
+    if stop is not None and not runners:
+        bad(f"case.json names expect_stop, but overlay {ov} declares no testRunners")
+        return
+    if not runners:
+        return
+    globs = []
+    for i, r in enumerate(runners):
+        if not isinstance(r, dict) or not str(r.get("command") or "").strip():
+            bad(f"testRunners[{i}] of overlay {ov} has no command")
+            continue
+        if r.get("format") != RUNNER_FORMAT:
+            bad(f"testRunners[{i}] of overlay {ov} has format {r.get('format')!r}, not {RUNNER_FORMAT}")
+        globs += [g for g in r.get("when") or [] if isinstance(g, str)]
+    if plan_rel(case) not in patch_files(patch):
+        return
+    tests, err = plan_tests(case, patch)
+    if err:
+        bad(err)
+    for _, ac, f, c in tests:
+        if not c:
+            bad(f"the plan tags {f} for {ac} as a bare file, but a {RUNNER_FORMAT} runner judges named tests: name it as {f}::<case>")
+        if not any(fnmatch.fnmatchcase(f, g) for g in globs):
+            bad(f"the plan tags {f} for {ac}, which no when glob of overlay {ov}'s testRunners matches")
+
+
 def check_case(case: dict, root: Path) -> list[str]:
     p, cid, d = [], case["id"], case["dir"]
 
@@ -260,6 +323,7 @@ def check_case(case: dict, root: Path) -> list[str]:
     ov = root / "overlays" / case["overlay"]
     if not (ov / "review-context.md").is_file() or not (ov / "review-context.md").read_text().strip():
         bad(f"overlay {case['overlay']} has no review-context.md")
+    cfg = {}
     try:
         cfg = json.loads((ov / "config.json").read_text())
         if cfg.get("configVersion") != 3:
@@ -353,6 +417,7 @@ def check_case(case: dict, root: Path) -> list[str]:
         check_distractions(case, touched, bad)
     elif "distractions" in case:
         check_distractions(case, touched, bad)
+    check_runner(case, cfg, patch, bad)
     for name, text in (("the case id", cid), ("the commit subject", case["commit"]),
                        ("ticket.md", ticket.read_text() if ticket.is_file() else ""),
                        ("record.md", rec.read_text() if rec.is_file() else ""), ("patch.diff", patch)):
@@ -382,6 +447,10 @@ def check_corpus(root: Path) -> tuple[list[str], dict[str, int], dict[str, int]]
     for p, n in patterns.items():
         if not n:
             problems.append(f"corpus: no P4 case has pattern {p}")
+    for url, n in sorted(collections.Counter(c.get("upstream", "") for c in cases).items()):
+        if n > MAX_UPSTREAM_SHARE * len(cases):
+            problems.append(f"corpus: {url.removesuffix('.git')} holds {n} of {len(cases)} cases ({n / len(cases):.1%}), "
+                            f"more than {MAX_UPSTREAM_SHARE:.0%}")
     notice = root / "NOTICE"
     text = notice.read_text() if notice.is_file() else ""
     for url in sorted({c.get("upstream", "") for c in cases}):
@@ -416,6 +485,47 @@ def base_store(case: dict, clones: Path) -> Path:
     if not git(["rev-parse", "-q", "--verify", ref], cwd=store, check=False):
         git(["fetch", "-q", "--depth", "1", "--no-tags", case["upstream"], f"{case['base']}:{ref}"], cwd=store)
     return store
+
+
+def deps_dir(case: dict, clones: Path) -> Path:
+    return clones / f"{upstream_key(case)}.deps" / case["base"]
+
+
+def runner_bins(runners: list) -> list[str]:
+    return sorted({b for r in runners if isinstance(r, dict) for b in RUNNER_BIN_RE.findall(str(r.get("command") or ""))})
+
+
+def install_deps(case: dict, store: Path, clones: Path, dest: Path, bins: list[str]) -> None:
+    """The dependencies of a runner whose binary lives under node_modules/, installed once per upstream and
+    base from the base's package files, with network and no install scripts, then copied into the checkout,
+    where git ignores them. A binary the install did not provide fails the build, so a gate never runs
+    without its runner."""
+    cache = deps_dir(case, clones)
+    if not cache.is_dir():
+        npm = shutil.which("npm")
+        if not npm:
+            raise BuildError(f"{case['id']}: the overlay declares testRunners, and no npm is on PATH to install them")
+        part = cache.with_name(cache.name + ".partial")
+        shutil.rmtree(part, ignore_errors=True)
+        part.mkdir(parents=True)
+        for name in ("package.json", "package-lock.json"):
+            text = git(["show", f"refs/bases/{case['base']}:{name}"], cwd=store, check=False)
+            if text:
+                (part / name).write_text(text + "\n")
+        if not (part / "package.json").is_file():
+            raise BuildError(f"{case['id']}: the base {case['base']} has no package.json to install the runner from")
+        r = subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=part, text=True, capture_output=True)
+        if r.returncode:
+            raise BuildError(f"{case['id']}: npm install exited {r.returncode} in {part}: {(r.stdout + r.stderr).strip()[-400:]}")
+        part.rename(cache)
+    if (cache / "node_modules").is_dir():
+        shutil.copytree(cache / "node_modules", dest / "node_modules", symlinks=True)
+    (dest / ".git" / "info").mkdir(exist_ok=True)
+    with (dest / ".git" / "info" / "exclude").open("a") as f:
+        f.write("/node_modules/\n")
+    missing = [b for b in bins if not (dest / b).exists()]
+    if missing:
+        raise BuildError(f"{case['id']}: the runner needs {', '.join(missing)}, which the install at {cache} did not provide")
 
 
 def commit(dest: Path, subject: str, when: int) -> str:
@@ -455,6 +565,9 @@ def build(case: dict, arm: str, dest: Path, clones: Path, root: Path) -> dict:
         first = commit(dest, "docs: add the decision record", t0 + 7200)
     git(["apply", "--index", "--whitespace=nowarn", str(case["dir"] / "patch.diff")], cwd=dest)
     head = commit(dest, case["commit"], t0 + 10800)
+    bins = runner_bins(overlay_runners(json.loads((ov / "config.json").read_text())))
+    if bins:
+        install_deps(case, store, clones, dest, bins)
     (dest / ".git" / "FETCH_HEAD").unlink(missing_ok=True)
     git(["reflog", "expire", "--expire=now", "--all"], cwd=dest)
     if git(["remote"], cwd=dest):
@@ -1032,6 +1145,28 @@ def cmd_score(args) -> int:
     return 0
 
 
+def stop_problem(case: dict, b: dict) -> str:
+    """Why the lane's stop is not the case's expected one: a stop on fails-without-the-change whose every red
+    is a tagged test of a truth file passing on the record commit's tree. Empty when it is."""
+    g = b["gates"]
+    if not b["stopped"]:
+        return "the lane did not stop"
+    if g.get("plan_coverage") != 0:
+        return f"the lane stopped on plan coverage (exit {g.get('plan_coverage')})"
+    if g.get("fails_without_change") != 1:
+        return f"fails without the change exited {g.get('fails_without_change')}"
+    log = Path(b["state"]) / "fails-without-1.log"
+    reds = [l for l in log.read_text().splitlines() if l.startswith("RED: ")] if log.is_file() else []
+    if not reds:
+        return f"{log} holds no RED line"
+    files = {loc.get("file") for loc in case["truth"].get("locations") or []}
+    for line in reds:
+        m = STOP_RED_RE.match(line)
+        if not m or m[1] not in files:
+            return f"a red other than a tagged test of a truth file passing on the record commit's tree: {line[:300]}"
+    return ""
+
+
 def cmd_verify(args) -> int:
     """Both arms of every case, built and rendered with no model: the lane's gates, a marker scan of each
     rendered prompt, and each ground-truth range as the head and the base hold it."""
@@ -1056,7 +1191,12 @@ def cmd_verify(args) -> int:
             if hits:
                 print(f"{arm} prompt carries a marker: {', '.join(hits)}")
                 rc = 1
-        if b["stopped"] or (b["gates"].get("plan_coverage") not in (0, None)):
+        if case.get("expect_stop"):
+            why = stop_problem(case, b)
+            print(f"expected stop {case['expect_stop']}: {'NOT met — ' + why if why else 'met'}")
+            if why:
+                rc = 1
+        elif b["stopped"] or (b["gates"].get("plan_coverage") not in (0, None)):
             rc = 1
         for loc in truth.get("locations") or []:
             rev = b["head"] if loc["side"] == "head" else b["base"]
