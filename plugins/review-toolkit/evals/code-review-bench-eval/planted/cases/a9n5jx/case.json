@@ -1,0 +1,23 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-148",
+  "license": "MIT",
+  "base": "aa44bd7615442cc927ac070c5aedf35cb865c3a2",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats-jest",
+  "issue": 139,
+  "pr": 148,
+  "commit": "Add private contributors to totalContributions",
+  "expect_stop": "fails_without_change",
+  "truth": {
+    "class": "P1",
+    "description": "The fetchStats test tagged for count_private checks every field except totalCommits and the rank, so it passes whether or not the private contributions are added.",
+    "locations": [
+      {"file": "tests/fetchStats.test.js", "start": 81, "end": 93, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/fetchStats.js", "start": 75, "end": 80, "side": "head",
+     "why": "The first assignment sets the public count, and the branch replaces it only when count_private is set, so totalCommits ends with one value either way."}
+  ]
+}

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # corpus-selftest.sh — the shipped corpus passes `planted.py check`, and a copy that lacks any part a case
 # must carry, or holds a marker, or falls short of a class or a P4 pattern, or a new case that misses the
-# size floor or the distraction rule, fails naming it. No network and no model.
+# size floor or the distraction rule, or an upstream above 40% of the cases, or a runner case whose runner
+# the gate cannot run, fails naming it. No network and no model.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASS=0 FAIL=0
@@ -25,8 +26,22 @@ edit_case() { # edit_case <root> <id> <jq filter>
 
 echo "== the shipped corpus =="
 out="$(check "$HERE")"; rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "check: ok (P1 8, P2 4, P3 4, P4 10, P5 4, control 5; P4 patterns: rejects-held-input 2, dead-guard 2, two-hop-caller 1, omitted-option 1)" ] \
-  && ok "the shipped corpus passes, with ten P4 cases that cover all four patterns" || bad "shipped corpus: rc=$rc $out"
+[ "$rc" -eq 0 ] && [ "$out" = "check: ok (P1 16, P2 4, P3 4, P4 10, P5 4, control 5; P4 patterns: rejects-held-input 2, dead-guard 2, two-hop-caller 1, omitted-option 1)" ] \
+  && ok "the shipped corpus passes, with sixteen P1 cases and ten P4 cases that cover all four patterns" || bad "shipped corpus: rc=$rc $out"
+hard="$(python3 -c '
+import sys; sys.path.insert(0, sys.argv[1]); import planted, pathlib
+for c in planted.load_cases(pathlib.Path(sys.argv[1])):
+    t = c["truth"]
+    if c["id"] in planted.FROZEN or t["class"] != "P1" or "expect_stop" in c:
+        continue
+    touched = planted.patch_files((c["dir"] / "patch.diff").read_text())
+    outside = [l for l in t["locations"] if l["file"] not in touched and "start" in l]
+    print(c["id"], len(outside))' "$HERE" | sort | tr '\n' ' ')"
+[ "$hard" = "g8r2ub 1 k2v7ad 1 s4w9mf 1 x7c3nh 1 " ] \
+  && ok "four new P1 cases each range their unmet AC in a file the patch does not touch" || bad "review-hard P1 cases: [$hard]"
+runners="$(jq -r 'select(.expect_stop) | "\(.truth.class):\(.overlay)"' "$HERE"/cases/*/case.json | sort | uniq -c | tr -s ' ' | tr '\n' '|')"
+[ "$runners" = " 4 P1:anuraghazra__github-readme-stats-jest|" ] \
+  && ok "four P1 runner cases name the runner overlay and an expected stop" || bad "runner cases: [$runners]"
 [ ! -e "$HERE/cases/d4p7sx" ] && ok "the control whose fix pads a negative year wrongly is gone, and five controls remain" || bad "d4p7sx is still in the corpus"
 n_up="$(jq -r .upstream "$HERE"/cases/*/case.json | sort -u | grep -c .)"
 [ "$n_up" -ge 2 ] && ok "the cases come from $n_up upstreams" || bad "upstreams: $n_up"
@@ -134,6 +149,46 @@ out="$(check "$HERE")"
 n_small="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import planted, pathlib; print(sum(1 for c in planted.load_cases(pathlib.Path(sys.argv[1])) if c["id"] in planted.FROZEN and planted.changed_lines((c["dir"] / "patch.diff").read_text()) < planted.MIN_CHANGED_LINES))' "$HERE")"
 [ "$n_small" -ge 20 ] && grep -q '^check: ok' <<<"$out" && ! grep -q 'fewer than 80' <<<"$out" \
   && ok "the $n_small frozen cases under 80 lines still pass" || bad "frozen: $n_small under 80, $out"
+
+echo "== the new P1 cases meet the size floor and the distraction rule =="
+R="$(copy p1-short)"; awk '/^diff --git/{skip = ($0 ~ / b\/readme\.md$/)} !skip' "$HERE/cases/s4w9mf/patch.diff" > "$R/cases/s4w9mf/patch.diff"
+expect_red "$R" "a review-hard P1 case cut below 80 changed lines" "s4w9mf: the patch changes 79 lines outside docs/plans/, fewer than 80"
+R="$(copy p1-no-distraction)"; edit_case "$R" k2v7ad 'del(.distractions)'
+expect_red "$R" "a review-hard P1 case with no distraction" "k2v7ad: case.json has no distractions"
+R="$(copy runner-no-distraction)"; edit_case "$R" t3h7we '.distractions = []'
+expect_red "$R" "a runner P1 case with no distraction" "t3h7we: case.json has no distractions"
+
+echo "== no upstream above 40% of the corpus =="
+R="$(copy cap-41)"; rm -r "$R/cases/k2v7ad" "$R/cases/s4w9mf" "$R/cases/x7c3nh" "$R/cases/g8r2ub"
+expect_red "$R" "dayjs at 16 of 39 cases" "corpus: https://github.com/iamkun/dayjs holds 16 of 39 cases (41.0%), more than 40%"
+R="$(copy cap-40)"; rm -r "$R/cases/k2v7ad" "$R/cases/s4w9mf" "$R/cases/x7c3nh"
+out="$(check "$R")"; rc=$?
+[ "$rc" -eq 0 ] && ! grep -q 'more than 40%' <<<"$out" && ok "dayjs at exactly 16 of 40 cases passes" || bad "cap at 40%: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
+R="$(copy cap-readme)"; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do cp -R "$R/cases/g8r2ub" "$R/cases/g8r$(printf '%03d' "$i" | tr 0-9 a-j)"; done
+out="$(check "$R")"; rc=$?
+[ "$rc" -ne 0 ] && [ "$out" = "check: corpus: https://github.com/anuraghazra/github-readme-stats holds 34 of 63 cases (54.0%), more than 40%" ] \
+  && ok "readme-stats at 34 of 63 cases fails on its share alone" || bad "readme-stats cap: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
+
+echo "== a runner case declares a runner the gate can run =="
+RO=overlays/anuraghazra__github-readme-stats-jest/config.json
+R="$(copy no-command)"; jq 'del(.commands[].testRunners[0].command)' "$HERE/$RO" > "$R/$RO"
+expect_red "$R" "a runner overlay whose entry has no command" "d6m1zo: testRunners[0] of overlay anuraghazra__github-readme-stats-jest has no command"
+R="$(copy exit-format)"; jq '.commands[].testRunners[0].format = "exit"' "$HERE/$RO" > "$R/$RO"
+expect_red "$R" "a runner overlay whose format is exit" "a9n5jx: testRunners[0] of overlay anuraghazra__github-readme-stats-jest has format 'exit', not jest-json"
+R="$(copy no-format)"; jq 'del(.commands[].testRunners[0].format)' "$HERE/$RO" > "$R/$RO"
+expect_red "$R" "a runner overlay with no format" "v2q8ci: testRunners[0] of overlay anuraghazra__github-readme-stats-jest has format None, not jest-json"
+R="$(copy bare-tag)"
+# shellcheck disable=SC2016  # the backticks are the plan's case quotes, matched literally
+sed 's/(tests\/fetchRepo\.test\.js::`Test fetchRepo > should fetch the repo through the token rotation`)/(tests\/fetchRepo.test.js)/' "$HERE/cases/t3h7we/patch.diff" > "$R/cases/t3h7we/patch.diff"
+expect_red "$R" "a runner case whose plan tags a bare file" "t3h7we: the plan tags tests/fetchRepo.test.js for AC-3 as a bare file, but a jest-json runner judges named tests"
+R="$(copy unmatched-tag)"; sed 's/(tests\/fetchRepo\.test\.js::/(spec\/fetchRepo.test.js::/' "$HERE/cases/t3h7we/patch.diff" > "$R/cases/t3h7we/patch.diff"
+expect_red "$R" "a runner case whose plan tags a path no when glob matches" "t3h7we: the plan tags spec/fetchRepo.test.js for AC-3, which no when glob of overlay anuraghazra__github-readme-stats-jest's testRunners matches"
+R="$(copy no-expect)"; edit_case "$R" d6m1zo 'del(.expect_stop)'
+expect_red "$R" "a case on the runner overlay with no expected stop" "d6m1zo: overlay anuraghazra__github-readme-stats-jest declares testRunners, but case.json names no expect_stop"
+R="$(copy expect-no-runner)"; edit_case "$R" d6m1zo '.overlay = "anuraghazra__github-readme-stats"'
+expect_red "$R" "an expected stop on an overlay with no runner" "d6m1zo: case.json names expect_stop, but overlay anuraghazra__github-readme-stats declares no testRunners"
+R="$(copy odd-expect)"; edit_case "$R" d6m1zo '.expect_stop = "plan_coverage"'
+expect_red "$R" "an expected stop the gate does not make" "d6m1zo: expect_stop 'plan_coverage' is not one of fails_without_change"
 
 echo "corpus-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

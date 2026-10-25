@@ -1,0 +1,23 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-2844",
+  "license": "MIT",
+  "base": "c5d4bcbc1ac5e1811681e4acd825cd39145fb2d9",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats-jest",
+  "issue": 2836,
+  "pr": 2844,
+  "commit": "Stats card: migrate from show_total_reviews to show option (resolves #2836)",
+  "expect_stop": "fails_without_change",
+  "truth": {
+    "class": "P1",
+    "description": "The test tagged for the endpoint's pass-through compares the card /api sends with renderStatsCard called on the same show option, so both sides render the same card with or without the change and nothing checks that the reviews line appears.",
+    "locations": [
+      {"file": "tests/api.test.js", "start": 143, "end": 152, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "readme.md", "start": 695, "end": 695, "side": "head",
+     "why": "Markdown prints a bare <3 as text because it starts no tag, so the line renders as it did with the entity."}
+  ]
+}

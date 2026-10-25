@@ -746,7 +746,7 @@ a full 10-PR arm is about 45 session-minutes on the seat the checkouts' remote r
 ### The planted mode: does the lane review beat a plain review with the ticket?
 
 The known-bug set has no ticket, no record and no repo context, so it cannot measure what the lane
-adds. `code-review-bench-eval/planted/` can. Each of its 35 cases is a real TypeScript or JavaScript
+adds. `code-review-bench-eval/planted/` can. Each of its 43 cases is a real TypeScript or JavaScript
 issue and fix from Multi-SWE-bench, pinned by upstream and base sha, with one planted defect or none:
 
 | Class | Pillar | What is planted |
@@ -757,7 +757,8 @@ issue and fix from Multi-SWE-bench, pinned by upstream and base sha, with one pl
 | P4 | correctness | The change breaks an existing caller, or existing stored data. No upstream in the corpus stores data, so every P4 case breaks a caller. |
 | P5 | prior art | The change breaks a convention that the case's `review-context.md` declares. |
 
-There are eight P1 cases, ten P4 cases, four cases in each other class and five clean controls.
+There are sixteen P1 cases, ten P4 cases, four cases in each other class and five clean controls.
+No upstream holds more than 40% of the cases; `check` fails naming the upstream and its share.
 Each P4 case outside the 29 that predate the rule names its `truth.pattern`, one of four shapes:
 `rejects-held-input` (a new rule rejects a value an existing caller passes back from an object it
 holds), `dead-guard` (the new guard's only producer makes its condition constant),
@@ -769,7 +770,22 @@ why}`): a change inside a hunk that looks wrong but is correct, more than three 
 truth range, with a one-sentence `why`. The scorer ignores distractions, so a blocker on one is
 noise. The 29 older case ids are frozen in `planted.py`. Four of the P1
 cases break an AC only where an unchanged caller meets the new code, so the change's own tests
-pass. A P1 truth names the AC it leaves unmet; a broken caller outside every AC is P4. A case
+pass, and four more leave the AC unmet at a site two calls from the diff, in a file the patch does
+not touch. A P1 truth names the AC it leaves unmet; a broken caller outside every AC is P4.
+
+Four P1 cases are **runner cases**: their fix is complete, and the test their plan tags for one AC
+never exercises the change. Such a case names the overlay `anuraghazra__github-readme-stats-jest`,
+whose `testRunners` entry runs jest with format `jest-json`, and `expect_stop:
+"fails_without_change"` in `case.json`. `check` requires the command, the format, and a `file::case`
+tag under a `when` glob for every tagged test; a case on that overlay with no `expect_stop`, or an
+`expect_stop` on an overlay with no runner, fails. To build one, `planted.py` runs `npm install
+--ignore-scripts` once per upstream and base, keeps the result beside the bare clones, copies
+`node_modules` into each checkout, and fails the build when the runner's binary is missing. The lane
+stops such a case on fails-without-the-change, which scores right as any gate stop does; `verify`
+passes it only when every red names a tagged test of a truth file that passes on the record
+commit's tree, so a stop on plan coverage, a runner that writes no report, or a build error fails
+it. The installs need network and npm, so CI never builds a runner case; `render-selftest.sh` drives
+the same path with a fake npm and a fake jest-json runner. A case
 carries its ticket (the upstream issue text and an `## Acceptance criteria` block), its decision
 record, the patch (the edited fix, its tests, and the plan a build would commit), and its ground
 truth: the class, the planted locations and a one-sentence description. `overlays/` holds each

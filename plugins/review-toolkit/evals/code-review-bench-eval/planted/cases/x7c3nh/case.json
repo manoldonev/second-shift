@@ -1,0 +1,23 @@
+{
+  "upstream": "https://github.com/anuraghazra/github-readme-stats.git",
+  "instance": "anuraghazra__github-readme-stats-1041",
+  "license": "MIT",
+  "base": "fef8bc3a4a4ddb12a5c779e7cae18438231845a7",
+  "base_branch": "master",
+  "overlay": "anuraghazra__github-readme-stats",
+  "issue": 1038,
+  "pr": 1041,
+  "commit": "fix: wakatime langs_count when layout=compact",
+  "truth": {
+    "class": "P1",
+    "description": "The compact bar still sizes each segment by the percent that the WakaTime API gives the language over the whole week, so once langs_count drops languages the kept segments no longer add up to the full bar.",
+    "locations": [
+      {"file": "src/cards/wakatime-card.js", "start": 162, "end": 163, "side": "head"},
+      {"file": "src/fetchers/wakatime-fetcher.js", "start": 5, "end": 11, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/cards/wakatime-card.js", "start": 63, "end": 71, "side": "head",
+     "why": "The arguments only lose two spaces of indentation, so createProgressNode gets the same values as before."}
+  ]
+}
