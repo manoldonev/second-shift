@@ -54,7 +54,8 @@ l_out=$(pline '/pass-1-findings.md. Then start pass 2.'); l_last=$(pline "Read t
   && ok "(a) the review prompt names the record path only after the pass-2 marker" || bad "(a) record path at line ${l_rec:-none}, pass 1 at ${l_p1:-none}, pass 2 at ${l_p2:-none}"
 [ -n "$l_diff" ] && [ "$l_p1" -lt "$l_diff" ] && [ "$l_diff" -lt "$l_p2" ] \
   && ok "(a) the pass-1 diff command excludes the plans directory" || bad "(a) no pass-1 diff that excludes docs/plans (line ${l_diff:-none})"
-! head -n 1 "$P2" | grep -qi 'record' && ok "(a) the review prompt's first line names no decision record" || bad "(a) first line: $(head -n 1 "$P2")"
+p2_first=$(head -n 1 "$P2")
+[ -n "$p2_first" ] && ! grep -qi 'record' <<<"$p2_first" && ok "(a) the review prompt's first line names no decision record" || bad "(a) first line: $p2_first"
 grep -qF "A finding that shows existing data or an existing caller breaking under the change is a \`[blocker]\`. The ticket's scope list, a record row or parity with an older version never makes it a note." "$P2" \
   && grep -qF "A \`user-delegated\` or \`codebase-derived\` row never accepts a break. The finding then quotes that line." "$P2" \
   && grep -qF 'A record row never removes, dismisses or downgrades a pass-1 finding.' "$P2" \
