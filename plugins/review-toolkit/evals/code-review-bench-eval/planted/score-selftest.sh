@@ -6,6 +6,8 @@
 # which reads every class but P2.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DP="$HERE/../../../../dev-pipeline"
+HAVE_LANE=""; [ -f "$DP/skills/run/run.sh" ] && [ -f "$DP/tools/plan-coverage.sh" ] && [ -f "$DP/tools/verdict-check.sh" ] && HAVE_LANE=1
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ok   $*"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL $*"; }
@@ -77,22 +79,27 @@ s() { jq -c --arg a "$1" --arg c "$2" --argjson n "$3" '.records[] | select(.arm
 echo "== one review per class and arm =="
 score true; rc=$?
 [ "$rc" -eq 0 ] && ok "score exits 0" || bad "score rc=$rc: $(tail -n 5 "$T/err-true.txt")"
+if [ -n "$HAVE_LANE" ]; then
 [ "$(s lane p1case 1)" = '[1,0,0,1,"blocker"]' ] && ok "lane P1: a [blocker] two lines past the range, which the judge matches, is right; an unmatched [blocker] is noise" || bad "lane P1: $(s lane p1case 1)"
 [ "$(s lane p2case 1)" = '[1,0,0,0,"blocker"]' ] && ok "lane P2: a blocker that names the planted row is right and is not noise" || bad "lane P2: $(s lane p2case 1)"
 [ "$(s lane p3case 1)" = '[1,0,0,0,"gate"]' ] && ok "lane P3: a gate that stops the case is right" || bad "lane P3: $(s lane p3case 1)"
 [ "$(s lane p4case 1)" = '[0,1,0,0,""]' ] && ok "lane P4: an approve of a planted case is wrong" || bad "lane P4: $(s lane p4case 1)"
 [ "$(s lane p5case 1)" = '[1,0,0,0,"note"]' ] && ok "lane P5: a matching [note] on an approve is right, and the approve is not wrong" || bad "lane P5: $(s lane p5case 1)"
 [ "$(s lane ctcase 1)" = '[0,0,1,0,"blocker"]' ] && ok "lane control: a [blocker] is harm" || bad "lane control: $(s lane ctcase 1)"
+fi
 [ "$(s plain p1case 1)" = '[0,0,0,1,""]' ] && ok "plain P1: a [blocker] four lines past the range is not judged, misses and is noise; a needs-work is not wrong" || bad "plain P1: $(s plain p1case 1)"
 [ "$(s plain p2case 1)" = '[0,1,0,0,""]' ] && ok "plain P2: an approve is wrong" || bad "plain P2: $(s plain p2case 1)"
 [ "$(s plain p3case 1)" = '[1,0,0,0,"blocker"]' ] && ok "plain P3: a [blocker] inside the base-side range of a deletion is right" || bad "plain P3: $(s plain p3case 1)"
 [ "$(s plain p4case 1)" = '[0,0,0,1,""]' ] && ok "plain P4: a [blocker] in range that the judge rejects is noise" || bad "plain P4: $(s plain p4case 1)"
 [ "$(s plain p5case 1)" = '[0,0,0,0,""]' ] && ok "plain P5: an approve with no finding is neither right nor wrong" || bad "plain P5: $(s plain p5case 1)"
 [ "$(s plain ctcase 1)" = '[0,0,0,0,""]' ] && ok "plain control: an approve is no harm" || bad "plain control: $(s plain ctcase 1)"
+if [ -n "$HAVE_LANE" ]; then
 [ "$(s lane p1case 2)" = null ] && [ "$(jq -r '.records[] | select(.arm == "lane" and .run == 2) | .status' "$T/out-true.json")" = unscorable ] \
   && ok "a lane verdict that fails verdict-check.sh is unscorable" || bad "lane bad: $(jq -c '.records[] | select(.arm == "lane" and .run == 2)' "$T/out-true.json")"
+fi
 [ "$(jq -r '.records[] | select(.arm == "plain" and .run == 2) | .status' "$T/out-true.json")" = unscorable ] \
   && ok "a plain approve that carries a [blocker] is unscorable" || bad "plain bad: $(jq -c '.records[] | select(.arm == "plain" and .run == 2)' "$T/out-true.json")"
+if [ -n "$HAVE_LANE" ]; then
 [ "$(jq -c '[.arms.lane["2"].classes.P1.unscorable, .arms.lane["2"].classes.P1.wrong, .arms.plain["2"].classes.P1.unscorable, .arms.plain["2"].classes.P1.wrong]' "$T/out-true.json")" = '[1,0,1,0]' ] \
   && ok "an unscorable run is counted apart and never as an approve" || bad "unscorable tally: $(jq -c '.arms.lane["2"].classes.P1' "$T/out-true.json")"
 [ "$(jq -c '[.judge_calls[][1]] | sort' "$T/out-true.json")" = '["src/a.js:14 — the third token is dropped. Scenario: an input → a wrong outcome Fix: change it.","src/d.js:30 — a style worry.","src/e.js:7 — a string literal where the repo uses the unit constants.","test/c.test.js:19 — an expectation was deleted."]' ] \
@@ -113,6 +120,7 @@ score false
 [ "$(jq -c '.gate | [.pass, .lane_worst, .plain_best, .lane_worst_p1, .plain_best_p1]' "$T/out-false.json")" = '[true,1,0,1,0]' ] \
   && ok "the gate passes when the lane's worst run beats plain's best, overall without P2 and on P1" || bad "gate 3: $(jq -c '.gate' "$T/out-false.json")"
 grep -q '^gate: pass' "$T/err-false.txt" && ok "the report prints the gate" || bad "report: $(tail -n 2 "$T/err-false.txt")"
+fi
 
 echo "== a path-level location =="
 printf 'verdict: needs-work\n## Findings\n- [blocker] B1 test/t.test.js — no test proves AC-1.\n- [blocker] B2 test/t.test.js:90 — the AC-1 test is missing.\n- [blocker] B3 no test proves AC-1 at all.\n- [blocker] B4 src/t.js:40 — an unrelated worry.\n- [note] N1 a note that names no file.\n' > "$V/plain-pt.md"
@@ -135,4 +143,8 @@ python3 "$HERE/planted.py" --root "$R" score --reviews "$T/reviews-pt.json" --ju
   && ok "a path with no line parses, a backticked path drops its comma, and/or parses no path, and a later path:line wins" || bad "parsed paths: $(jq -c '.records[] | select(.case == "p1case" and .run == 2) | .findings' "$T/out-pt.json")"
 
 echo "score-selftest: $PASS passed, $FAIL failed"
+if [ "$FAIL" -eq 0 ] && [ -z "$HAVE_LANE" ]; then
+  echo "SKIP: the lane's assertions need dev-pipeline's run.sh and tools beside review-toolkit ($DP), which a checkout has and an install does not"
+  exit 77
+fi
 exit "$FAIL"

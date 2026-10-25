@@ -284,7 +284,7 @@ def check_runner(case: dict, cfg: dict, patch: str, bad) -> None:
         if r.get("format") != RUNNER_FORMAT:
             bad(f"testRunners[{i}] of overlay {ov} has format {r.get('format')!r}, not {RUNNER_FORMAT}")
         globs += [g for g in r.get("when") or [] if isinstance(g, str)]
-    if plan_rel(case) not in patch_files(patch):
+    if plan_rel(case) not in patch_files(patch) or not PLAN_COVERAGE.is_file():
         return
     tests, err = plan_tests(case, patch)
     if err:
@@ -1087,6 +1087,8 @@ def cmd_check(args) -> int:
         print(f"check: {p}")
     if problems:
         return 1
+    if not PLAN_COVERAGE.is_file():
+        print(f"check: the runner cases' plan tags were not read: {PLAN_COVERAGE} is absent", file=sys.stderr)
     print("check: ok (" + ", ".join(f"{c} {n}" for c, n in counts.items()) + "; P4 patterns: "
           + ", ".join(f"{p} {n}" for p, n in patterns.items()) + ")")
     return 0

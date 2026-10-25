@@ -12,7 +12,9 @@ TD="${TMPDIR:-/tmp}"
 T="$(mktemp -d "${TD%/}/corpus-selftest.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
-check() { python3 "$HERE/planted.py" --root "$1" check 2>&1; }
+DP="$HERE/../../../../dev-pipeline"
+HAVE_LANE=""; [ -f "$DP/skills/run/run.sh" ] && [ -f "$DP/tools/plan-coverage.sh" ] && [ -f "$DP/tools/verdict-check.sh" ] && HAVE_LANE=1
+check() { if [ -n "$HAVE_LANE" ]; then python3 "$HERE/planted.py" --root "$1" check 2>&1; else python3 "$HERE/planted.py" --root "$1" check 2>/dev/null; fi; }
 copy() { # copy <name> -> a fresh copy of the corpus at $T/<name>
   mkdir -p "$T/$1" && cp -R "$HERE/cases" "$HERE/overlays" "$HERE/NOTICE" "$T/$1/" && printf '%s' "$T/$1"
 }
@@ -177,12 +179,14 @@ R="$(copy exit-format)"; jq '.commands[].testRunners[0].format = "exit"' "$HERE/
 expect_red "$R" "a runner overlay whose format is exit" "a9n5jx: testRunners[0] of overlay anuraghazra__github-readme-stats-jest has format 'exit', not jest-json"
 R="$(copy no-format)"; jq 'del(.commands[].testRunners[0].format)' "$HERE/$RO" > "$R/$RO"
 expect_red "$R" "a runner overlay with no format" "v2q8ci: testRunners[0] of overlay anuraghazra__github-readme-stats-jest has format None, not jest-json"
+if [ -n "$HAVE_LANE" ]; then
 R="$(copy bare-tag)"
 # shellcheck disable=SC2016  # the backticks are the plan's case quotes, matched literally
 sed 's/(tests\/fetchRepo\.test\.js::`Test fetchRepo > should fetch the repo through the token rotation`)/(tests\/fetchRepo.test.js)/' "$HERE/cases/t3h7we/patch.diff" > "$R/cases/t3h7we/patch.diff"
 expect_red "$R" "a runner case whose plan tags a bare file" "t3h7we: the plan tags tests/fetchRepo.test.js for AC-3 as a bare file, but a jest-json runner judges named tests"
 R="$(copy unmatched-tag)"; sed 's/(tests\/fetchRepo\.test\.js::/(spec\/fetchRepo.test.js::/' "$HERE/cases/t3h7we/patch.diff" > "$R/cases/t3h7we/patch.diff"
 expect_red "$R" "a runner case whose plan tags a path no when glob matches" "t3h7we: the plan tags spec/fetchRepo.test.js for AC-3, which no when glob of overlay anuraghazra__github-readme-stats-jest's testRunners matches"
+fi
 R="$(copy no-expect)"; edit_case "$R" d6m1zo 'del(.expect_stop)'
 expect_red "$R" "a case on the runner overlay with no expected stop" "d6m1zo: overlay anuraghazra__github-readme-stats-jest declares testRunners, but case.json names no expect_stop"
 R="$(copy expect-no-runner)"; edit_case "$R" d6m1zo '.overlay = "anuraghazra__github-readme-stats"'
@@ -191,4 +195,8 @@ R="$(copy odd-expect)"; edit_case "$R" d6m1zo '.expect_stop = "plan_coverage"'
 expect_red "$R" "an expected stop the gate does not make" "d6m1zo: expect_stop 'plan_coverage' is not one of fails_without_change"
 
 echo "corpus-selftest: $PASS passed, $FAIL failed"
+if [ "$FAIL" -eq 0 ] && [ -z "$HAVE_LANE" ]; then
+  echo "SKIP: the lane's assertions need dev-pipeline's run.sh and tools beside review-toolkit ($DP), which a checkout has and an install does not"
+  exit 77
+fi
 exit "$FAIL"
