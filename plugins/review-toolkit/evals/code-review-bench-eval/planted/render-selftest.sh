@@ -73,8 +73,10 @@ CO="$T/lane/checkout"
 grep -q 'fails on the record commit' "$T/lane/state/fails-without-1.log" 2>/dev/null && ok "fails without the change ran the configured runner on the record commit's tree" || bad "fwc log: $(head -n 5 "$T/lane/state/fails-without-1.log" 2>&1)"
 P="$T/lane/state/review.prompt"
 FIRST="$(git -C "$CO" rev-parse HEAD~1)"
-grep -q "^You review PR #42 of this repository" "$P" && grep -qF "git show $FIRST:docs/plans/tool-41-decisions.md" "$P" \
-  && ok "the review prompt is run.sh's, for PR 42, naming the record commit" || bad "prompt head: $(head -c 400 "$P")"
+l_p2="$(grep -nxF '## Pass 2: the decision record' "$P" | head -n 1 | cut -d: -f1)"; l_rec="$(grep -nF 'docs/plans/tool-41-decisions.md' "$P" | head -n 1 | cut -d: -f1)"
+grep -q "^You review PR #42 of this repository" "$P" && grep -qF "git show $FIRST:docs/plans/tool-41-decisions.md" "$P" && [ -n "$l_p2" ] && [ -n "$l_rec" ] && [ "$l_p2" -lt "$l_rec" ] \
+  && ok "the review prompt is run.sh's, for PR 42, naming the record commit only in pass 2" || bad "prompt head: $(head -c 400 "$P") (pass 2 at ${l_p2:-none}, record at ${l_rec:-none})"
+grep -qF "diff origin/main...HEAD -- . ':(exclude)docs/plans'" "$P" && ok "the pass-1 diff leaves out the case's plans directory" || bad "no pass-1 diff that excludes docs/plans"
 grep -qF "'gh issue view 41 --json title,body,comments'" "$P" && grep -qF "The diff is origin/main...HEAD" "$P" \
   && ok "the prompt names the case's ticket and its base branch" || bad "prompt ticket/base lines missing"
 input="$(awk '/^## Scheduler input/{on=1} on' "$P")"
