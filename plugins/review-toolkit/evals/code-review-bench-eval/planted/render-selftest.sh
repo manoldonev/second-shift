@@ -238,7 +238,7 @@ vfy nor444; rc=$?
 [ "$rc" -eq 1 ] && grep -q "^expected stop fails_without_change: NOT met — a red other than a tagged test of a truth file passing on the record commit's tree: RED: .* left no readable report" "$T/verify-nor444.out" \
   && ok "verify fails a runner case that stops because its runner wrote no report" || bad "nor444: rc=$rc $(tail -n 5 "$T/verify-nor444.out" | tr '\n' '|')"
 [ "$(grep -c . "$FAKE_NPM_LOG" 2>/dev/null)" = 1 ] && grep -q ' install --ignore-scripts' "$FAKE_NPM_LOG" && [ -d "$T/rclones/acme__calc.deps/$JBASE/node_modules" ] \
-  && ok "npm install ran once for the four cases on one base, both arms each, with its result kept beside the bare clones" || bad "npm calls: $(cat "$FAKE_NPM_LOG" 2>&1 | tr '\n' '|')"
+  && ok "npm install ran once for the four cases on one base, both arms each, with its result kept beside the bare clones" || bad "npm calls: $({ tr '\n' '|' < "$FAKE_NPM_LOG"; } 2>&1)"
 [ -z "$(git -C "$T/verify-vac111/vac111/plain/checkout" status --porcelain)" ] && [ -f "$T/verify-vac111/vac111/plain/checkout/node_modules/fakejest/jest.py" ] \
   && ok "each checkout holds the installed node_modules, and git does not list them" || bad "plain checkout: $(git -C "$T/verify-vac111/vac111/plain/checkout" status --porcelain | head -n 3 | tr '\n' '|')"
 FAKE_NPM_EMPTY=1 PATH="$T/npmbin:$PATH" py render --case vac111 --arm lane --dest "$T/empty" --clones "$T/eclones" > "$T/empty.out" 2>&1; rc=$?
