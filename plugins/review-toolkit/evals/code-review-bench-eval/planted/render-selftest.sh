@@ -7,6 +7,8 @@
 # shellcheck disable=SC2016  # the fixtures are shell and markdown text, written literally
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DP="$HERE/../../../../dev-pipeline"
+HAVE_LANE=""; [ -f "$DP/skills/run/run.sh" ] && [ -f "$DP/tools/plan-coverage.sh" ] && [ -f "$DP/tools/verdict-check.sh" ] && HAVE_LANE=1
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ok   $*"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL $*"; }
@@ -57,6 +59,7 @@ mkcase abc123 tested
 mkcase def456 untested
 leaks() { grep -Eiw 'plant|plants|planted|planting|ground.truth|answer.key|corpus|seeded|injected' "$@"; grep -iF "$DESC" "$@"; grep -F "$R" "$@"; }
 
+if [ -n "$HAVE_LANE" ]; then
 echo "== the lane arm =="
 py render --case abc123 --arm lane --dest "$T/lane" --clones "$T/clones" > "$T/lane.json" 2> "$T/lane.err"; rc=$?
 [ "$rc" -eq 0 ] && ok "render --arm lane exits 0" || bad "render --arm lane rc=$rc: $(tail -n 5 "$T/lane.err")"
@@ -102,6 +105,7 @@ printf 'verdict: approve\nhello\n' > "$T/body.md"
 lgh pr comment 42 --body-file "$T/body.md" >/dev/null && [ "$(lgh pr view 42 --json comments --jq '.comments[0].body')" = "$(printf 'verdict: approve\nhello')" ] \
   && ok "pr comment saves the body, and pr view returns it" || bad "comment: $(cat "$T/lane/gh/comments.json" 2>&1)"
 lgh api repos/x >/dev/null 2>&1 && bad "gh api answered" || ok "any other gh command fails"
+fi
 
 echo "== the plain arm =="
 py render --case abc123 --arm plain --dest "$T/plain" --clones "$T/clones" > "$T/plain.json" 2> "$T/plain.err"; rc=$?
@@ -117,11 +121,13 @@ grep -q 'Read the decision record\|Scheduler input' "$PP" && bad "the plain prom
 git -C "$PC" log -p > "$T/plain-log.txt"
 if leaks "$PP" "$T/plain-log.txt" > "$T/plain-leaks.txt"; then bad "a marker in the plain arm: $(head -n 3 "$T/plain-leaks.txt")"; else ok "no marker in plain's prompt, commits or diff"; fi
 
+if [ -n "$HAVE_LANE" ]; then
 echo "== a gate stops a case =="
 py render --case def456 --arm lane --dest "$T/stop" --clones "$T/clones" > "$T/stop.json" 2> "$T/stop.err"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(field "$T/stop.json" stopped)" = True ] && [ "$(field "$T/stop.json" gates fails_without_change)" = 1 ] && [ ! -e "$T/stop/state/review.prompt" ] \
   && ok "a tagged test that passes without the change stops the case before any prompt" || bad "stop: rc=$rc $(head -c 300 "$T/stop.json" 2>&1)"
 [ "$(git -C "$T/stop/checkout" rev-parse --abbrev-ref HEAD)" = fix-41 ] && ok "the gate puts the checkout back on its branch" || bad "branch after the gate: $(git -C "$T/stop/checkout" rev-parse --abbrev-ref HEAD)"
+fi
 
 echo "== review, with a fake claude =="
 mkdir -p "$T/fakebin"
@@ -148,19 +154,23 @@ fi
 echo '{"type": "result", "subtype": "success", "result": "done", "total_cost_usd": 0.5, "num_turns": 2}'
 EOF
 chmod +x "$T/fakebin/claude"
+if [ -n "$HAVE_LANE" ]; then
 PATH="$T/fakebin:$PATH" py review --case abc123 --arm lane --dest "$T/rv-lane" --clones "$T/clones" --reviewer-model fake --no-bench > "$T/rv-lane.json" 2> "$T/rv-lane.err"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(field "$T/rv-lane.json" status)" = ok ] && [ "$(field "$T/rv-lane.json" verdict)" = approve ] && [ "$(field "$T/rv-lane.json" rows D-1)" = honored ] \
   && ok "the lane's posted verdict is captured through the local gh and passes verdict-check.sh" || bad "lane review: rc=$rc $(head -c 600 "$T/rv-lane.json") $(tail -n 3 "$T/rv-lane.err")"
+fi
 PATH="$T/fakebin:$PATH" py review --case abc123 --arm plain --dest "$T/rv-plain" --clones "$T/clones" --reviewer-model fake --no-bench > "$T/rv-plain.json" 2> "$T/rv-plain.err"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(field "$T/rv-plain.json" status)" = ok ] && [ "$(field "$T/rv-plain.json" findings 0 path)" = src/sum.sh ] && [ "$(field "$T/rv-plain.json" findings 0 line)" = 1 ] \
   && ok "plain's verdict file is read: one [blocker] at src/sum.sh:1" || bad "plain review: rc=$rc $(head -c 600 "$T/rv-plain.json") $(tail -n 3 "$T/rv-plain.err")"
 
 echo "== the session's output is kept =="
+if [ -n "$HAVE_LANE" ]; then
 S="$T/rv-lane/work/state"
 [ "$(field "$T/rv-lane.json" session_stdout)" = "$S/session.stdout" ] && [ "$(field "$T/rv-lane.json" session_stderr)" = "$S/session.stderr" ] \
   && ok "the record names the session's stdout and stderr files under state/" || bad "record paths: $(field "$T/rv-lane.json" session_stdout) $(field "$T/rv-lane.json" session_stderr)"
 grep -qF '"total_cost_usd": 0.5' "$S/session.stdout" 2>/dev/null && grep -q '^fake claude: read a prompt of [0-9]* bytes$' "$S/session.stderr" 2>/dev/null \
   && ok "the session's stdout and stderr land in state/session.stdout and state/session.stderr" || bad "session files: $(head -c 200 "$S/session.stdout" 2>&1) | $(head -c 200 "$S/session.stderr" 2>&1)"
+fi
 FAKE_HANG=1 PATH="$T/fakebin:$PATH" py review --case abc123 --arm plain --dest "$T/rv-hang" --clones "$T/clones" --reviewer-model fake --reviewer-timeout-s 3 --no-bench > "$T/rv-hang.json" 2> "$T/rv-hang.err"; rc=$?
 H="$T/rv-hang/work/state"
 [ "$rc" -eq 0 ] && [ "$(field "$T/rv-hang.json" status)" = timeout ] && [ "$(field "$T/rv-hang.json" session_stdout)" = "$H/session.stdout" ] && [ "$(field "$T/rv-hang.json" session_stderr)" = "$H/session.stderr" ] \
@@ -168,6 +178,7 @@ H="$T/rv-hang/work/state"
 grep -qxF '{"type": "system", "subtype": "init"}' "$H/session.stdout" 2>/dev/null && grep -q '^fake claude: read a prompt' "$H/session.stderr" 2>/dev/null \
   && ok "a timed-out session keeps what it wrote before the kill" || bad "hang files: $(head -c 200 "$H/session.stdout" 2>&1) | $(head -c 200 "$H/session.stderr" 2>&1)"
 
+if [ -n "$HAVE_LANE" ]; then
 echo "== a runner case, with a fake npm and a fake jest-json runner =="
 J="$T/acme/calc"; mkdir -p "$J/src"
 printf 'sum() { echo $(( $1 - $2 )); }\n' > "$J/src/sum.sh"
@@ -246,6 +257,11 @@ vfy nor444; rc=$?
 FAKE_NPM_EMPTY=1 PATH="$T/npmbin:$PATH" py render --case vac111 --arm lane --dest "$T/empty" --clones "$T/eclones" > "$T/empty.out" 2>&1; rc=$?
 [ "$rc" -ne 0 ] && grep -q "vac111: the runner needs node_modules/fakejest/jest.py, which the install at .* did not provide" "$T/empty.out" \
   && ok "an install that leaves no runner binary fails the build, naming the binary" || bad "empty install: rc=$rc $(tail -n 3 "$T/empty.out" | tr '\n' '|')"
+fi
 
 echo "render-selftest: $PASS passed, $FAIL failed"
+if [ "$FAIL" -eq 0 ] && [ -z "$HAVE_LANE" ]; then
+  echo "SKIP: the lane's assertions need dev-pipeline's run.sh and tools beside review-toolkit ($DP), which a checkout has and an install does not"
+  exit 77
+fi
 exit "$FAIL"
