@@ -83,6 +83,10 @@ LOC_RE = re.compile(r"([A-Za-z0-9_@./\[\]-]+\.[A-Za-z0-9]+):(\d+)(?:\s*[-–]\s*
 BARE_PATH_RE = re.compile(r"[A-Za-z0-9_@.\[\]-]*(?:/[A-Za-z0-9_@.\[\]-]+)*/[A-Za-z0-9_@\[\]-][A-Za-z0-9_@.\[\]-]*\.[A-Za-z0-9]+")
 
 
+class JudgeFailed(RuntimeError):
+    pass
+
+
 class BuildError(RuntimeError):
     pass
 
@@ -1020,30 +1024,46 @@ async def run_recipe(args, bench) -> None:
     cases = load_cases(root)
     if args.case:
         cases = [c for c in cases if c["id"] in args.case]
+    sha = git(["rev-parse", "--short=7", "HEAD"], cwd=HERE)
+    records: list[dict] = []
+    if args.rescore:
+        prior = json.loads(Path(args.rescore).read_text())
+        sha = prior.get("sha") or args.sha or sys.exit(f"[planted] --rescore: {args.rescore} names no sha; pass --sha <the reviewed commit>")
+        records = [r for r in prior["records"] if r["arm"] in (args.arm or ARMS) and (not args.case or r["case"] in args.case)]
+        ids = {r["case"] for r in records}
+        cases = [c for c in cases if c["id"] in ids]
+        for arm in sorted({r["arm"] for r in records}):
+            print(f"\n=== arm {arm}: rescored from {Path(args.rescore).name} ===", flush=True)
     by_id = {c["id"]: c for c in cases}
     bindir = install_gh(work_root / "bin")
     sem = asyncio.Semaphore(args.concurrency)
-    records: list[dict] = []
-    for arm in args.arm:
+    for arm in ([] if args.rescore else args.arm):
         print(f"\n=== arm {arm}: {len(cases)} cases x {args.runs} runs ===", flush=True)
         records += await asyncio.gather(*(
             review_one(c, arm, n, work_root / arm / f"{c['id']}-{n}", clones, root, bindir, args.reviewer_model,
                        args.reviewer_timeout_s, sem, bench)
             for c in cases for n in range(1, args.runs + 1)))
-        write_results(cache, stamp, {"records": records, "calibration": cal})
+        write_results(cache, stamp, {"records": records, "calibration": cal, "sha": sha})
     rev_fams = {bench.family(r["resolved_model"]) for r in records if r.get("resolved_model")}
     if rev_fams & judge_fams and not args.allow_same_family:
         sys.exit(f"[planted] judge family {judge_fams} equals reviewer family {rev_fams}; set JUDGE_MODEL to the other family")
 
     async def judge(golden, cand):
-        return (await bench.judge_pair(cfg, golden, cand, judge_sem))["match"]
+        v = await bench.judge_pair(cfg, golden, cand, judge_sem)
+        if v.get("error"):
+            raise JudgeFailed(v.get("reasoning") or "the judge returned no verdict")
+        return v["match"]
 
-    await score_records(by_id, records, judge)
+    results = write_results(cache, stamp, {"records": records, "calibration": cal, "sha": sha})
+    try:
+        await score_records(by_id, records, judge)
+    except JudgeFailed as e:
+        sys.exit(f"[planted] a judge call failed ({e}); no row is written. The reviews are kept: "
+                 f"re-judge them with `planted.py run --rescore {results} --arm plain --arm lane`")
     arms = tally(by_id, records)
     g = gate(arms)
     print("\n" + report(by_id, arms, g), flush=True)
-    out = write_results(cache, stamp, {"records": records, "calibration": cal, "arms": arms, "gate": g})
-    sha = git(["rev-parse", "--short=7", "HEAD"], cwd=HERE)
+    out = write_results(cache, stamp, {"records": records, "calibration": cal, "arms": arms, "gate": g, "sha": sha})
     for arm, runs in sorted(arms.items()):
         cl = [run["classes"] for run in runs.values()]
         segs = [f"mode=planted", f"agent={arm}", f"sha={sha}",
@@ -1250,6 +1270,8 @@ def main() -> int:
     s.add_argument("--judge-timeout-s", type=int, default=180)
     s.add_argument("--no-record", action="store_true")
     s.add_argument("--note", default="baseline")
+    s.add_argument("--rescore", help="a planted-results-*.json: re-judge its stored reviews; no review is spawned")
+    s.add_argument("--sha", help="with --rescore, the reviewed commit when the results file names none")
     s.add_argument("--cache-dir", default=cache_default)
     args = ap.parse_args()
     if args.cmd == "check":
