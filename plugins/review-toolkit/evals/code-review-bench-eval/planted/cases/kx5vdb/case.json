@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr17501",
+  "license": "MIT",
+  "base": "d9b33d29902f34726ed8b7721481e572c48a336e",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 15511,
+  "pr": 17501,
+  "commit": "fix(html): format tags whose name is an object prototype property",
+  "truth": {
+    "class": "P4",
+    "pattern": "rejects-held-input",
+    "description": "getNodeCssStyleDisplay now lowercases the tag name before it reads the CSS display table, so addCssDisplay in print-preprocess.js gives a case-sensitive Vue or Angular component such as <Button> or <Table> the display of the HTML element with that name, and a Vue template's <Button> Save </Button> loses the spaces around its text while the children of <Table> are forced onto separate lines.",
+    "locations": [
+      {"file": "src/language-html/utils/index.js", "start": 506, "end": 508, "side": "head"},
+      {"file": "src/language-html/print-preprocess.js", "start": 360, "end": 363, "side": "head"},
+      {"file": "src/language-html/print-preprocess.js", "start": 384, "end": 388, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/language-html/utils/index.js", "start": 513, "end": 513, "side": "head",
+     "why": "The strict and ignore cases return inside the switch and the default case returns only for a table entry, so every other element falls out of the switch to the shared CSS_DISPLAY_DEFAULT return."}
+  ]
+}

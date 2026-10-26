@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vuejs/core.git",
+  "instance": "vuejs__core-11517",
+  "license": "MIT",
+  "base": "b74687c0bbc0083513a1f5da3a2995cfb5f48246",
+  "base_branch": "minor",
+  "overlay": "vuejs__core",
+  "issue": 7941,
+  "pr": 11517,
+  "commit": "feat(custom-element): inject child components styles to custom element shadow root",
+  "truth": {
+    "class": "P4",
+    "pattern": "two-hop-caller",
+    "description": "createComponentInstance now copies the parent's ce onto every child instance, and renderSlot still reads a set ce as the mark of the custom element's root component, so a regular child component used inside a custom element renders its <slot/> as a native slot element and the content passed to that child never shows.",
+    "locations": [
+      {"file": "packages/runtime-core/src/component.ts", "start": 628, "end": 628, "side": "head"},
+      {"file": "packages/runtime-core/src/helpers/renderSlot.ts", "start": 34, "end": 39, "side": "head"},
+      {"file": "packages/runtime-core/src/componentRenderUtils.ts", "start": 64, "end": 64, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/runtime-dom/src/apiCustomElement.ts", "start": 608, "end": 608, "side": "head",
+     "why": "The only object ever stored in an instance's ce is a VueElement, so the cast back from the narrower interface type reads the real shadowRoot."}
+  ]
+}

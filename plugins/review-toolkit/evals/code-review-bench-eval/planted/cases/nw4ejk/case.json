@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vitejs/vite.git",
+  "instance": "vitejs__vite-pr14654",
+  "license": "MIT",
+  "base": "43cc3b9e6db4e8d2a5da69d6f75ae40601835e17",
+  "base_branch": "main",
+  "overlay": "vitejs__vite",
+  "issue": 14654,
+  "pr": 14654,
+  "commit": "perf(hmr): implement soft invalidation",
+  "truth": {
+    "class": "P4",
+    "pattern": "dead-guard",
+    "description": "handleModuleSoftInvalidation matches each import in the kept code to an imported module by a url that keeps the base, but importAnalysis writes every import with config.base prepended while module urls carry none, so with a base other than / the timestamp rewrite never fires and a soft-invalidated importer keeps importing the stale module after an HMR update.",
+    "locations": [
+      {"file": "packages/vite/src/node/server/transformRequest.ts", "start": 419, "end": 421, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/importAnalysis.ts", "start": 389, "end": 390, "side": "head"},
+      {"file": "packages/vite/src/node/server/hmr.ts", "start": 160, "end": 166, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/vite/src/node/server/moduleGraph.ts", "start": 176, "end": 180, "side": "head",
+     "why": "A module already seen is walked again only when its invalidation state changed, and a state can only move from soft to hard once, so the recursion still ends."}
+  ]
+}

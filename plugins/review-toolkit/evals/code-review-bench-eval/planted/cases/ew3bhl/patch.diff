@@ -1,0 +1,177 @@
+diff --git a/docs/plans/vite-13967-plan.md b/docs/plans/vite-13967-plan.md
+new file mode 100644
+index 000000000..10a553e74
+--- /dev/null
++++ b/docs/plans/vite-13967-plan.md
+@@ -0,0 +1,9 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 Build a playground with rollupOptions.output.inlineDynamicImports set, whose entry imports a module both statically and dynamically, and check the build log has no ineffective dynamic import warning (playground/dynamic-import-inline/__tests__/dynamic-import-inline.spec.ts) [AC-1]
++
++## 2. Reporter
++
++- [ ] 2.1 Skip the ineffective dynamic import check when dynamic imports are inlined (packages/vite/src/node/plugins/reporter.ts)
+diff --git a/packages/vite/src/node/plugins/reporter.ts b/packages/vite/src/node/plugins/reporter.ts
+index e03bb5618..ec3422ee0 100644
+--- a/packages/vite/src/node/plugins/reporter.ts
++++ b/packages/vite/src/node/plugins/reporter.ts
+@@ -25,6 +25,10 @@ const COMPRESSIBLE_ASSETS_RE = /\.(?:html|json|svg|txt|xml|xhtml)$/
+ export function buildReporterPlugin(config: ResolvedConfig): Plugin {
+   const compress = promisify(gzip)
+   const chunkLimit = config.build.chunkSizeWarningLimit
++  const { output } = config.build.rollupOptions
++  const inlineDynamicImports = Array.isArray(output)
++    ? output[0]?.inlineDynamicImports
++    : output?.inlineDynamicImports
+ 
+   const numberFormatter = new Intl.NumberFormat('en', {
+     maximumFractionDigits: 2,
+@@ -120,29 +124,32 @@ export function buildReporterPlugin(config: ResolvedConfig): Plugin {
+     },
+ 
+     renderChunk(code, chunk) {
+-      for (const id of chunk.moduleIds) {
+-        const module = this.getModuleInfo(id)
+-        if (!module) continue
+-        // When a dynamic importer shares a chunk with the imported module,
+-        // warn that the dynamic imported module will not be moved to another chunk (#12850).
+-        if (module.importers.length && module.dynamicImporters.length) {
+-          // Filter out the intersection of dynamic importers and sibling modules in
+-          // the same chunk. The intersecting dynamic importers' dynamic import is not
+-          // expected to work. Note we're only detecting the direct ineffective
+-          // dynamic import here.
+-          const detectedIneffectiveDynamicImport = module.dynamicImporters.some(
+-            (id) => !isInNodeModules(id) && chunk.moduleIds.includes(id),
+-          )
+-          if (detectedIneffectiveDynamicImport) {
+-            this.warn(
+-              `\n(!) ${
+-                module.id
+-              } is dynamically imported by ${module.dynamicImporters.join(
+-                ', ',
+-              )} but also statically imported by ${module.importers.join(
+-                ', ',
+-              )}, dynamic import will not move module into another chunk.\n`,
+-            )
++      if (!inlineDynamicImports) {
++        for (const id of chunk.moduleIds) {
++          const module = this.getModuleInfo(id)
++          if (!module) continue
++          // When a dynamic importer shares a chunk with the imported module,
++          // warn that the dynamic imported module will not be moved to another chunk (#12850).
++          if (module.importers.length && module.dynamicImporters.length) {
++            // Filter out the intersection of dynamic importers and sibling modules in
++            // the same chunk. The intersecting dynamic importers' dynamic import is not
++            // expected to work. Note we're only detecting the direct ineffective
++            // dynamic import here.
++            const detectedIneffectiveDynamicImport =
++              module.dynamicImporters.some(
++                (id) => !isInNodeModules(id) && chunk.moduleIds.includes(id),
++              )
++            if (detectedIneffectiveDynamicImport) {
++              this.warn(
++                `\n(!) ${
++                  module.id
++                } is dynamically imported by ${module.dynamicImporters.join(
++                  ', ',
++                )} but also statically imported by ${module.importers.join(
++                  ', ',
++                )}, dynamic import will not move module into another chunk.\n`,
++              )
++            }
+           }
+         }
+       }
+diff --git a/playground/dynamic-import-inline/__tests__/dynamic-import-inline.spec.ts b/playground/dynamic-import-inline/__tests__/dynamic-import-inline.spec.ts
+new file mode 100644
+index 000000000..6c2c0c447
+--- /dev/null
++++ b/playground/dynamic-import-inline/__tests__/dynamic-import-inline.spec.ts
+@@ -0,0 +1,12 @@
++import { expect, test } from 'vitest'
++import { isBuild, serverLogs } from '~utils'
++
++test.runIf(isBuild)(
++  'dont warn when inlineDynamicImports is set to true',
++  async () => {
++    const log = serverLogs.join('\n')
++    expect(log).not.toContain(
++      'dynamic import will not move module into another chunk',
++    )
++  },
++)
+diff --git a/playground/dynamic-import-inline/index.html b/playground/dynamic-import-inline/index.html
+new file mode 100644
+index 000000000..d86d5c089
+--- /dev/null
++++ b/playground/dynamic-import-inline/index.html
+@@ -0,0 +1 @@
++<script type="module" src="./src/index.js"></script>
+diff --git a/playground/dynamic-import-inline/package.json b/playground/dynamic-import-inline/package.json
+new file mode 100644
+index 000000000..32a989272
+--- /dev/null
++++ b/playground/dynamic-import-inline/package.json
+@@ -0,0 +1,12 @@
++{
++  "name": "@vitejs/test-dynamic-import-inline",
++  "private": true,
++  "version": "0.0.0",
++  "type": "module",
++  "scripts": {
++    "dev": "vite",
++    "build": "vite build",
++    "debug": "node --inspect-brk ../../packages/vite/bin/vite",
++    "preview": "vite preview"
++  }
++}
+diff --git a/playground/dynamic-import-inline/src/foo.js b/playground/dynamic-import-inline/src/foo.js
+new file mode 100644
+index 000000000..483b987b3
+--- /dev/null
++++ b/playground/dynamic-import-inline/src/foo.js
+@@ -0,0 +1,3 @@
++export default function foo() {
++  return 'foo'
++}
+diff --git a/playground/dynamic-import-inline/src/index.js b/playground/dynamic-import-inline/src/index.js
+new file mode 100644
+index 000000000..a151a21a5
+--- /dev/null
++++ b/playground/dynamic-import-inline/src/index.js
+@@ -0,0 +1,9 @@
++import foo from './foo'
++
++const asyncImport = async () => {
++  const { foo } = await import('./foo.js')
++  foo()
++}
++
++foo()
++asyncImport()
+diff --git a/playground/dynamic-import-inline/vite.config.js b/playground/dynamic-import-inline/vite.config.js
+new file mode 100644
+index 000000000..2d69e108f
+--- /dev/null
++++ b/playground/dynamic-import-inline/vite.config.js
+@@ -0,0 +1,18 @@
++import path from 'node:path'
++import { defineConfig } from 'vite'
++
++export default defineConfig({
++  resolve: {
++    alias: {
++      '@': path.resolve(__dirname, 'alias'),
++    },
++  },
++  build: {
++    sourcemap: true,
++    rollupOptions: {
++      output: {
++        inlineDynamicImports: true,
++      },
++    },
++  },
++})

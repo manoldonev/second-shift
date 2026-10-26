@@ -1,0 +1,302 @@
+diff --git a/changelog_unreleased/api/20127.md b/changelog_unreleased/api/20127.md
+new file mode 100644
+index 000000000..324b5eaa3
+--- /dev/null
++++ b/changelog_unreleased/api/20127.md
+@@ -0,0 +1,18 @@
++#### Support configuration files with UTF-8 BOM (#20127 by @fisker)
++
++<!-- prettier-ignore -->
++```console
++# Input
++$ printf '\xEF\xBB\xBF{"semi":false}' > .prettierrc.json
++$ prettier example.js --check
++
++# Prettier stable
++Invalid configuration for file "example.js":
++JSON Error in .prettierrc.json:
++Unexpected token "\u{feff}"
++
++# Prettier main
++Checking formatting...
++[warn] example.js
++[warn] Code style issues found in the above file. Run Prettier with --write to fix.
++```
+diff --git a/docs/plans/prettier-20113-plan.md b/docs/plans/prettier-20113-plan.md
+new file mode 100644
+index 000000000..f8a219c90
+--- /dev/null
++++ b/docs/plans/prettier-20113-plan.md
+@@ -0,0 +1,12 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A `.prettierrc.json` and a `.prettierrc.toml` written with a leading UTF-8 BOM load to the same object as without it (tests/unit/config-loader.js) [AC-1]
++- [ ] 1.2 A package.json, `.prettierrc`, `.prettierrc.yml` and `.prettierrc.json5` written with a leading BOM load to the same object as without it (tests/unit/config-loader.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 One BOM helper shared by the formatter and the config reader (src/utilities/bom.js, src/main/core.js)
++- [ ] 2.2 `readFile` drops a leading BOM when asked, and the config loaders pass that through (src/utilities/read-file.js, src/config/prettier-config/loaders.js, src/config/prettier-config/load-config.js)
++- [ ] 2.3 Changelog entry (changelog_unreleased/api/20127.md)
+diff --git a/src/config/prettier-config/load-config.js b/src/config/prettier-config/load-config.js
+index b0aa7174b..d448adead 100644
+--- a/src/config/prettier-config/load-config.js
++++ b/src/config/prettier-config/load-config.js
+@@ -20,7 +20,7 @@ async function loadConfig(configFile) {
+     );
+   }
+ 
+-  let config = await load(configFile);
++  let config = await load(configFile, { stripBom: true });
+ 
+   if (!config) {
+     return;
+diff --git a/src/config/prettier-config/loaders.js b/src/config/prettier-config/loaders.js
+index a4fa4757f..5d7cbf70a 100644
+--- a/src/config/prettier-config/loaders.js
++++ b/src/config/prettier-config/loaders.js
+@@ -4,8 +4,16 @@ import parseJson from "parse-json";
+ import { parse as parseToml } from "smol-toml";
+ import readFile from "../../utilities/read-file.js";
+ 
+-async function readJson(file) {
+-  const content = await readFile(file);
++/**
++ * @typedef {{ stripBom?: boolean }} LoaderOptions
++ */
++
++/**
++ * @param {string} file
++ * @param {LoaderOptions} [options]
++ */
++async function readJson(file, options) {
++  const content = await readFile(file, options);
+   try {
+     return parseJson(content);
+   } catch (/** @type {any} */ error) {
+@@ -19,9 +27,9 @@ async function importModuleDefault(file) {
+   return module.default;
+ }
+ 
+-async function readBunPackageJson(file) {
++async function readBunPackageJson(file, options) {
+   try {
+-    return await readJson(file);
++    return await readJson(file, options);
+   } catch (error) {
+     // TODO: Add tests for this
+     // Bun supports comments and trailing comma in `package.json`
+@@ -38,23 +46,23 @@ async function readBunPackageJson(file) {
+ }
+ 
+ const loadConfigFromPackageJson = process.versions.bun
+-  ? async function loadConfigFromBunPackageJson(file) {
+-      const { prettier } = await readBunPackageJson(file);
++  ? async function loadConfigFromBunPackageJson(file, options) {
++      const { prettier } = await readBunPackageJson(file, options);
+       return prettier;
+     }
+-  : async function loadConfigFromPackageJson(file) {
+-      const { prettier } = await readJson(file);
++  : async function loadConfigFromPackageJson(file, options) {
++      const { prettier } = await readJson(file, options);
+       return prettier;
+     };
+ 
+-async function loadConfigFromPackageYaml(file) {
+-  const { prettier } = await loadYaml(file);
++async function loadConfigFromPackageYaml(file, options) {
++  const { prettier } = await loadYaml(file, options);
+   return prettier;
+ }
+ 
+ let parseYaml;
+-async function loadYaml(file) {
+-  const content = await readFile(file);
++async function loadYaml(file, options) {
++  const content = await readFile(file, options);
+ 
+   if (!parseYaml) {
+     ({ __parsePrettierYamlConfig: parseYaml } =
+@@ -69,8 +77,8 @@ async function loadYaml(file) {
+   }
+ }
+ 
+-async function loadToml(file) {
+-  const content = await readFile(file);
++async function loadToml(file, options) {
++  const content = await readFile(file, options);
+   try {
+     return parseToml(content);
+   } catch (/** @type {any} */ error) {
+@@ -79,8 +87,8 @@ async function loadToml(file) {
+   }
+ }
+ 
+-async function loadJson5(file) {
+-  const content = await readFile(file);
++async function loadJson5(file, options) {
++  const content = await readFile(file, options);
+   try {
+     return parseJson5(content);
+   } catch (/** @type {any} */ error) {
+diff --git a/src/main/core.js b/src/main/core.js
+index 04b0e20bd..c8352016e 100644
+--- a/src/main/core.js
++++ b/src/main/core.js
+@@ -12,6 +12,7 @@ import {
+   printDocToDebug,
+   printDocToString as printDocToStringWithoutNormalizeOptions,
+ } from "../document/index.js";
++import { addBom, hasBom as stringHasBom } from "../utilities/bom.js";
+ import getAlignmentSize from "../utilities/get-alignment-size.js";
+ import { prepareToPrint, printAstToDoc } from "./ast-to-doc.js";
+ import getCursorLocation from "./get-cursor-node.js";
+@@ -21,8 +22,6 @@ import parseText from "./parse.js";
+ import { resolveParser } from "./parser-and-printer.js";
+ import { calculateRange } from "./range.js";
+ 
+-const BOM = "\uFEFF";
+-
+ const CURSOR = Symbol("cursor");
+ 
+ async function coreFormat(originalText, opts, addAlignmentSize = 0) {
+@@ -271,9 +270,9 @@ function normalizeInputAndOptions(text, options) {
+     options,
+   );
+ 
+-  const hasBOM = text.charAt(0) === BOM;
++  const hasBom = stringHasBom(text);
+ 
+-  if (hasBOM) {
++  if (hasBom) {
+     text = text.slice(1);
+     cursorOffset--;
+     rangeStart--;
+@@ -297,7 +296,7 @@ function normalizeInputAndOptions(text, options) {
+   }
+ 
+   return {
+-    hasBOM,
++    hasBom,
+     text,
+     options: normalizeIndexes(text, {
+       ...options,
+@@ -320,7 +319,7 @@ async function hasIgnorePragma(text, options) {
+ }
+ 
+ async function formatWithCursor(originalText, originalOptions) {
+-  let { hasBOM, text, options } = normalizeInputAndOptions(
++  let { hasBom, text, options } = normalizeInputAndOptions(
+     originalText,
+     await normalizeFormatOptions(originalOptions),
+   );
+@@ -353,8 +352,8 @@ async function formatWithCursor(originalText, originalOptions) {
+     result = await coreFormat(text, options);
+   }
+ 
+-  if (hasBOM) {
+-    result.formatted = BOM + result.formatted;
++  if (hasBom) {
++    result.formatted = addBom(result.formatted);
+ 
+     if (result.cursorOffset >= 0) {
+       result.cursorOffset++;
+diff --git a/src/utilities/bom.js b/src/utilities/bom.js
+new file mode 100644
+index 000000000..5e0c9b6e2
+--- /dev/null
++++ b/src/utilities/bom.js
+@@ -0,0 +1,12 @@
++const BOM = "\uFEFF";
++
++/** @type {(string: string) => boolean} */
++const hasBom = (string) => string.charAt(0) === BOM;
++
++/** @type {(string: string) => string} */
++const stripBom = (string) => (hasBom(string) ? string.slice(1) : string);
++
++/** @type {(string: string) => string} */
++const addBom = (string) => BOM + string;
++
++export { addBom, hasBom, stripBom };
+diff --git a/src/utilities/read-file.js b/src/utilities/read-file.js
+index 2e8454bea..def7ff307 100644
+--- a/src/utilities/read-file.js
++++ b/src/utilities/read-file.js
+@@ -1,17 +1,20 @@
+ import fs from "node:fs/promises";
+ import { isUrlString } from "url-or-path";
++import { stripBom as removeBom } from "./bom.js";
+ 
+ /**
+  * @param {string | URL} file
++ * @param {{ stripBom?: boolean }} [options]
+  * @returns {Promise<undefined | string>}
+  */
+-async function readFile(file) {
++async function readFile(file, { stripBom = false } = {}) {
+   if (isUrlString(file)) {
+     file = new URL(file);
+   }
+ 
++  let content;
+   try {
+-    return await fs.readFile(file, "utf8");
++    content = await fs.readFile(file, "utf8");
+   } catch (/** @type {any} */ error) {
+     if (error.code === "ENOENT") {
+       return;
+@@ -21,6 +24,8 @@ async function readFile(file) {
+       cause: error,
+     });
+   }
++
++  return stripBom ? removeBom(content) : content;
+ }
+ 
+ export default readFile;
+diff --git a/tests/unit/config-loader.js b/tests/unit/config-loader.js
+new file mode 100644
+index 000000000..01e4175c3
+--- /dev/null
++++ b/tests/unit/config-loader.js
+@@ -0,0 +1,36 @@
++import fs from "node:fs/promises";
++import path from "node:path";
++import { temporaryDirectory as getTemporaryDirectory } from "tempy";
++import loadConfig from "../../src/config/prettier-config/load-config.js";
++
++describe("Support BOM", () => {
++  const files = [
++    { filename: "package.json", content: '{"prettier": {"tabWidth": 5}}' },
++    { filename: ".prettierrc", content: "tabWidth: 5" },
++    { filename: ".prettierrc.json", content: '{"tabWidth": 5}' },
++    { filename: ".prettierrc.yml", content: "tabWidth: 5" },
++    { filename: ".prettierrc.json5", content: "{tabWidth: 5}" },
++    { filename: ".prettierrc.toml", content: "tabWidth = 5" },
++  ];
++
++  const directory = getTemporaryDirectory();
++  const expected = { tabWidth: 5 };
++  beforeAll(async () => {
++    await Promise.all(
++      files.map(({ filename, content }) =>
++        fs.writeFile(path.join(directory, filename), `\ufeff${content}`),
++      ),
++    );
++  });
++  afterAll(async () => {
++    await fs.rm(directory, { recursive: true, force: true });
++  });
++
++  for (const { filename } of files) {
++    test(filename, async () => {
++      expect(await loadConfig(path.join(directory, filename))).toStrictEqual(
++        expected,
++      );
++    });
++  }
++});

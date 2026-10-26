@@ -1,0 +1,973 @@
+diff --git a/docs/config/shared-options.md b/docs/config/shared-options.md
+index 34c07baff..ada6b3f30 100644
+--- a/docs/config/shared-options.md
++++ b/docs/config/shared-options.md
+@@ -117,6 +117,7 @@ For SSR builds, deduplication does not work for ESM build outputs configured fro
+ ## resolve.conditions
+ 
+ - **Type:** `string[]`
++- **Default:** `['module', 'browser', 'development|production']`
+ 
+ Additional allowed conditions when resolving [Conditional Exports](https://nodejs.org/api/packages.html#packages_conditional_exports) from a package.
+ 
+@@ -135,7 +136,9 @@ A package with conditional exports may have the following `exports` field in its
+ 
+ Here, `import` and `require` are "conditions". Conditions can be nested and should be specified from most specific to least specific.
+ 
+-Vite has a list of "allowed conditions" and will match the first condition that is in the allowed list. The default allowed conditions are: `import`, `module`, `browser`, `default`, and `production/development` based on current mode. The `resolve.conditions` config option allows specifying additional allowed conditions.
++`development|production` is a special value that is replaced with `production` or `development` depending on the value of `process.env.NODE_ENV`. It is replaced with `production` when `process.env.NODE_ENV === 'production'` and `development` otherwise.
++
++Note that `import`, `require`, `default` conditions are always applied if the requirements are met.
+ 
+ :::warning Resolving subpath exports
+ Export keys ending with "/" is deprecated by Node and may not work well. Please contact the package author to use [`*` subpath patterns](https://nodejs.org/api/packages.html#package-entry-points) instead.
+diff --git a/docs/config/ssr-options.md b/docs/config/ssr-options.md
+index 8cb7fb9a4..7e7d89839 100644
+--- a/docs/config/ssr-options.md
++++ b/docs/config/ssr-options.md
+@@ -34,15 +34,14 @@ Build target for the SSR server.
+ ## ssr.resolve.conditions
+ 
+ - **Type:** `string[]`
++- **Default:** `['module', 'node', 'development|production']` (`['module', 'browser', 'development|production']` for `ssr.target === 'webworker'`)
+ - **Related:** [Resolve Conditions](./shared-options.md#resolve-conditions)
+ 
+-Defaults to the root [`resolve.conditions`](./shared-options.md#resolve-conditions).
+-
+ These conditions are used in the plugin pipeline, and only affect non-externalized dependencies during the SSR build. Use `ssr.resolve.externalConditions` to affect externalized imports.
+ 
+ ## ssr.resolve.externalConditions
+ 
+ - **Type:** `string[]`
+-- **Default:** `[]`
++- **Default:** `['node']`
+ 
+ Conditions that are used during ssr import (including `ssrLoadModule`) of externalized dependencies.
+diff --git a/docs/guide/migration.md b/docs/guide/migration.md
+index 528f76001..61d76ac65 100644
+--- a/docs/guide/migration.md
++++ b/docs/guide/migration.md
+@@ -12,6 +12,23 @@ The experimental Vite Runtime API evolved into the Module Runner API, released i
+ 
+ ## General Changes
+ 
++### Default value for `resolve.conditions`
++
++This change does not affect users that did not configure [`resolve.conditions`](/config/shared-options#resolve-conditions) / [`ssr.resolve.conditions`](/config/ssr-options#ssr-resolve-conditions) / [`ssr.resolve.externalConditions`](/config/ssr-options#ssr-resolve-externalconditions).
++
++In Vite 5, the default value for `resolve.conditions` was `[]` and some conditions were added internally. The default value for `ssr.resolve.conditions` was the value of `resolve.conditions`.
++
++From Vite 6, some of the conditions are no longer added internally and need to be included in the config values.
++The conditions that are no longer added internally for
++
++- `resolve.conditions` are `['module', 'browser', 'development|production']`
++- `ssr.resolve.conditions` are `['module', 'node', 'development|production']`
++
++The default values for those options are updated to the corresponding values and `ssr.resolve.conditions` no longer uses `resolve.conditions` as the default value. Note that `development|production` is a special variable that is replaced with `production` or `development` depending on the value of `process.env.NODE_ENV`.
++
++If you specified a custom value for `resolve.conditions` or `ssr.resolve.conditions`, you need to update it to include the new conditions.
++For example, if you previously specified `['custom']` for `resolve.conditions`, you need to specify `['custom', 'module', 'browser', 'development|production']` instead.
++
+ ### JSON stringify
+ 
+ In Vite 5, when [`json.stringify: true`](/config/shared-options#json-stringify) is set, [`json.namedExports`](/config/shared-options#json-namedexports) was disabled.
+diff --git a/docs/plans/vite-18395-plan.md b/docs/plans/vite-18395-plan.md
+new file mode 100644
+index 000000000..ee9c3e117
+--- /dev/null
++++ b/docs/plans/vite-18395-plan.md
+@@ -0,0 +1,18 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 Environments with their own resolve.conditions resolve a dependency through exactly those conditions in dev, with the dependency inlined and externalized (packages/vite/src/node/__tests__/environment.spec.ts) [AC-1]
++- [ ] 1.2 The same environments resolve the same entries in build (packages/vite/src/node/__tests__/environment.spec.ts) [AC-2]
++- [ ] 1.3 The ssr environment with default conditions resolves the default entry and the worker environment the worker entry (packages/vite/src/node/__tests__/environment.spec.ts) [AC-3]
++
++## 2. Conditions
++
++- [ ] 2.1 Add DEV_PROD_CONDITION and the default client, ssr and external condition lists (packages/vite/src/node/constants.ts)
++- [ ] 2.2 Resolve exports and imports with the configured conditions only, replacing development|production by the mode, and drop overrideConditions (packages/vite/src/node/plugins/resolve.ts, packages/vite/src/node/packages.ts)
++- [ ] 2.3 Set the default conditions per consumer and keep ssr.target webworker working through keepProcessEnv and the build output defaults (packages/vite/src/node/config.ts, packages/vite/src/node/build.ts, packages/vite/src/node/plugins/define.ts)
++- [ ] 2.4 Resolve externalized SSR imports with externalConditions, and the bundled config file with the node condition (packages/vite/src/node/ssr/fetchModule.ts, packages/vite/src/node/config.ts)
++
++## 3. Docs
++
++- [ ] 3.1 Document the defaults and the migration (docs/config/shared-options.md, docs/config/ssr-options.md, docs/guide/migration.md)
+diff --git a/packages/vite/src/node/__tests__/environment.spec.ts b/packages/vite/src/node/__tests__/environment.spec.ts
+index 081d2204c..75b12136c 100644
+--- a/packages/vite/src/node/__tests__/environment.spec.ts
++++ b/packages/vite/src/node/__tests__/environment.spec.ts
+@@ -21,7 +21,7 @@ describe('custom environment conditions', () => {
+         ws: false,
+       },
+       environments: {
+-        // no web / default
++        // default
+         ssr: {
+           resolve: {
+             noExternal,
+@@ -36,9 +36,8 @@ describe('custom environment conditions', () => {
+             },
+           },
+         },
+-        // web / worker
++        // worker
+         worker: {
+-          webCompatible: true,
+           resolve: {
+             noExternal,
+             conditions: ['worker'],
+@@ -54,9 +53,8 @@ describe('custom environment conditions', () => {
+             },
+           },
+         },
+-        // web / custom1
++        // custom1
+         custom1: {
+-          webCompatible: true,
+           resolve: {
+             noExternal,
+             conditions: ['custom1'],
+@@ -72,54 +70,17 @@ describe('custom environment conditions', () => {
+             },
+           },
+         },
+-        // no web / custom2
+-        custom2: {
+-          webCompatible: false,
++        // same as custom1
++        custom1_2: {
+           resolve: {
+             noExternal,
+-            conditions: ['custom2'],
+-            externalConditions: ['custom2'],
+-          },
+-          build: {
+-            outDir: path.join(
+-              import.meta.dirname,
+-              'fixtures/test-dep-conditions/dist/custom2',
+-            ),
+-            rollupOptions: {
+-              input: { index: '@vitejs/test-dep-conditions' },
+-            },
+-          },
+-        },
+-        // no web / custom3
+-        custom3: {
+-          webCompatible: false,
+-          resolve: {
+-            noExternal,
+-            conditions: ['custom3'],
+-            externalConditions: ['custom3'],
+-          },
+-          build: {
+-            outDir: path.join(
+-              import.meta.dirname,
+-              'fixtures/test-dep-conditions/dist/custom3',
+-            ),
+-            rollupOptions: {
+-              input: { index: '@vitejs/test-dep-conditions' },
+-            },
+-          },
+-        },
+-        // same as custom3
+-        custom3_2: {
+-          webCompatible: false,
+-          resolve: {
+-            noExternal,
+-            conditions: ['custom3'],
+-            externalConditions: ['custom3'],
++            conditions: ['custom1'],
++            externalConditions: ['custom1'],
+           },
+           build: {
+             outDir: path.join(
+               import.meta.dirname,
+-              'fixtures/test-dep-conditions/dist/custom3_2',
++              'fixtures/test-dep-conditions/dist/custom1_2',
+             ),
+             rollupOptions: {
+               input: { index: '@vitejs/test-dep-conditions' },
+@@ -135,14 +96,7 @@ describe('custom environment conditions', () => {
+     onTestFinished(() => server.close())
+ 
+     const results: Record<string, unknown> = {}
+-    for (const key of [
+-      'ssr',
+-      'worker',
+-      'custom1',
+-      'custom2',
+-      'custom3',
+-      'custom3_2',
+-    ]) {
++    for (const key of ['ssr', 'worker', 'custom1', 'custom1_2']) {
+       const runner = createServerModuleRunner(server.environments[key], {
+         hmr: {
+           logger: false,
+@@ -155,9 +109,7 @@ describe('custom environment conditions', () => {
+     expect(results).toMatchInlineSnapshot(`
+       {
+         "custom1": "index.custom1.js",
+-        "custom2": "index.custom2.js",
+-        "custom3": "index.custom3.js",
+-        "custom3_2": "index.custom3.js",
++        "custom1_2": "index.custom1.js",
+         "ssr": "index.default.js",
+         "worker": "index.worker.js",
+       }
+@@ -169,14 +121,7 @@ describe('custom environment conditions', () => {
+     onTestFinished(() => server.close())
+ 
+     const results: Record<string, unknown> = {}
+-    for (const key of [
+-      'ssr',
+-      'worker',
+-      'custom1',
+-      'custom2',
+-      'custom3',
+-      'custom3_2',
+-    ]) {
++    for (const key of ['ssr', 'worker', 'custom1', 'custom1_2']) {
+       const runner = createServerModuleRunner(server.environments[key], {
+         hmr: {
+           logger: false,
+@@ -191,9 +136,7 @@ describe('custom environment conditions', () => {
+     expect(results).toMatchInlineSnapshot(`
+       {
+         "custom1": "index.custom1.js",
+-        "custom2": "index.custom2.js",
+-        "custom3": "index.custom3.js",
+-        "custom3_2": "index.custom3.js",
++        "custom1_2": "index.custom1.js",
+         "ssr": "index.default.js",
+         "worker": "index.worker.js",
+       }
+@@ -222,14 +165,7 @@ describe('custom environment conditions', () => {
+   test('build', async () => {
+     const builder = await createBuilder(getConfig({ noExternal: true }))
+     const results: Record<string, unknown> = {}
+-    for (const key of [
+-      'ssr',
+-      'worker',
+-      'custom1',
+-      'custom2',
+-      'custom3',
+-      'custom3_2',
+-    ]) {
++    for (const key of ['ssr', 'worker', 'custom1', 'custom1_2']) {
+       const output = await builder.build(builder.environments[key])
+       const chunk = (output as RollupOutput).output[0]
+       const mod = await import(
+@@ -245,9 +181,7 @@ describe('custom environment conditions', () => {
+     expect(results).toMatchInlineSnapshot(`
+       {
+         "custom1": "index.custom1.js",
+-        "custom2": "index.custom2.js",
+-        "custom3": "index.custom3.js",
+-        "custom3_2": "index.custom3.js",
++        "custom1_2": "index.custom1.js",
+         "ssr": "index.default.js",
+         "worker": "index.worker.js",
+       }
+diff --git a/packages/vite/src/node/__tests__/fixtures/test-dep-conditions/index.custom2.js b/packages/vite/src/node/__tests__/fixtures/test-dep-conditions/index.custom2.js
+deleted file mode 100644
+index 1125676cc..000000000
+--- a/packages/vite/src/node/__tests__/fixtures/test-dep-conditions/index.custom2.js
++++ /dev/null
+@@ -1 +0,0 @@
+-export default 'index.custom2.js'
+diff --git a/packages/vite/src/node/__tests__/fixtures/test-dep-conditions/index.custom3.js b/packages/vite/src/node/__tests__/fixtures/test-dep-conditions/index.custom3.js
+deleted file mode 100644
+index d12538a64..000000000
+--- a/packages/vite/src/node/__tests__/fixtures/test-dep-conditions/index.custom3.js
++++ /dev/null
+@@ -1 +0,0 @@
+-export default 'index.custom3.js'
+diff --git a/packages/vite/src/node/__tests__/fixtures/test-dep-conditions/package.json b/packages/vite/src/node/__tests__/fixtures/test-dep-conditions/package.json
+index 08f9558e1..454b99b92 100644
+--- a/packages/vite/src/node/__tests__/fixtures/test-dep-conditions/package.json
++++ b/packages/vite/src/node/__tests__/fixtures/test-dep-conditions/package.json
+@@ -6,8 +6,6 @@
+     ".": {
+       "style": "./index.css",
+       "custom1": "./index.custom1.js",
+-      "custom2": "./index.custom2.js",
+-      "custom3": "./index.custom3.js",
+       "worker": "./index.worker.js",
+       "browser": "./index.browser.js",
+       "default": "./index.default.js"
+diff --git a/packages/vite/src/node/baseEnvironment.ts b/packages/vite/src/node/baseEnvironment.ts
+index b30067cb4..c3202ccf0 100644
+--- a/packages/vite/src/node/baseEnvironment.ts
++++ b/packages/vite/src/node/baseEnvironment.ts
+@@ -17,7 +17,6 @@ export function getDefaultResolvedEnvironmentOptions(
+     define: config.define,
+     resolve: config.resolve,
+     consumer: 'server',
+-    webCompatible: false,
+     optimizeDeps: config.optimizeDeps,
+     dev: config.dev,
+     build: config.build,
+diff --git a/packages/vite/src/node/build.ts b/packages/vite/src/node/build.ts
+index 222d2feae..23dc250ce 100644
+--- a/packages/vite/src/node/build.ts
++++ b/packages/vite/src/node/build.ts
+@@ -348,6 +348,8 @@ export function resolveBuildEnvironmentOptions(
+   raw: BuildEnvironmentOptions,
+   logger: Logger,
+   consumer: 'client' | 'server' | undefined,
++  // Backward compatibility
++  isSsrTargetWebworkerEnvironment?: boolean,
+ ): ResolvedBuildEnvironmentOptions {
+   const deprecatedPolyfillModulePreload = raw?.polyfillModulePreload
+   const { polyfillModulePreload, ...rest } = raw
+@@ -444,6 +446,19 @@ export function resolveBuildEnvironmentOptions(
+     resolved.cssMinify = consumer === 'server' ? 'esbuild' : !!resolved.minify
+   }
+ 
++  if (isSsrTargetWebworkerEnvironment) {
++    resolved.rollupOptions ??= {}
++    resolved.rollupOptions.output ??= {}
++    const output = resolved.rollupOptions.output
++    for (const out of arraify(output)) {
++      out.entryFileNames ??= `[name].js`
++      out.chunkFileNames ??= `[name]-[hash].js`
++      const input = resolved.rollupOptions.input
++      out.inlineDynamicImports ??=
++        !input || typeof input === 'string' || Object.keys(input).length === 1
++    }
++  }
++
+   return resolved
+ }
+ 
+@@ -692,7 +707,7 @@ async function buildEnvironment(
+ 
+       const format = output.format || 'es'
+       const jsExt =
+-        !environment.config.webCompatible || libOptions
++        environment.config.consumer === 'server' || libOptions
+           ? resolveOutputJsExtension(
+               format,
+               findNearestPackageData(root, packageCache)?.data.type,
+@@ -730,11 +745,7 @@ async function buildEnvironment(
+           ? `[name].[ext]`
+           : path.posix.join(options.assetsDir, `[name]-[hash].[ext]`),
+         inlineDynamicImports:
+-          output.format === 'umd' ||
+-          output.format === 'iife' ||
+-          (environment.config.consumer === 'server' &&
+-            environment.config.webCompatible &&
+-            (typeof input === 'string' || Object.keys(input).length === 1)),
++          output.format === 'umd' || output.format === 'iife',
+         ...output,
+       }
+     }
+diff --git a/packages/vite/src/node/config.ts b/packages/vite/src/node/config.ts
+index 5caa09d34..d9f8c4083 100644
+--- a/packages/vite/src/node/config.ts
++++ b/packages/vite/src/node/config.ts
+@@ -4,7 +4,7 @@ import path from 'node:path'
+ import { pathToFileURL } from 'node:url'
+ import { promisify } from 'node:util'
+ import { performance } from 'node:perf_hooks'
+-import { createRequire } from 'node:module'
++import { builtinModules, createRequire } from 'node:module'
+ import colors from 'picocolors'
+ import type { Alias, AliasOptions } from 'dep-types/alias'
+ import { build } from 'esbuild'
+@@ -15,8 +15,10 @@ import { withTrailingSlash } from '../shared/utils'
+ import {
+   CLIENT_ENTRY,
+   DEFAULT_ASSETS_RE,
++  DEFAULT_CONDITIONS,
+   DEFAULT_CONFIG_FILES,
+   DEFAULT_EXTENSIONS,
++  DEFAULT_EXTERNAL_CONDITIONS,
+   DEFAULT_MAIN_FIELDS,
+   ENV_ENTRY,
+   FS_PREFIX,
+@@ -242,10 +244,10 @@ export interface SharedEnvironmentOptions {
+    */
+   consumer?: 'client' | 'server'
+   /**
+-   * Runtime Compatibility
+-   * Temporal options, we should remove these in favor of fine-grained control
++   * If true, `process.env` referenced in code will be preserved as-is and evaluated in runtime.
++   * Otherwise, it is statically replaced as an empty object.
+    */
+-  webCompatible?: boolean // was ssr.target === 'webworker'
++  keepProcessEnv?: boolean
+   /**
+    * Optimize deps config
+    */
+@@ -269,7 +271,7 @@ export type ResolvedEnvironmentOptions = {
+   define?: Record<string, any>
+   resolve: ResolvedResolveOptions
+   consumer: 'client' | 'server'
+-  webCompatible: boolean
++  keepProcessEnv?: boolean
+   optimizeDeps: DepOptimizationOptions
+   dev: ResolvedDevEnvironmentOptions
+   build: ResolvedBuildEnvironmentOptions
+@@ -277,7 +279,7 @@ export type ResolvedEnvironmentOptions = {
+ 
+ export type DefaultEnvironmentOptions = Omit<
+   EnvironmentOptions,
+-  'consumer' | 'webCompatible' | 'resolve'
++  'consumer' | 'resolve'
+ > & {
+   resolve?: AllResolveOptions
+ }
+@@ -626,21 +628,28 @@ function resolveEnvironmentOptions(
+   environmentName: string,
+   // Backward compatibility
+   skipSsrTransform?: boolean,
++  ssrTargetWebworker?: boolean,
+ ): ResolvedEnvironmentOptions {
++  const isClientEnvironment = environmentName === 'client'
++  const consumer =
++    options.consumer ?? (isClientEnvironment ? 'client' : 'server')
++  const isSsrTargetWebworkerEnvironment =
++    ssrTargetWebworker && environmentName === 'ssr'
+   const resolve = resolveEnvironmentResolveOptions(
+     options.resolve,
+     alias,
+     preserveSymlinks,
+     logger,
++    consumer,
++    isSsrTargetWebworkerEnvironment,
+   )
+-  const isClientEnvironment = environmentName === 'client'
+-  const consumer =
+-    options.consumer ?? (isClientEnvironment ? 'client' : 'server')
+   return {
+     define: options.define,
+     resolve,
++    keepProcessEnv:
++      options.keepProcessEnv ??
++      (isSsrTargetWebworkerEnvironment ? false : consumer === 'server'),
+     consumer,
+-    webCompatible: options.webCompatible ?? consumer === 'client',
+     optimizeDeps: resolveDepOptimizationOptions(
+       options.optimizeDeps,
+       resolve.preserveSymlinks,
+@@ -656,6 +665,7 @@ function resolveEnvironmentOptions(
+       options.build ?? {},
+       logger,
+       consumer,
++      isSsrTargetWebworkerEnvironment,
+     ),
+   }
+ }
+@@ -665,7 +675,12 @@ export function getDefaultEnvironmentOptions(
+ ): EnvironmentOptions {
+   return {
+     define: config.define,
+-    resolve: config.resolve,
++    resolve: {
++      ...config.resolve,
++      // mainFields and conditions are not inherited
++      mainFields: undefined,
++      conditions: undefined,
++    },
+     dev: config.dev,
+     build: config.build,
+   }
+@@ -735,12 +750,26 @@ function resolveEnvironmentResolveOptions(
+   alias: Alias[],
+   preserveSymlinks: boolean,
+   logger: Logger,
++  consumer: 'client' | 'server' | undefined,
++  // Backward compatibility
++  isSsrTargetWebworkerEnvironment?: boolean,
+ ): ResolvedAllResolveOptions {
++  let conditions = resolve?.conditions
++  conditions ??=
++    consumer === 'client' || isSsrTargetWebworkerEnvironment
++      ? DEFAULT_CONDITIONS.filter((c) => c !== 'node')
++      : DEFAULT_CONDITIONS.filter((c) => c !== 'browser')
++
+   const resolvedResolve: ResolvedAllResolveOptions = {
+     mainFields: resolve?.mainFields ?? DEFAULT_MAIN_FIELDS,
+-    conditions: resolve?.conditions ?? [],
+-    externalConditions: resolve?.externalConditions ?? [],
+-    external: resolve?.external ?? [],
++    conditions,
++    externalConditions:
++      resolve?.externalConditions ?? DEFAULT_EXTERNAL_CONDITIONS,
++    external:
++      resolve?.external ??
++      (consumer === 'server' && !isSsrTargetWebworkerEnvironment
++        ? builtinModules
++        : []),
+     noExternal: resolve?.noExternal ?? [],
+     extensions: resolve?.extensions ?? DEFAULT_EXTENSIONS,
+     dedupe: resolve?.dedupe ?? [],
+@@ -776,6 +805,7 @@ function resolveResolveOptions(
+     alias,
+     preserveSymlinks,
+     logger,
++    undefined,
+   )
+ }
+ 
+@@ -940,10 +970,6 @@ export async function resolveConfig(
+       config.ssr?.resolve?.externalConditions
+     configEnvironmentsSsr.resolve.external ??= config.ssr?.external
+     configEnvironmentsSsr.resolve.noExternal ??= config.ssr?.noExternal
+-
+-    if (config.ssr?.target === 'webworker') {
+-      configEnvironmentsSsr.webCompatible = true
+-    }
+   }
+ 
+   if (config.build?.ssrEmitAssets !== undefined) {
+@@ -968,6 +994,7 @@ export async function resolveConfig(
+   // Some top level options only apply to the client environment
+   const defaultClientEnvironmentOptions: UserConfig = {
+     ...defaultEnvironmentOptions,
++    resolve: config.resolve, // inherit everything including mainFields and conditions
+     optimizeDeps: config.optimizeDeps,
+   }
+   const defaultNonClientEnvironmentOptions: UserConfig = {
+@@ -1005,6 +1032,7 @@ export async function resolveConfig(
+       logger,
+       environmentName,
+       config.experimental?.skipSsrTransform,
++      config.ssr?.target === 'webworker',
+     )
+   }
+ 
+@@ -1579,17 +1607,15 @@ async function bundleConfigFile(
+               preferRelative: false,
+               tryIndex: true,
+               mainFields: [],
+-              conditions: [],
++              conditions: ['node'],
+               externalConditions: [],
+               external: [],
+               noExternal: [],
+-              overrideConditions: ['node'],
+               dedupe: [],
+               extensions: DEFAULT_EXTENSIONS,
+               preserveSymlinks: false,
+               packageCache,
+               isRequire,
+-              webCompatible: false,
+             })?.id
+           }
+ 
+diff --git a/packages/vite/src/node/constants.ts b/packages/vite/src/node/constants.ts
+index 3acc2f759..270dbef7b 100644
+--- a/packages/vite/src/node/constants.ts
++++ b/packages/vite/src/node/constants.ts
+@@ -46,6 +46,21 @@ export const DEFAULT_MAIN_FIELDS = [
+   'jsnext',
+ ]
+ 
++/**
++ * A special condition that would be replaced with production or development
++ * depending on NODE_ENV env variable
++ */
++export const DEV_PROD_CONDITION = `development|production` as const
++
++export const DEFAULT_CONDITIONS = [
++  'module',
++  'browser',
++  'node',
++  DEV_PROD_CONDITION,
++]
++
++export const DEFAULT_EXTERNAL_CONDITIONS = ['node']
++
+ // Baseline support browserslist
+ // "defaults and supports es6-module and supports es6-module-dynamic-import"
+ // Higher browser versions may be needed for extra features.
+diff --git a/packages/vite/src/node/external.ts b/packages/vite/src/node/external.ts
+index e55eabb7f..2087a122f 100644
+--- a/packages/vite/src/node/external.ts
++++ b/packages/vite/src/node/external.ts
+@@ -53,7 +53,7 @@ export function createIsConfiguredAsExternal(
+   environment: PartialEnvironment,
+ ): (id: string, importer?: string) => boolean {
+   const { config } = environment
+-  const { root, resolve, webCompatible } = config
++  const { root, resolve } = config
+   const { external, noExternal } = resolve
+   const noExternalFilter =
+     typeof noExternal !== 'boolean' &&
+@@ -68,7 +68,6 @@ export function createIsConfiguredAsExternal(
+     isProduction: false,
+     isBuild: true,
+     conditions: targetConditions,
+-    webCompatible,
+   }
+ 
+   const isExternalizable = (
+diff --git a/packages/vite/src/node/optimizer/index.ts b/packages/vite/src/node/optimizer/index.ts
+index 9460c3da8..921326bdd 100644
+--- a/packages/vite/src/node/optimizer/index.ts
++++ b/packages/vite/src/node/optimizer/index.ts
+@@ -761,7 +761,7 @@ async function prepareEsbuildOptimizerRun(
+     ),
+   }
+ 
+-  const platform = environment.config.webCompatible ? 'browser' : 'node'
++  const platform = environment.config.consumer === 'client' ? 'browser' : 'node'
+ 
+   const external = [...(optimizeDeps?.exclude ?? [])]
+ 
+@@ -1178,7 +1178,6 @@ function getConfigHash(environment: Environment): string {
+           plugins: optimizeDeps?.esbuildOptions?.plugins?.map((p) => p.name),
+         },
+       },
+-      webCompatible: config.webCompatible,
+     },
+     (_, value) => {
+       if (typeof value === 'function' || value instanceof RegExp) {
+diff --git a/packages/vite/src/node/packages.ts b/packages/vite/src/node/packages.ts
+index ffabe43f8..f03a3f1a3 100644
+--- a/packages/vite/src/node/packages.ts
++++ b/packages/vite/src/node/packages.ts
+@@ -9,7 +9,7 @@ import {
+   tryStatSync,
+ } from './utils'
+ import type { Plugin } from './plugin'
+-import type { InternalResolveOptionsWithOverrideConditions } from './plugins/resolve'
++import type { InternalResolveOptions } from './plugins/resolve'
+ 
+ let pnp: typeof import('pnpapi') | undefined
+ if (process.versions.pnp) {
+@@ -27,11 +27,11 @@ export interface PackageData {
+   setResolvedCache: (
+     key: string,
+     entry: string,
+-    options: InternalResolveOptionsWithOverrideConditions,
++    options: InternalResolveOptions,
+   ) => void
+   getResolvedCache: (
+     key: string,
+-    options: InternalResolveOptionsWithOverrideConditions,
++    options: InternalResolveOptions,
+   ) => string | undefined
+   data: {
+     [field: string]: any
+@@ -223,18 +223,13 @@ export function loadPackageData(pkgPath: string): PackageData {
+   return pkg
+ }
+ 
+-function getResolveCacheKey(
+-  key: string,
+-  options: InternalResolveOptionsWithOverrideConditions,
+-) {
++function getResolveCacheKey(key: string, options: InternalResolveOptions) {
+   // cache key needs to include options which affect
+   // `resolvePackageEntry` or `resolveDeepImport`
+   return [
+     key,
+-    options.webCompatible ? '1' : '0',
+     options.isRequire ? '1' : '0',
+     options.conditions.join('_'),
+-    options.overrideConditions?.join('_') || '',
+     options.extensions.join('_'),
+     options.mainFields.join('_'),
+   ].join('|')
+diff --git a/packages/vite/src/node/plugins/define.ts b/packages/vite/src/node/plugins/define.ts
+index 2c2156c58..36c9b57db 100644
+--- a/packages/vite/src/node/plugins/define.ts
++++ b/packages/vite/src/node/plugins/define.ts
+@@ -47,6 +47,8 @@ export function definePlugin(config: ResolvedConfig): Plugin {
+   }
+ 
+   function generatePattern(environment: Environment) {
++    const keepProcessEnv = environment.config.keepProcessEnv
++
+     const userDefine: Record<string, string> = {}
+     const userDefineEnv: Record<string, any> = {}
+     for (const key in environment.config.define) {
+@@ -58,10 +60,8 @@ export function definePlugin(config: ResolvedConfig): Plugin {
+       }
+     }
+ 
+-    const replaceProcessEnv = environment.config.webCompatible
+-
+     const define: Record<string, string> = {
+-      ...(replaceProcessEnv ? processEnv : {}),
++      ...(keepProcessEnv ? {} : processEnv),
+       ...importMetaKeys,
+       ...userDefine,
+       ...importMetaFallbackKeys,
+@@ -85,7 +85,7 @@ export function definePlugin(config: ResolvedConfig): Plugin {
+ 
+     // Create regex pattern as a fast check before running esbuild
+     const patternKeys = Object.keys(userDefine)
+-    if (replaceProcessEnv && Object.keys(processEnv).length) {
++    if (!keepProcessEnv && Object.keys(processEnv).length) {
+       patternKeys.push('process.env')
+     }
+     if (Object.keys(importMetaKeys).length) {
+diff --git a/packages/vite/src/node/plugins/resolve.ts b/packages/vite/src/node/plugins/resolve.ts
+index bb3084eeb..2d30921bc 100644
+--- a/packages/vite/src/node/plugins/resolve.ts
++++ b/packages/vite/src/node/plugins/resolve.ts
+@@ -9,6 +9,7 @@ import type { Plugin } from '../plugin'
+ import {
+   CLIENT_ENTRY,
+   DEP_VERSION_RE,
++  DEV_PROD_CONDITION,
+   ENV_ENTRY,
+   FS_PREFIX,
+   SPECIAL_QUERY_RE,
+@@ -120,7 +121,6 @@ interface ResolvePluginOptions {
+   tryPrefix?: string
+   preferRelative?: boolean
+   isRequire?: boolean
+-  webCompatible?: boolean
+   // #3040
+   // when the importer is a ts module,
+   // if the specifier requests a non-existent `.js/jsx/mjs/cjs` file,
+@@ -240,7 +240,6 @@ export function resolvePlugin(
+       const options: InternalResolveOptions = {
+         isRequire,
+         ...environmentResolveOptions,
+-        webCompatible: currentEnvironmentOptions.webCompatible,
+         ...resolveOptions, // plugin options + resolve options overrides
+         scan: resolveOpts?.scan ?? resolveOptions.scan,
+       }
+@@ -330,7 +329,6 @@ export function resolvePlugin(
+         }
+ 
+         if (
+-          options.webCompatible &&
+           options.mainFields.includes('browser') &&
+           (res = tryResolveBrowserMapping(fsPath, importer, options, true))
+         ) {
+@@ -416,7 +414,6 @@ export function resolvePlugin(
+         }
+ 
+         if (
+-          options.webCompatible &&
+           options.mainFields.includes('browser') &&
+           (res = tryResolveBrowserMapping(
+             id,
+@@ -447,7 +444,6 @@ export function resolvePlugin(
+         if (isBuiltin(id)) {
+           if (currentEnvironmentOptions.consumer === 'server') {
+             if (
+-              options.webCompatible &&
+               options.noExternal === true &&
+               // if both noExternal and external are true, noExternal will take the higher priority and bundle it.
+               // only if the id is explicitly listed in external, we will externalize it and skip this error.
+@@ -713,18 +709,10 @@ function tryCleanFsResolve(
+   }
+ }
+ 
+-export type InternalResolveOptionsWithOverrideConditions =
+-  InternalResolveOptions & {
+-    /**
+-     * @internal
+-     */
+-    overrideConditions?: string[]
+-  }
+-
+ export function tryNodeResolve(
+   id: string,
+   importer: string | null | undefined,
+-  options: InternalResolveOptionsWithOverrideConditions,
++  options: InternalResolveOptions,
+   depsOptimizer?: DepsOptimizer,
+   externalize?: boolean,
+   allowLinkedExternal: boolean = true,
+@@ -960,11 +948,9 @@ export function resolvePackageEntry(
+     if (!entryPoint) {
+       for (const field of options.mainFields) {
+         if (field === 'browser') {
+-          if (options.webCompatible) {
+-            entryPoint = tryResolveBrowserEntry(dir, data, options)
+-            if (entryPoint) {
+-              break
+-            }
++          entryPoint = tryResolveBrowserEntry(dir, data, options)
++          if (entryPoint) {
++            break
+           }
+         } else if (typeof data[field] === 'string') {
+           entryPoint = data[field]
+@@ -992,11 +978,7 @@ export function resolvePackageEntry(
+       } else {
+         // resolve object browser field in package.json
+         const { browser: browserField } = data
+-        if (
+-          options.webCompatible &&
+-          options.mainFields.includes('browser') &&
+-          isObject(browserField)
+-        ) {
++        if (options.mainFields.includes('browser') && isObject(browserField)) {
+           entry = mapWithBrowserField(entry, browserField) || entry
+         }
+       }
+@@ -1037,35 +1019,24 @@ function packageEntryFailure(id: string, details?: string) {
+ function resolveExportsOrImports(
+   pkg: PackageData['data'],
+   key: string,
+-  options: InternalResolveOptionsWithOverrideConditions,
++  options: InternalResolveOptions,
+   type: 'imports' | 'exports',
+ ) {
+-  const additionalConditions = new Set(
+-    options.overrideConditions || [
+-      'production',
+-      'development',
+-      'module',
+-      ...options.conditions,
+-    ],
+-  )
+-
+-  const conditions = [...additionalConditions].filter((condition) => {
+-    switch (condition) {
+-      case 'production':
+-        return options.isProduction
+-      case 'development':
+-        return !options.isProduction
++  const conditions = options.conditions.map((condition) => {
++    if (condition === DEV_PROD_CONDITION) {
++      return options.isProduction ? 'production' : 'development'
+     }
+-    return true
++    return condition
+   })
+ 
+-  const fn = type === 'imports' ? imports : exports
+-  const result = fn(pkg, key, {
+-    browser: options.webCompatible && !additionalConditions.has('node'),
+-    require: options.isRequire && !additionalConditions.has('import'),
+-    conditions,
+-  })
++  if (options.isRequire) {
++    conditions.push('require')
++  } else {
++    conditions.push('import')
++  }
+ 
++  const fn = type === 'imports' ? imports : exports
++  const result = fn(pkg, key, { conditions, unsafe: true })
+   return result ? result[0] : undefined
+ }
+ 
+@@ -1103,11 +1074,7 @@ function resolveDeepImport(
+           `${path.join(dir, 'package.json')}.`,
+       )
+     }
+-  } else if (
+-    options.webCompatible &&
+-    options.mainFields.includes('browser') &&
+-    isObject(browserField)
+-  ) {
++  } else if (options.mainFields.includes('browser') && isObject(browserField)) {
+     // resolve without postfix (see #7098)
+     const { file, postfix } = splitFileAndPostfix(relativeId)
+     const mapped = mapWithBrowserField(file, browserField)
+diff --git a/packages/vite/src/node/ssr/fetchModule.ts b/packages/vite/src/node/ssr/fetchModule.ts
+index b517a0feb..d3851b37e 100644
+--- a/packages/vite/src/node/ssr/fetchModule.ts
++++ b/packages/vite/src/node/ssr/fetchModule.ts
+@@ -46,11 +46,10 @@ export async function fetchModule(
+ 
+     const resolved = tryNodeResolve(url, importer, {
+       mainFields: ['main'],
+-      conditions: [],
++      conditions: externalConditions,
+       externalConditions,
+       external: [],
+       noExternal: [],
+-      overrideConditions: [...externalConditions, 'production', 'development'],
+       extensions: ['.js', '.cjs', '.json'],
+       dedupe,
+       preserveSymlinks,
+@@ -58,7 +57,6 @@ export async function fetchModule(
+       isProduction,
+       root,
+       packageCache: environment.config.packageCache,
+-      webCompatible: environment.config.webCompatible,
+     })
+     if (!resolved) {
+       const err: any = new Error(
+diff --git a/packages/vite/src/node/ssr/index.ts b/packages/vite/src/node/ssr/index.ts
+index dc597ea41..34d4dbb96 100644
+--- a/packages/vite/src/node/ssr/index.ts
++++ b/packages/vite/src/node/ssr/index.ts
+@@ -11,7 +11,7 @@ export interface SSROptions {
+   /**
+    * Define the target for the ssr build. The browser field in package.json
+    * is ignored for node but used if webworker is the target
+-   * This option may be replaced by the experimental `environmentOptions.webCompatible`
++   * This option will be removed in a future major version
+    * @default 'node'
+    */
+   target?: SSRTarget
+diff --git a/packages/vite/src/node/utils.ts b/packages/vite/src/node/utils.ts
+index 2a5faa6cc..4ae3f29b1 100644
+--- a/packages/vite/src/node/utils.ts
++++ b/packages/vite/src/node/utils.ts
+@@ -169,7 +169,7 @@ export function createDebugger(
+   const { onlyWhenFocused, depth } = options
+ 
+   // @ts-expect-error - The log function is bound to inspectOpts, but the type is not reflected
+-  if (depth && log.inspectOpts.depth == null) {
++  if (depth && log.inspectOpts && log.inspectOpts.depth == null) {
+     // @ts-expect-error - The log function is bound to inspectOpts, but the type is not reflected
+     log.inspectOpts.depth = options.depth
+   }
+diff --git a/playground/resolve/vite.config.js b/playground/resolve/vite.config.js
+index c7d8d6ea0..d12eb2283 100644
+--- a/playground/resolve/vite.config.js
++++ b/playground/resolve/vite.config.js
+@@ -32,7 +32,7 @@ export default defineConfig({
+   resolve: {
+     extensions: ['.mjs', '.js', '.es', '.ts'],
+     mainFields: ['browser', 'custom', 'module'],
+-    conditions: ['custom'],
++    conditions: ['module', 'browser', 'development|production', 'custom'],
+   },
+   define: {
+     VITE_CONFIG_DEP_TEST: a,
+diff --git a/playground/ssr-conditions/vite.config.js b/playground/ssr-conditions/vite.config.js
+index 41727adaf..e59e1c2a6 100644
+--- a/playground/ssr-conditions/vite.config.js
++++ b/playground/ssr-conditions/vite.config.js
+@@ -5,8 +5,8 @@ export default defineConfig({
+     external: ['@vitejs/test-ssr-conditions-external'],
+     noExternal: ['@vitejs/test-ssr-conditions-no-external'],
+     resolve: {
+-      conditions: ['react-server'],
+-      externalConditions: ['workerd', 'react-server'],
++      conditions: ['module', 'node', 'development|production', 'react-server'],
++      externalConditions: ['node', 'workerd', 'react-server'],
+     },
+   },
+ })
+diff --git a/playground/ssr-webworker/vite.config.js b/playground/ssr-webworker/vite.config.js
+index 3c10b035b..223b79e5f 100644
+--- a/playground/ssr-webworker/vite.config.js
++++ b/playground/ssr-webworker/vite.config.js
+@@ -6,7 +6,6 @@ export default defineConfig({
+   },
+   resolve: {
+     dedupe: ['react'],
+-    conditions: ['worker'],
+   },
+   ssr: {
+     target: 'webworker',
+@@ -14,6 +13,9 @@ export default defineConfig({
+     // Some webworker builds may choose to externalize node builtins as they may be implemented
+     // in the runtime, and so we can externalize it when bundling.
+     external: ['node:assert'],
++    resolve: {
++      conditions: ['module', 'browser', 'development|production', 'worker'],
++    },
+   },
+   plugins: [
+     {

@@ -2,7 +2,8 @@
 # corpus-selftest.sh — the shipped corpus passes `planted.py check`, and a copy that lacks any part a case
 # must carry, or holds a marker, or falls short of a class or a P4 pattern, or a new case that misses the
 # size floor or the distraction rule, or an upstream above 40% of the cases, or a runner case whose runner
-# the gate cannot run, fails naming it. No network and no model.
+# the gate cannot run, or a pilot case that breaks a rule, or an instance in neither form, fails naming it.
+# Pilot cases fill no count of the scored corpus. No network and no model.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASS=0 FAIL=0
@@ -28,8 +29,10 @@ edit_case() { # edit_case <root> <id> <jq filter>
 
 echo "== the shipped corpus =="
 out="$(check "$HERE")"; rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "check: ok (P1 16, P2 4, P3 4, P4 10, P5 4, control 5; P4 patterns: rejects-held-input 2, dead-guard 2, two-hop-caller 1, omitted-option 1)" ] \
-  && ok "the shipped corpus passes, with sixteen P1 cases and ten P4 cases that cover all four patterns" || bad "shipped corpus: rc=$rc $out"
+[ "$rc" -eq 0 ] && [ "$(head -n 1 <<<"$out")" = "check: ok (P1 16, P2 4, P3 4, P4 10, P5 4, control 5; P4 patterns: rejects-held-input 2, dead-guard 2, two-hop-caller 1, omitted-option 1)" ] \
+  && ok "the shipped corpus passes, with sixteen P1 cases and ten P4 cases that cover all four patterns, the pilot cases left out" || bad "shipped corpus: rc=$rc $out"
+[ "$(sed -n 2p <<<"$out")" = "check: pilot 32 P4 (rejects-held-input 8, dead-guard 8, two-hop-caller 8, omitted-option 8)" ] \
+  && ok "the shipped corpus reports 32 pilot cases, 8 per pattern" || bad "pilot line: $(sed -n 2p <<<"$out")"
 hard="$(python3 -c '
 import sys; sys.path.insert(0, sys.argv[1]); import planted, pathlib
 for c in planted.load_cases(pathlib.Path(sys.argv[1])):
@@ -170,6 +173,33 @@ R="$(copy cap-readme)"; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
 out="$(check "$R")"; rc=$?
 [ "$rc" -ne 0 ] && [ "$out" = "check: corpus: https://github.com/anuraghazra/github-readme-stats holds 34 of 63 cases (54.0%), more than 40%" ] \
   && ok "readme-stats at 34 of 63 cases fails on its share alone" || bad "readme-stats cap: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
+
+echo "== the pilot cases =="
+R="$(copy pilot-inside)"; edit_case "$R" ba4kxe '.truth.locations |= .[:1]'
+expect_red "$R" "a pilot case whose every truth range sits inside a hunk" "ba4kxe: no ranged truth location falls outside every hunk of the patch"
+R="$(copy pilot-no-distraction)"; edit_case "$R" la2swf 'del(.distractions)'
+expect_red "$R" "a pilot case with no distraction" "la2swf: case.json has no distractions"
+R="$(copy pilot-no-pattern)"; edit_case "$R" ug5nrb 'del(.truth.pattern)'
+expect_red "$R" "a pilot case with no pattern" "ug5nrb: truth.pattern None is not one of"
+R="$(copy pilot-p1)"; edit_case "$R" cu5zfj '.truth.class = "P1" | del(.truth.pattern)'
+expect_red "$R" "a pilot case outside P4" "cu5zfj: a pilot case is not P4"
+R="$(copy pilot-gone)"; rm -r "$R/cases/jc2gmr"
+expect_red "$R" "a PILOT id with no case" "corpus: PILOT names jc2gmr, which has no case"
+R="$(copy pilot-notice)"; grep -v 'github.com/vitejs/vite' "$HERE/NOTICE" > "$R/NOTICE"
+expect_red "$R" "a NOTICE that omits an upstream only pilot cases come from" "corpus: NOTICE does not name https://github.com/vitejs/vite"
+R="$(copy pilot-cap)"; for id in a7t4yp b3v8qn; do rm -r "$R/cases/$id"; done
+out="$(check "$R")"; rc=$?
+grep -qF "corpus: class P2 has 3 cases" <<<"$out" && grep -qF "corpus: no P4 case has pattern two-hop-caller" <<<"$out" \
+  && ok "pilot cases fill no class and no pattern of the scored corpus" || bad "pilot counts: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
+
+echo "== the instance =="
+R="$(copy instance-pr)"; edit_case "$R" f6t2gy '.instance = "iamkun__dayjs-pr\(.pr)"'
+out="$(check "$R")"; rc=$?
+[ "$rc" -eq 0 ] && ok "an instance of <owner>__<repo>-pr<N> passes" || bad "instance-pr: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
+R="$(copy instance-odd)"; edit_case "$R" f6t2gy '.instance = "dayjs-1209"'
+expect_red "$R" "an instance in neither form" "f6t2gy: instance 'dayjs-1209' is neither iamkun__dayjs-1209 nor iamkun__dayjs-pr1209"
+R="$(copy instance-other-pr)"; edit_case "$R" f6t2gy '.instance = "iamkun__dayjs-pr1"'
+expect_red "$R" "an instance that names another PR" "f6t2gy: instance 'iamkun__dayjs-pr1' is neither"
 
 echo "== a runner case declares a runner the gate can run =="
 RO=overlays/anuraghazra__github-readme-stats-jest/config.json

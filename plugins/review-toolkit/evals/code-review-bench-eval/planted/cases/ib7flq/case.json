@@ -1,0 +1,26 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr15525",
+  "license": "MIT",
+  "base": "3974359d32d070aa3f1c4eb0f0b3892e47f79430",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 15284,
+  "pr": 15525,
+  "commit": "fix(javascript): consistently format strings containing escapes",
+  "truth": {
+    "class": "P4",
+    "pattern": "omitted-option",
+    "description": "isLoneShortArgument now measures a string by its printed form only when the caller passes measurePrinted, and printTernary in ternary.js still calls it without that option, so under --experimental-ternaries a consequent string with an unnecessary escape before an apostrophe is still judged by its raw length and the same ternary formats differently with and without the escape.",
+    "locations": [
+      {"file": "src/language-js/utils/index.js", "start": 573, "end": 577, "side": "head"},
+      {"file": "src/language-js/utils/index.js", "start": 548, "end": 548, "side": "head"},
+      {"file": "src/language-js/print/ternary.js", "start": 267, "end": 270, "side": "head"},
+      {"file": "src/language-js/print/estree.js", "start": 322, "end": 323, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "tests/format/js/strings/escaped.js", "start": 4, "end": 5, "side": "head",
+     "why": "Inside double quotes the backslash before the apostrophe is an unnecessary escape, so this string has the same value as the one on line 2 and only its source width differs, which is what the test needs."}
+  ]
+}

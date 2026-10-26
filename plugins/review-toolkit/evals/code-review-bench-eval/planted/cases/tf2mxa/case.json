@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr17505",
+  "license": "MIT",
+  "base": "6fffbdf7c46d31110fbfd701b2d31647bbc49354",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 16146,
+  "pr": 17505,
+  "commit": "fix(cli): fix exit code and result message when the parser cannot be inferred",
+  "truth": {
+    "class": "P4",
+    "pattern": "dead-guard",
+    "description": "handleError in format.js now reads the --ignore-unknown flag as context.argv[\"ignore-unknown\"], but parseArgv in parse-cli-arguments.js, the only producer of context.argv, stores every flag under its camel-cased name, so that half of the guard is always false and prettier --check --ignore-unknown on explicit files, a glob or stdin now reports each file with no inferable parser as an error and exits with 2 instead of skipping it.",
+    "locations": [
+      {"file": "src/cli/format.js", "start": 30, "end": 33, "side": "head"},
+      {"file": "src/cli/options/parse-cli-arguments.js", "start": 23, "end": 28, "side": "head"},
+      {"file": "src/cli/context.js", "start": 38, "end": 39, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "tests/integration/__tests__/infer-parser.js", "start": 148, "end": 148, "side": "head",
+     "why": "FOO has no inferable parser and this run passes no flag to skip unknown files, so the error on it sets exit code 2 even though --write fixed foo.js."}
+  ]
+}

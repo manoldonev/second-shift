@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr13274",
+  "license": "MIT",
+  "base": "a2a3849c430b31871db5e89ff1542b4d14f80f68",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 13157,
+  "pr": 13274,
+  "commit": "fix: line breaks in multiline strings",
+  "truth": {
+    "class": "P4",
+    "pattern": "two-hop-caller",
+    "description": "printString in src/common/util.js now returns a doc array instead of a string, but the CSS printer still passes it as the callback of String.replace in adjustStrings, which coerces the doc to text, so a CSS attribute selector whose quoted value continues onto a second line after a backslash is printed with [object Object] in place of the line break.",
+    "locations": [
+      {"file": "src/common/util.js", "start": 286, "end": 287, "side": "head"},
+      {"file": "src/language-css/printer-postcss.js", "start": 419, "end": 422, "side": "head"},
+      {"file": "src/language-css/printer-postcss.js", "start": 1093, "end": 1094, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "tests/format/typescript/literal/__snapshots__/jsfmt.spec.js.snap", "start": 17, "end": 22, "side": "head",
+     "why": "A TypeScript string literal type takes the fluid assignment layout rather than the break-after-operator layout that shouldBreakAfterOperator forces for a Flow StringLiteralTypeAnnotation, so the string stays after the equals sign and only its first line has to fit."}
+  ]
+}

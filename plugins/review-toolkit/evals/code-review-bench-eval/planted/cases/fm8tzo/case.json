@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vitejs/vite.git",
+  "instance": "vitejs__vite-pr15617",
+  "license": "MIT",
+  "base": "bdb826ca0a021c71d6a43d1f6c81fd3e906eea56",
+  "base_branch": "main",
+  "overlay": "vitejs__vite",
+  "issue": 15617,
+  "pr": 15617,
+  "commit": "perf: avoid parseRequest",
+  "truth": {
+    "class": "P4",
+    "pattern": "rejects-held-input",
+    "description": "The css-post plugin now reads the html proxy index with /&inline-css&index=(\\d+)/ and throws when it does not match, but the dev html middleware transforms each style attribute under the module id it holds, which ends in ?html-proxy&inline-css&style-attr&index=N.css, as does the import the build html plugin emits, so any page with a url() in a style attribute fails to load in dev and fails to build.",
+    "locations": [
+      {"file": "packages/vite/src/node/plugins/css.ts", "start": 173, "end": 173, "side": "head"},
+      {"file": "packages/vite/src/node/server/middlewares/indexHtml.ts", "start": 374, "end": 379, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/html.ts", "start": 584, "end": 584, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/vite/src/node/plugins/worker.ts", "start": 32, "end": 32, "side": "head",
+     "why": "Both places that build a worker file URL inject worker_file&type=<type> as one string through injectQuery, which only prepends whole queries, so the two keys always stay adjacent and in that order."}
+  ]
+}

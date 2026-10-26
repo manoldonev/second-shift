@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr15831",
+  "license": "MIT",
+  "base": "66a23c9331e2c652f8e08fd05a65d2bea7fe5c1a",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 15553,
+  "pr": 15831,
+  "commit": "feat(json): add jsonc parser",
+  "truth": {
+    "class": "P4",
+    "pattern": "omitted-option",
+    "description": "The JSON with Comments language now infers the new jsonc parser, but chooseLayout in assignment.js, which printProperty reaches through printAssignment, still keeps a value on its key's line only for json and json5, so a long string value in a .jsonc file, such as the $schema URL of a cspell.jsonc, now moves to its own line after the colon.",
+    "locations": [
+      {"file": "src/language-json/languages.evaluate.js", "start": 18, "end": 21, "side": "head"},
+      {"file": "src/language-js/print/assignment.js", "start": 143, "end": 147, "side": "head"},
+      {"file": "src/language-js/print/property.js", "start": 93, "end": 99, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "tests/format/markdown/multiparser-json/__snapshots__/jsfmt.spec.js.snap", "start": 42, "end": 42, "side": "head",
+     "why": "The fenced block is tagged jsonc and this run sets trailingComma to all, which the jsonc parser now honors, so the comma after the last property is the expected output."}
+  ]
+}

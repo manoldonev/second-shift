@@ -1,0 +1,27 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr20127",
+  "license": "MIT",
+  "base": "6bc99db278c8acf5b0c12eb37527cb5e4a429c84",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 20113,
+  "pr": 20127,
+  "commit": "fix(config): read configuration files that start with a UTF-8 BOM",
+  "truth": {
+    "class": "P4",
+    "pattern": "omitted-option",
+    "description": "readFile drops a leading BOM only when its caller passes stripBom, and only loadConfig passes it, so the package.json filter in config-searcher.js still calls loadConfigFromPackageJson without options, parse-json throws on the BOM, the filter's catch returns false, and config search silently skips a BOM-prefixed package.json with a prettier key and resolves to a parent config or none.",
+    "locations": [
+      {"file": "src/utilities/read-file.js", "start": 10, "end": 10, "side": "head"},
+      {"file": "src/utilities/read-file.js", "start": 28, "end": 28, "side": "head"},
+      {"file": "src/config/prettier-config/load-config.js", "start": 23, "end": 23, "side": "head"},
+      {"file": "src/config/prettier-config/loaders.js", "start": 53, "end": 54, "side": "head"},
+      {"file": "src/config/prettier-config/config-searcher.js", "start": 19, "end": 25, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/utilities/bom.js", "start": 4, "end": 7, "side": "head",
+     "why": "U+FEFF is a single UTF-16 code unit, so comparing charAt(0) and slicing one character removes exactly the BOM and never splits a surrogate pair."}
+  ]
+}

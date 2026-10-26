@@ -1,0 +1,158 @@
+diff --git a/docs/plans/core-9440-plan.md b/docs/plans/core-9440-plan.md
+new file mode 100644
+index 000000000..4248fc028
+--- /dev/null
++++ b/docs/plans/core-9440-plan.md
+@@ -0,0 +1,10 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 SSR-compile a select v-model with a slot as a direct child and inside an optgroup (packages/compiler-ssr/__tests__/ssrVModel.spec.ts) [AC-1]
++- [ ] 1.2 SSR-compile a select v-model with an option inside an optgroup and check its selected expression (packages/compiler-ssr/__tests__/ssrVModel.spec.ts) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Add the selected check to option children only, and descend into optgroup (packages/compiler-ssr/src/transforms/ssrVModel.ts)
+diff --git a/packages/compiler-ssr/__tests__/ssrVModel.spec.ts b/packages/compiler-ssr/__tests__/ssrVModel.spec.ts
+index 5bccbcb78..f28c38d40 100644
+--- a/packages/compiler-ssr/__tests__/ssrVModel.spec.ts
++++ b/packages/compiler-ssr/__tests__/ssrVModel.spec.ts
+@@ -69,6 +69,57 @@ describe('ssr: v-model', () => {
+         }></option></select></div>\`)
+       }"
+     `)
++
++    expect(
++      compileWithWrapper(`<select multiple v-model="model"><slot/></select>`)
++        .code
++    ).toMatchInlineSnapshot(`
++      "const { ssrRenderSlot: _ssrRenderSlot, ssrRenderAttrs: _ssrRenderAttrs } = require(\\"vue/server-renderer\\")
++
++      return function ssrRender(_ctx, _push, _parent, _attrs) {
++        _push(\`<div\${_ssrRenderAttrs(_attrs)}><select multiple>\`)
++        _ssrRenderSlot(_ctx.$slots, \\"default\\", {}, null, _push, _parent)
++        _push(\`</select></div>\`)
++      }"
++    `)
++
++    expect(
++      compileWithWrapper(`
++        <select multiple v-model="model">
++          <optgroup label="foo">
++            <option value="bar">bar</option>
++          </optgroup>
++        </select>`).code
++    ).toMatchInlineSnapshot(`
++      "const { ssrIncludeBooleanAttr: _ssrIncludeBooleanAttr, ssrLooseContain: _ssrLooseContain, ssrLooseEqual: _ssrLooseEqual, ssrRenderAttrs: _ssrRenderAttrs } = require(\\"vue/server-renderer\\")
++
++      return function ssrRender(_ctx, _push, _parent, _attrs) {
++        _push(\`<div\${
++          _ssrRenderAttrs(_attrs)
++        }><select multiple><optgroup label=\\"foo\\"><option value=\\"bar\\"\${
++          (_ssrIncludeBooleanAttr((Array.isArray(_ctx.model))
++            ? _ssrLooseContain(_ctx.model, \\"bar\\")
++            : _ssrLooseEqual(_ctx.model, \\"bar\\"))) ? \\" selected\\" : \\"\\"
++        }>bar</option></optgroup></select></div>\`)
++      }"
++    `)
++
++    expect(
++      compileWithWrapper(`
++        <select multiple v-model="model">
++          <optgroup label="foo">
++            <slot/>
++          </optgroup>
++        </select>`).code
++    ).toMatchInlineSnapshot(`
++      "const { ssrRenderSlot: _ssrRenderSlot, ssrRenderAttrs: _ssrRenderAttrs } = require(\\"vue/server-renderer\\")
++
++      return function ssrRender(_ctx, _push, _parent, _attrs) {
++        _push(\`<div\${_ssrRenderAttrs(_attrs)}><select multiple><optgroup label=\\"foo\\">\`)
++        _ssrRenderSlot(_ctx.$slots, \\"default\\", {}, null, _push, _parent)
++        _push(\`</optgroup></select></div>\`)
++      }"
++    `)
+   })
+ 
+   test('<input type="radio">', () => {
+diff --git a/packages/compiler-ssr/src/transforms/ssrVModel.ts b/packages/compiler-ssr/src/transforms/ssrVModel.ts
+index bd587edcb..eca1a973d 100644
+--- a/packages/compiler-ssr/src/transforms/ssrVModel.ts
++++ b/packages/compiler-ssr/src/transforms/ssrVModel.ts
+@@ -38,6 +38,39 @@ export const ssrTransformModel: DirectiveTransform = (dir, node, context) => {
+     }
+   }
+ 
++  function processOption(plainNode: PlainElementNode) {
++    if (plainNode.props.some(p => p.name === 'selected')) {
++      return
++    }
++    if (plainNode.tag === 'option') {
++      const value = findValueBinding(plainNode)
++      plainNode.ssrCodegenNode!.elements.push(
++        createConditionalExpression(
++          createCallExpression(context.helper(SSR_INCLUDE_BOOLEAN_ATTR), [
++            createConditionalExpression(
++              createCallExpression(`Array.isArray`, [model]),
++              createCallExpression(context.helper(SSR_LOOSE_CONTAIN), [
++                model,
++                value
++              ]),
++              createCallExpression(context.helper(SSR_LOOSE_EQUAL), [
++                model,
++                value
++              ])
++            )
++          ]),
++          createSimpleExpression(' selected', true),
++          createSimpleExpression('', true),
++          false /* no newline */
++        )
++      )
++    } else if (plainNode.tag === 'optgroup') {
++      plainNode.children.forEach(option =>
++        processOption(option as PlainElementNode)
++      )
++    }
++  }
++
+   if (node.tagType === ElementTypes.ELEMENT) {
+     const res: DirectiveTransformResult = { props: [] }
+     const defaultProps = [
+@@ -130,32 +163,9 @@ export const ssrTransformModel: DirectiveTransform = (dir, node, context) => {
+       checkDuplicatedValue()
+       node.children = [createInterpolation(model, model.loc)]
+     } else if (node.tag === 'select') {
+-      node.children.forEach(option => {
+-        if (option.type === NodeTypes.ELEMENT) {
+-          const plainNode = option as PlainElementNode
+-          if (plainNode.props.findIndex(p => p.name === 'selected') === -1) {
+-            const value = findValueBinding(plainNode)
+-            plainNode.ssrCodegenNode!.elements.push(
+-              createConditionalExpression(
+-                createCallExpression(context.helper(SSR_INCLUDE_BOOLEAN_ATTR), [
+-                  createConditionalExpression(
+-                    createCallExpression(`Array.isArray`, [model]),
+-                    createCallExpression(context.helper(SSR_LOOSE_CONTAIN), [
+-                      model,
+-                      value
+-                    ]),
+-                    createCallExpression(context.helper(SSR_LOOSE_EQUAL), [
+-                      model,
+-                      value
+-                    ])
+-                  )
+-                ]),
+-                createSimpleExpression(' selected', true),
+-                createSimpleExpression('', true),
+-                false /* no newline */
+-              )
+-            )
+-          }
++      node.children.forEach(child => {
++        if (child.type === NodeTypes.ELEMENT) {
++          processOption(child as PlainElementNode)
+         }
+       })
+     } else {

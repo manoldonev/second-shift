@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vuejs/core.git",
+  "instance": "vuejs__core-9442",
+  "license": "MIT",
+  "base": "4162311efdb0db5ca458542e1604b19efa2fae0e",
+  "base_branch": "main",
+  "overlay": "vuejs__core",
+  "issue": 9440,
+  "pr": 9442,
+  "commit": "fix(compiler-ssr): fix ssr compile error for select with non-option children",
+  "truth": {
+    "class": "P4",
+    "pattern": "rejects-held-input",
+    "description": "processOption now reads props before it checks the tag, and the optgroup branch hands it every child the optgroup holds, so the single-space text node that parseChildren keeps between two options written on one line reaches it, and SSR-compiling a select v-model with such an optgroup throws a TypeError where the base compiled it.",
+    "locations": [
+      {"file": "packages/compiler-ssr/src/transforms/ssrVModel.ts", "start": 42, "end": 44, "side": "head"},
+      {"file": "packages/compiler-core/src/parse.ts", "start": 286, "end": 289, "side": "head"},
+      {"file": "packages/compiler-ssr/src/transforms/ssrTransformElement.ts", "start": 201, "end": 207, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/compiler-ssr/__tests__/ssrVModel.spec.ts", "start": 77, "end": 77, "side": "head",
+     "why": "The select's only child is a slot outlet, so no option gets the selected check and the compiled code needs none of the loose-equal helpers."}
+  ]
+}

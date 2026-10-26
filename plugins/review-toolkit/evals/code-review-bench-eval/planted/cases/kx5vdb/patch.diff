@@ -1,0 +1,156 @@
+diff --git a/changelog_unreleased/html/17501.md b/changelog_unreleased/html/17501.md
+new file mode 100644
+index 000000000..e792c4e09
+--- /dev/null
++++ b/changelog_unreleased/html/17501.md
+@@ -0,0 +1,15 @@
++#### Fix formatting when tag name is an object prototype property (#17501 by @fisker)
++
++<!-- prettier-ignore -->
++```html
++<!-- Input -->
++<constructor>
++	text
++</constructor>
++
++<!-- Prettier stable -->
++TypeError: Vn(...).startsWith is not a function
++
++<!-- Prettier main -->
++<constructor> text </constructor>
++```
+diff --git a/docs/plans/prettier-15511-plan.md b/docs/plans/prettier-15511-plan.md
+new file mode 100644
+index 000000000..41c6a9a47
+--- /dev/null
++++ b/docs/plans/prettier-15511-plan.md
+@@ -0,0 +1,12 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 Format elements named after Object.prototype properties without a TypeError (tests/format/html/tags/object-prototype-properties/format.test.js) [AC-1]
++- [ ] 1.2 Print those elements inline with their text, like any unknown element (tests/format/html/tags/object-prototype-properties/format.test.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Read the CSS display table only through own keys in getNodeCssStyleDisplay (src/language-html/utils/index.js)
++- [ ] 2.2 Read the CSS white-space table only through own keys in getNodeCssStyleWhiteSpace (src/language-html/utils/index.js)
++- [ ] 2.3 Add the changelog entry (changelog_unreleased/html/17501.md)
+diff --git a/src/language-html/utils/index.js b/src/language-html/utils/index.js
+index 1196bbd16..0fca93c18 100644
+--- a/src/language-html/utils/index.js
++++ b/src/language-html/utils/index.js
+@@ -499,24 +499,30 @@ function getNodeCssStyleDisplay(node, options) {
+     case "ignore":
+       return "block";
+     default:
+-      return (
+-        (node.type === "element" &&
+-          (!node.namespace ||
+-            isInSvgForeignObject ||
+-            isUnknownNamespace(node)) &&
+-          CSS_DISPLAY_TAGS[node.name]) ||
+-        CSS_DISPLAY_DEFAULT
+-      );
++      if (
++        node.type === "element" &&
++        (!node.namespace || isInSvgForeignObject || isUnknownNamespace(node))
++      ) {
++        const tagName = node.name.toLowerCase();
++        if (Object.hasOwn(CSS_DISPLAY_TAGS, tagName)) {
++          return CSS_DISPLAY_TAGS[tagName];
++        }
++      }
+   }
++
++  return CSS_DISPLAY_DEFAULT;
+ }
+ 
+ function getNodeCssStyleWhiteSpace(node) {
+-  return (
+-    (node.type === "element" &&
+-      (!node.namespace || isUnknownNamespace(node)) &&
+-      CSS_WHITE_SPACE_TAGS[node.name]) ||
+-    CSS_WHITE_SPACE_DEFAULT
+-  );
++  if (
++    node.type === "element" &&
++    (!node.namespace || isUnknownNamespace(node)) &&
++    Object.hasOwn(CSS_WHITE_SPACE_TAGS, node.name)
++  ) {
++    return CSS_WHITE_SPACE_TAGS[node.name];
++  }
++
++  return CSS_WHITE_SPACE_DEFAULT;
+ }
+ 
+ function getMinIndentation(text) {
+diff --git a/tests/format/html/tags/object-prototype-properties/__snapshots__/format.test.js.snap b/tests/format/html/tags/object-prototype-properties/__snapshots__/format.test.js.snap
+new file mode 100644
+index 000000000..01c2cf3ed
+--- /dev/null
++++ b/tests/format/html/tags/object-prototype-properties/__snapshots__/format.test.js.snap
+@@ -0,0 +1,37 @@
++// Jest Snapshot v1, https://goo.gl/fbAQLP
++
++exports[`object-prototype-properties.html format 1`] = `
++====================================options=====================================
++parsers: ["html"]
++printWidth: 80
++                                                                                | printWidth
++=====================================input======================================
++<constructor>constructor</constructor>
++<hasOwnProperty>hasOwnProperty</hasOwnProperty>
++<isPrototypeOf>isPrototypeOf</isPrototypeOf>
++<propertyIsEnumerable>propertyIsEnumerable</propertyIsEnumerable>
++<toLocaleString>toLocaleString</toLocaleString>
++<toString>toString</toString>
++<valueOf>valueOf</valueOf>
++<!-- <__defineGetter__>__defineGetter__</__defineGetter__> -->
++<!-- <__defineSetter__>__defineSetter__</__defineSetter__> -->
++<!-- <__lookupGetter__>__lookupGetter__</__lookupGetter__> -->
++<!-- <__lookupSetter__>__lookupSetter__</__lookupSetter__> -->
++<!-- <__proto__>__proto__</__proto__> -->
++
++=====================================output=====================================
++<constructor>constructor</constructor>
++<hasOwnProperty>hasOwnProperty</hasOwnProperty>
++<isPrototypeOf>isPrototypeOf</isPrototypeOf>
++<propertyIsEnumerable>propertyIsEnumerable</propertyIsEnumerable>
++<toLocaleString>toLocaleString</toLocaleString>
++<toString>toString</toString>
++<valueOf>valueOf</valueOf>
++<!-- <__defineGetter__>__defineGetter__</__defineGetter__> -->
++<!-- <__defineSetter__>__defineSetter__</__defineSetter__> -->
++<!-- <__lookupGetter__>__lookupGetter__</__lookupGetter__> -->
++<!-- <__lookupSetter__>__lookupSetter__</__lookupSetter__> -->
++<!-- <__proto__>__proto__</__proto__> -->
++
++================================================================================
++`;
+diff --git a/tests/format/html/tags/object-prototype-properties/format.test.js b/tests/format/html/tags/object-prototype-properties/format.test.js
+new file mode 100644
+index 000000000..88a427864
+--- /dev/null
++++ b/tests/format/html/tags/object-prototype-properties/format.test.js
+@@ -0,0 +1 @@
++runFormatTest(import.meta, ["html"]);
+diff --git a/tests/format/html/tags/object-prototype-properties/object-prototype-properties.html b/tests/format/html/tags/object-prototype-properties/object-prototype-properties.html
+new file mode 100644
+index 000000000..f3855a49e
+--- /dev/null
++++ b/tests/format/html/tags/object-prototype-properties/object-prototype-properties.html
+@@ -0,0 +1,12 @@
++<constructor>constructor</constructor>
++<hasOwnProperty>hasOwnProperty</hasOwnProperty>
++<isPrototypeOf>isPrototypeOf</isPrototypeOf>
++<propertyIsEnumerable>propertyIsEnumerable</propertyIsEnumerable>
++<toLocaleString>toLocaleString</toLocaleString>
++<toString>toString</toString>
++<valueOf>valueOf</valueOf>
++<!-- <__defineGetter__>__defineGetter__</__defineGetter__> -->
++<!-- <__defineSetter__>__defineSetter__</__defineSetter__> -->
++<!-- <__lookupGetter__>__lookupGetter__</__lookupGetter__> -->
++<!-- <__lookupSetter__>__lookupSetter__</__lookupSetter__> -->
++<!-- <__proto__>__proto__</__proto__> -->

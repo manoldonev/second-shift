@@ -2,8 +2,8 @@
 # score-selftest.sh — the scorer on canned reviews with a canned judge, no model: right, wrong, harm and noise
 # per class and arm; the three-line window; the judge asked only about findings inside a planted range, on a
 # path-level location's file, or with no path on a case that has one; a path parsed with no line; a P2 row
-# by its id; a P5 [note]; a gate stop; an unscorable verdict counted apart and never as an approve; and the gate,
-# which reads every class but P2.
+# by its id; a P5 [note]; a gate stop; an unscorable verdict counted apart and never as an approve; the gate,
+# which reads every class but P2; the pilot run's cases, arm and changelog rule; and the per-case report.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DP="$HERE/../../../../dev-pipeline"
@@ -141,6 +141,52 @@ python3 "$HERE/planted.py" --root "$R" score --reviews "$T/reviews-pt.json" --ju
   && ok "a path-only blocker the judge matches is right" || bad "path-level score: $(jq -c '.records[] | select(.case == "ptcase" and .run == 1) | .score' "$T/out-pt.json")"
 [ "$(jq -c '.records[] | select(.case == "p1case" and .run == 2) | [.findings[] | [.id, .path, .line]]' "$T/out-pt.json")" = '[["B1","test/plugin/x.test.js",null],["B2","src/p.js",null],["B3",null,null],["B4","src/i.js",9]]' ] \
   && ok "a path with no line parses, a backticked path drops its comma, and/or parses no path, and a later path:line wins" || bad "parsed paths: $(jq -c '.records[] | select(.case == "p1case" and .run == 2) | .findings' "$T/out-pt.json")"
+
+echo "== the pilot run =="
+mkcase plcase '{"class": "P4", "pattern": "two-hop-caller", "description": "The new rule rejects what an existing caller passes.", "locations": [{"file": "src/f.js", "start": 3, "end": 4, "side": "head"}]}'
+pilot() { python3 -c '
+import sys; sys.path.insert(0, sys.argv[1]); import planted, pathlib
+cases, pl = planted.load_cases(pathlib.Path(sys.argv[2])), frozenset({"plcase"})
+def sel(ids, pilot):
+    try:
+        return " ".join(c["id"] for c in planted.select_cases(cases, ids, pilot, pl))
+    except ValueError as e:
+        return f"refused: {e}"
+def arms(a, pilot):
+    try:
+        return " ".join(planted.run_arms(a, pilot))
+    except ValueError as e:
+        return f"refused: {e}"
+print(sel([], True)); print(sel([], False)); print(sel(["plcase"], False)); print(sel(["p1case"], True))
+print(arms([], True)); print(arms(["plain"], True)); print(arms(["lane"], True)); print(arms(["plain", "lane"], False))
+print(planted.writes_row(False, True), planted.writes_row(True, True), planted.writes_row(False, False), planted.writes_row(True, False))
+' "$HERE" "$R"; }
+out="$(pilot)"
+[ "$(sed -n 1p <<<"$out")" = plcase ] && ok "--pilot selects only the pilot cases" || bad "pilot selection: $(sed -n 1p <<<"$out")"
+[ "$(sed -n 2p <<<"$out")" = "ctcase p1case p2case p3case p4case p5case ptcase" ] && ok "a normal run skips the pilot cases" || bad "normal selection: $(sed -n 2p <<<"$out")"
+[ "$(sed -n 3p <<<"$out")" = "refused: --case plcase: a pilot case, which only --pilot reviews" ] && ok "a --case on a pilot id without --pilot is refused" || bad "pilot id: $(sed -n 3p <<<"$out")"
+[ "$(sed -n 4p <<<"$out")" = "refused: --case p1case: not a pilot case, and --pilot reviews only pilot cases" ] && ok "--pilot refuses a --case outside the pilot" || bad "non-pilot id: $(sed -n 4p <<<"$out")"
+[ "$(sed -n 5,6p <<<"$out" | tr '\n' '|')" = "plain|plain|" ] && ok "--pilot reviews with the plain arm, named or not" || bad "pilot arms: $(sed -n 5,6p <<<"$out" | tr '\n' '|')"
+[ "$(sed -n 7p <<<"$out")" = "refused: --pilot reviews with the plain arm only; drop --arm lane" ] && ok "--pilot refuses the lane arm" || bad "pilot lane: $(sed -n 7p <<<"$out")"
+[ "$(sed -n 8p <<<"$out")" = "plain lane" ] && ok "a normal run keeps its arms" || bad "normal arms: $(sed -n 8p <<<"$out")"
+[ "$(sed -n 9p <<<"$out")" = "False False True False" ] && ok "a pilot run or rescore writes no changelog row; a normal run writes one unless --no-record" || bad "rows: $(sed -n 9p <<<"$out")"
+out="$(REVIEWER_MODEL=x JUDGE_MODEL=y python3 "$HERE/planted.py" --root "$R" run --pilot --arm lane 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && [ "$out" = "[planted] --pilot reviews with the plain arm only; drop --arm lane" ] && ok "run --pilot --arm lane exits before any model call" || bad "run --pilot --arm lane: rc=$rc $out"
+
+echo "== the per-case report =="
+cases() { python3 "$HERE/planted.py" --root "$R" cases "$T/out-true.json" "$@" 2>&1; }
+out="$(cases)"; rc=$?
+[ "$rc" -eq 0 ] && grep -qxF "plain  p3case    1      1     0     0" <<<"$out" && grep -qxF "plain  p2case    1      0     1     0" <<<"$out" \
+  && grep -qxF "plain  p4case    1      0     0     1" <<<"$out" && ok "cases prints right, wrong and noise per case and run from a scored results file" || bad "cases rows: rc=$rc $out"
+grep -qxF "plain  p1case    2  unscored (unscorable)" <<<"$out" && ok "an unscorable record is printed apart" || bad "unscored row: $out"
+grep -qxF "plain: right 1 of 6 scored case-runs (17%) over 6 cases; 1 unscored" <<<"$out" && ok "with no ids, the rate covers every case in the file and leaves the unscored record out" || bad "plain rate: $out"
+out="$(cases --case p1case --case p3case --case zz9zzz)"
+grep -qxF "plain: right 1 of 2 scored case-runs (50%) over 3 cases; 1 unscored; no record for zz9zzz" <<<"$out" \
+  && ok "the rate covers only the given ids, and names an id with no record" || bad "plain id rate: $out"
+if [ -n "$HAVE_LANE" ]; then
+grep -qxF "lane: right 2 of 2 scored case-runs (100%) over 3 cases; 1 unscored; no record for zz9zzz" <<<"$out" \
+  && grep -qxF "lane   p3case    1      1     0     0" <<<"$out" && ok "each arm is reported apart, a gate stop as a right" || bad "lane id rate: $out"
+fi
 
 echo "score-selftest: $PASS passed, $FAIL failed"
 if [ "$FAIL" -eq 0 ] && [ -z "$HAVE_LANE" ]; then

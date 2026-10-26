@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr18380",
+  "license": "MIT",
+  "base": "d8bf3989bdfad25d22425eb50946378c4b86f0d0",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 18369,
+  "pr": 18380,
+  "commit": "fix(javascript): avoid linebreaks in embedded template interpolations",
+  "truth": {
+    "class": "P4",
+    "pattern": "two-hop-caller",
+    "description": "printTemplateExpressions now maps only the expressions key, but printTypescript in typescript.js still sends every TSTemplateLiteralType, whose interpolations live under types, through printTemplateLiteral into it, so formatting a TypeScript template literal type such as type Key = `on${string}` throws a TypeError on reading length of undefined.",
+    "locations": [
+      {"file": "src/language-js/print/template-literal.js", "start": 268, "end": 271, "side": "head"},
+      {"file": "src/language-js/print/typescript.js", "start": 93, "end": 94, "side": "head"},
+      {"file": "src/language-js/print/index.js", "start": 21, "end": 28, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/language-js/print/template-literal.js", "start": 101, "end": 108, "side": "head",
+     "why": "printTemplateExpression now returns each expression already wrapped in its own ${ and }, so the jest each table renders the docs as they are instead of adding the braces a second time."}
+  ]
+}

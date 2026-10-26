@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vitejs/vite.git",
+  "instance": "vitejs__vite-pr18581",
+  "license": "MIT",
+  "base": "3ef0bf19a3457c46395bdcb2201bbf32807d7231",
+  "base_branch": "main",
+  "overlay": "vitejs__vite",
+  "issue": 18034,
+  "pr": 18581,
+  "commit": "feat(asset): inline svg in dev if within limit",
+  "truth": {
+    "class": "P4",
+    "pattern": "two-hop-caller",
+    "description": "fileToDevUrl now reads every SVG id from disk at cleanUrl(id) to decide on inlining, but assetImportMetaUrl passes fileToUrl the public URL path it builds from publicDir, such as /logo.svg, so the read throws, the error is swallowed, and new URL('/logo.svg', import.meta.url) is left unrewritten with a false warning and without the base, which breaks the image in dev when base is /app/.",
+    "locations": [
+      {"file": "packages/vite/src/node/plugins/asset.ts", "start": 280, "end": 283, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/assetImportMetaUrl.ts", "start": 136, "end": 141, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/asset.ts", "start": 256, "end": 258, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/vite/src/node/plugins/asset.ts", "start": 184, "end": 188, "side": "head",
+     "why": "A data URL carries the whole file, so an edited inlined asset already yields a new URL, and a ?t= query appended to it would corrupt the data."}
+  ]
+}

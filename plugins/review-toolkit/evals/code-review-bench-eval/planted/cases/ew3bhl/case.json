@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vitejs/vite.git",
+  "instance": "vitejs__vite-pr13970",
+  "license": "MIT",
+  "base": "2c73d10ed2e18db6da892acdcfe1637b86d72599",
+  "base_branch": "main",
+  "overlay": "vitejs__vite",
+  "issue": 13967,
+  "pr": 13970,
+  "commit": "fix(build): silence warn dynamic import module when inlineDynamicImports true",
+  "truth": {
+    "class": "P4",
+    "pattern": "omitted-option",
+    "description": "buildReporterPlugin now reads inlineDynamicImports from config.build.rollupOptions.output, but buildOutputOptions in build.ts turns inlining on for umd and iife library outputs and single-entry webworker SSR builds only on the output it hands to Rollup, so those builds leave the option out of the config and still print the ineffective dynamic import warning the change silences for user-set inlining.",
+    "locations": [
+      {"file": "packages/vite/src/node/plugins/reporter.ts", "start": 28, "end": 31, "side": "head"},
+      {"file": "packages/vite/src/node/build.ts", "start": 622, "end": 627, "side": "head"},
+      {"file": "packages/vite/src/node/build.ts", "start": 639, "end": 645, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/vite/src/node/plugins/reporter.ts", "start": 138, "end": 141, "side": "head",
+     "why": "A dynamic importer under node_modules is a dependency's own code that the user cannot change, so leaving it out only drops a warning nobody can act on."}
+  ]
+}

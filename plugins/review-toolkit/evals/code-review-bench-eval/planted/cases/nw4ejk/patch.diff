@@ -1,0 +1,426 @@
+diff --git a/docs/plans/vite-14654-plan.md b/docs/plans/vite-14654-plan.md
+new file mode 100644
+index 000000000..c607c0b62
+--- /dev/null
++++ b/docs/plans/vite-14654-plan.md
+@@ -0,0 +1,14 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 Edit a module that another module imports statically, and check that the importer shows the new value while its transform count stays at 1 (playground/hmr/__tests__/hmr.spec.ts) [AC-1]
++
++## 2. Module graph
++
++- [ ] 2.1 Record the statically imported urls of each module next to its imported modules (packages/vite/src/node/server/moduleGraph.ts, packages/vite/src/node/plugins/importAnalysis.ts)
++- [ ] 2.2 Soft-invalidate an importer that imports the changed module statically, keeping its previous transform result; hard-invalidate every other importer (packages/vite/src/node/server/moduleGraph.ts)
++
++## 3. Transform
++
++- [ ] 3.1 Serve a soft-invalidated module from its previous transform result with the import timestamps updated (packages/vite/src/node/server/transformRequest.ts)
+diff --git a/packages/vite/src/node/plugins/importAnalysis.ts b/packages/vite/src/node/plugins/importAnalysis.ts
+index 88832054d..becbd0d55 100644
+--- a/packages/vite/src/node/plugins/importAnalysis.ts
++++ b/packages/vite/src/node/plugins/importAnalysis.ts
+@@ -31,6 +31,7 @@ import {
+   injectQuery,
+   isBuiltin,
+   isDataUrl,
++  isDefined,
+   isExternalUrl,
+   isInNodeModules,
+   isJSRequest,
+@@ -677,9 +678,12 @@ export function importAnalysisPlugin(config: ResolvedConfig): Plugin {
+         }),
+       )
+ 
+-      const importedUrls = new Set(
+-        orderedImportedUrls.filter(Boolean) as string[],
+-      )
++      const _orderedImportedUrls = orderedImportedUrls.filter(isDefined)
++      const importedUrls = new Set(_orderedImportedUrls)
++      // `importedUrls` will be mixed with watched files for the module graph,
++      // `staticImportedUrls` will only contain the static top-level imports and
++      // dynamic imports
++      const staticImportedUrls = new Set(_orderedImportedUrls)
+       const acceptedUrls = mergeAcceptedUrls(orderedAcceptedUrls)
+       const acceptedExports = mergeAcceptedUrls(orderedAcceptedExports)
+ 
+@@ -767,6 +771,7 @@ export function importAnalysisPlugin(config: ResolvedConfig): Plugin {
+           isPartiallySelfAccepting ? acceptedExports : null,
+           isSelfAccepting,
+           ssr,
++          staticImportedUrls,
+         )
+         if (hasHMR && prunedImports) {
+           handlePrunedModules(prunedImports, server)
+diff --git a/packages/vite/src/node/server/moduleGraph.ts b/packages/vite/src/node/server/moduleGraph.ts
+index 888f8d72d..9266e2090 100644
+--- a/packages/vite/src/node/server/moduleGraph.ts
++++ b/packages/vite/src/node/server/moduleGraph.ts
+@@ -36,6 +36,28 @@ export class ModuleNode {
+   ssrError: Error | null = null
+   lastHMRTimestamp = 0
+   lastInvalidationTimestamp = 0
++  /**
++   * If the module only needs to update its imports timestamp (e.g. within an HMR chain),
++   * it is considered soft-invalidated. In this state, its `transformResult` should exist,
++   * and the next `transformRequest` for this module will replace the timestamps.
++   *
++   * By default the value is `undefined` if it's not soft/hard-invalidated. If it gets
++   * soft-invalidated, this will contain the previous `transformResult` value. If it gets
++   * hard-invalidated, this will be set to `'HARD_INVALIDATED'`.
++   * @internal
++   */
++  invalidationState: TransformResult | 'HARD_INVALIDATED' | undefined
++  /**
++   * @internal
++   */
++  ssrInvalidationState: TransformResult | 'HARD_INVALIDATED' | undefined
++  /**
++   * The module urls that are statically imported in the code. This information is separated
++   * out from `importedModules` as only importers that statically import the module can be
++   * soft invalidated. Other imports (e.g. watched files) needs the importer to be hard invalidated.
++   * @internal
++   */
++  staticImportedUrls?: Set<string>
+ 
+   /**
+    * @param setIsSelfAccepting - set `false` to set `isSelfAccepting` later. e.g. #7870
+@@ -131,11 +153,35 @@ export class ModuleGraph {
+     timestamp: number = Date.now(),
+     isHmr: boolean = false,
+     hmrBoundaries: ModuleNode[] = [],
++    softInvalidate = false,
+   ): void {
+-    if (seen.has(mod)) {
++    const prevInvalidationState = mod.invalidationState
++    const prevSsrInvalidationState = mod.ssrInvalidationState
++
++    // Handle soft invalidation before the `seen` check, as consecutive soft/hard invalidations can
++    // cause the final soft invalidation state to be different.
++    // If soft invalidated, save the previous `transformResult` so that we can reuse and transform the
++    // import timestamps only in `transformRequest`. If there's no previous `transformResult`, hard invalidate it.
++    if (softInvalidate) {
++      mod.invalidationState ??= mod.transformResult ?? 'HARD_INVALIDATED'
++      mod.ssrInvalidationState ??= mod.ssrTransformResult ?? 'HARD_INVALIDATED'
++    }
++    // If hard invalidated, further soft invalidations have no effect until it's reset to `undefined`
++    else {
++      mod.invalidationState = 'HARD_INVALIDATED'
++      mod.ssrInvalidationState = 'HARD_INVALIDATED'
++    }
++
++    // Skip updating the module if it was already invalidated before and the invalidation state has not changed
++    if (
++      seen.has(mod) &&
++      prevInvalidationState === mod.invalidationState &&
++      prevSsrInvalidationState === mod.ssrInvalidationState
++    ) {
+       return
+     }
+     seen.add(mod)
++
+     if (isHmr) {
+       mod.lastHMRTimestamp = timestamp
+     } else {
+@@ -143,6 +189,7 @@ export class ModuleGraph {
+       // processing being done for this module
+       mod.lastInvalidationTimestamp = timestamp
+     }
++
+     // Don't invalidate mod.info and mod.meta, as they are part of the processing pipeline
+     // Invalidating the transform result is enough to ensure this module is re-processed next time it is requested
+     mod.transformResult = null
+@@ -160,7 +207,20 @@ export class ModuleGraph {
+     }
+     mod.importers.forEach((importer) => {
+       if (!importer.acceptedHmrDeps.has(mod)) {
+-        this.invalidateModule(importer, seen, timestamp, isHmr)
++        // If the importer statically imports the current module, we can soft-invalidate the importer
++        // to only update the import timestamps. If it's not statically imported, e.g. watched/glob file,
++        // we can only soft invalidate if the current module was also soft-invalidated. A soft-invalidation
++        // doesn't need to trigger a re-load and re-transform of the importer.
++        const shouldSoftInvalidateImporter =
++          importer.staticImportedUrls?.has(mod.url) || softInvalidate
++        this.invalidateModule(
++          importer,
++          seen,
++          timestamp,
++          isHmr,
++          undefined,
++          shouldSoftInvalidateImporter,
++        )
+       }
+     })
+   }
+@@ -177,6 +237,9 @@ export class ModuleGraph {
+    * Update the module graph based on a module's updated imports information
+    * If there are dependencies that no longer have any importers, they are
+    * returned as a Set.
++   *
++   * @param staticImportedUrls Subset of `importedModules` where they're statically imported in code.
++   *   This is only used for soft invalidations so `undefined` is fine but may cause more runtime processing.
+    */
+   async updateModuleInfo(
+     mod: ModuleNode,
+@@ -186,6 +249,7 @@ export class ModuleGraph {
+     acceptedExports: Set<string> | null,
+     isSelfAccepting: boolean,
+     ssr?: boolean,
++    staticImportedUrls?: Set<string>,
+   ): Promise<Set<ModuleNode> | undefined> {
+     mod.isSelfAccepting = isSelfAccepting
+     const prevImports = ssr ? mod.ssrImportedModules : mod.clientImportedModules
+@@ -257,6 +321,7 @@ export class ModuleGraph {
+     }
+ 
+     mod.acceptedHmrDeps = new Set(resolveResults)
++    mod.staticImportedUrls = staticImportedUrls
+ 
+     // update accepted hmr exports
+     mod.acceptedHmrExports = acceptedExports
+diff --git a/packages/vite/src/node/server/transformRequest.ts b/packages/vite/src/node/server/transformRequest.ts
+index 69304c7f9..269965027 100644
+--- a/packages/vite/src/node/server/transformRequest.ts
++++ b/packages/vite/src/node/server/transformRequest.ts
+@@ -3,6 +3,8 @@ import path from 'node:path'
+ import { performance } from 'node:perf_hooks'
+ import getEtag from 'etag'
+ import convertSourceMap from 'convert-source-map'
++import MagicString from 'magic-string'
++import { init, parse as parseImports } from 'es-module-lexer'
+ import type { PartialResolvedId, SourceDescription, SourceMap } from 'rollup'
+ import colors from 'picocolors'
+ import type { ModuleNode, ViteDevServer } from '..'
+@@ -10,10 +12,13 @@ import {
+   blankReplacer,
+   cleanUrl,
+   createDebugger,
++  injectQuery,
+   isObject,
+   prettifyUrl,
++  removeImportQuery,
+   removeTimestampQuery,
+   timeFrom,
++  unwrapId,
+ } from '../utils'
+ import { checkPublicFile } from '../plugins/asset'
+ import { getDepsOptimizer } from '../optimizer'
+@@ -128,16 +133,20 @@ async function doTransform(
+ 
+   const module = await server.moduleGraph.getModuleByUrl(url, ssr)
+ 
++  // tries to handle soft invalidation of the module if available,
++  // returns a boolean true is successful, or false if no handling is needed
++  const softInvalidatedTransformResult =
++    module &&
++    (await handleModuleSoftInvalidation(module, ssr, timestamp))
++  if (softInvalidatedTransformResult) {
++    debugCache?.(`[memory-hmr] ${prettyUrl}`)
++    return softInvalidatedTransformResult
++  }
++
+   // check if we have a fresh cache
+   const cached =
+     module && (ssr ? module.ssrTransformResult : module.transformResult)
+   if (cached) {
+-    // TODO: check if the module is "partially invalidated" - i.e. an import
+-    // down the chain has been fully invalidated, but this current module's
+-    // content has not changed.
+-    // in this case, we can reuse its previous cached result and only update
+-    // its import timestamps.
+-
+     debugCache?.(`[memory] ${prettyUrl}`)
+     return cached
+   }
+@@ -357,3 +366,88 @@ function createConvertSourceMapReadMap(originalFileName: string) {
+     )
+   }
+ }
++
++/**
++ * When a module is soft-invalidated, we can preserve its previous `transformResult` and
++ * return similar code to before:
++ *
++ * - Client: We need to transform the import specifiers with new timestamps
++ * - SSR: We don't need to change anything as `ssrLoadModule` controls it
++ */
++async function handleModuleSoftInvalidation(
++  mod: ModuleNode,
++  ssr: boolean,
++  timestamp: number,
++) {
++  const transformResult = ssr ? mod.ssrInvalidationState : mod.invalidationState
++
++  // Reset invalidation state
++  if (ssr) mod.ssrInvalidationState = undefined
++  else mod.invalidationState = undefined
++
++  // Skip if not soft-invalidated
++  if (!transformResult || transformResult === 'HARD_INVALIDATED') return
++
++  if (ssr ? mod.ssrTransformResult : mod.transformResult) {
++    throw new Error(
++      `Internal server error: Soft-invalidated module "${mod.url}" should not have existing tranform result`,
++    )
++  }
++
++  let result: TransformResult
++  // For SSR soft-invalidation, no transformation is needed
++  if (ssr) {
++    result = transformResult
++  }
++  // For client soft-invalidation, we need to transform each imports with new timestamps if available
++  else {
++    await init
++    const source = transformResult.code
++    const s = new MagicString(source)
++    const [imports] = parseImports(source)
++
++    for (const imp of imports) {
++      let rawUrl = source.slice(imp.s, imp.e)
++      if (rawUrl === 'import.meta') continue
++
++      const hasQuotes = rawUrl[0] === '"' || rawUrl[0] === "'"
++      if (hasQuotes) {
++        rawUrl = rawUrl.slice(1, -1)
++      }
++
++      const urlWithoutTimestamp = removeTimestampQuery(rawUrl)
++      const hmrUrl = unwrapId(removeImportQuery(urlWithoutTimestamp))
++      for (const importedMod of mod.clientImportedModules) {
++        if (importedMod.url !== hmrUrl) continue
++        if (importedMod.lastHMRTimestamp > 0) {
++          const replacedUrl = injectQuery(
++            urlWithoutTimestamp,
++            `t=${importedMod.lastHMRTimestamp}`,
++          )
++          const start = hasQuotes ? imp.s + 1 : imp.s
++          const end = hasQuotes ? imp.e - 1 : imp.e
++          s.overwrite(start, end, replacedUrl)
++        }
++        break
++      }
++    }
++
++    // Update `transformResult` with new code. We don't have to update the sourcemap
++    // as the timestamp changes doesn't affect the code lines (stable).
++    const code = s.toString()
++    result = {
++      ...transformResult,
++      code,
++      etag: getEtag(code, { weak: true }),
++    }
++  }
++
++  // Only cache the result if the module wasn't invalidated while it was
++  // being processed, so it is re-processed next time if it is stale
++  if (timestamp > mod.lastInvalidationTimestamp) {
++    if (ssr) mod.ssrTransformResult = result
++    else mod.transformResult = result
++  }
++
++  return result
++}
+diff --git a/playground/hmr/__tests__/hmr.spec.ts b/playground/hmr/__tests__/hmr.spec.ts
+index 02371a836..fcfec0f35 100644
+--- a/playground/hmr/__tests__/hmr.spec.ts
++++ b/playground/hmr/__tests__/hmr.spec.ts
+@@ -171,6 +171,20 @@ if (!isBuild) {
+     await untilUpdated(() => el.textContent(), 'child updated')
+   })
+ 
++  test('soft invalidate', async () => {
++    const el = await page.$('.soft-invalidation')
++    expect(await el.textContent()).toBe(
++      'soft-invalidation/index.js is transformed 1 times. child is bar',
++    )
++    editFile('soft-invalidation/child.js', (code) =>
++      code.replace('bar', 'updated'),
++    )
++    await untilUpdated(
++      () => el.textContent(),
++      'soft-invalidation/index.js is transformed 1 times. child is updated',
++    )
++  })
++
+   test('plugin hmr handler + custom event', async () => {
+     const el = await page.$('.custom')
+     editFile('customFile.js', (code) => code.replace('custom', 'edited'))
+diff --git a/playground/hmr/hmr.ts b/playground/hmr/hmr.ts
+index 3fd552c1e..872258511 100644
+--- a/playground/hmr/hmr.ts
++++ b/playground/hmr/hmr.ts
+@@ -6,12 +6,14 @@ import './file-delete-restore'
+ import './optional-chaining/parent'
+ import './intermediate-file-delete'
+ import logo from './logo.svg'
++import { msg as softInvalidationMsg } from './soft-invalidation'
+ 
+ export const foo = 1
+ text('.app', foo)
+ text('.dep', depFoo)
+ text('.nested', nestedFoo)
+ text('.virtual', virtual)
++text('.soft-invalidation', softInvalidationMsg)
+ setLogo(logo)
+ 
+ const btn = document.querySelector('.virtual-update') as HTMLButtonElement
+diff --git a/playground/hmr/index.html b/playground/hmr/index.html
+index 9fac186d5..c21f6b13b 100644
+--- a/playground/hmr/index.html
++++ b/playground/hmr/index.html
+@@ -23,6 +23,7 @@
+ <div class="custom"></div>
+ <div class="toRemove"></div>
+ <div class="virtual"></div>
++<div class="soft-invalidation"></div>
+ <div class="invalidation"></div>
+ <div class="custom-communication"></div>
+ <div class="css-prev"></div>
+diff --git a/playground/hmr/soft-invalidation/child.js b/playground/hmr/soft-invalidation/child.js
+new file mode 100644
+index 000000000..21ec276fc
+--- /dev/null
++++ b/playground/hmr/soft-invalidation/child.js
+@@ -0,0 +1 @@
++export const foo = 'bar'
+diff --git a/playground/hmr/soft-invalidation/index.js b/playground/hmr/soft-invalidation/index.js
+new file mode 100644
+index 000000000..f236a2579
+--- /dev/null
++++ b/playground/hmr/soft-invalidation/index.js
+@@ -0,0 +1,4 @@
++import { foo } from './child'
++
++// @ts-expect-error global
++export const msg = `soft-invalidation/index.js is transformed ${__TRANSFORM_COUNT__} times. child is ${foo}`
+diff --git a/playground/hmr/vite.config.ts b/playground/hmr/vite.config.ts
+index 1d952cf12..9ae2186d1 100644
+--- a/playground/hmr/vite.config.ts
++++ b/playground/hmr/vite.config.ts
+@@ -23,6 +23,7 @@ export default defineConfig({
+       },
+     },
+     virtualPlugin(),
++    transformCountPlugin(),
+   ],
+ })
+ 
+@@ -53,3 +54,15 @@ export const virtual = _virtual + '${num}';`
+     },
+   }
+ }
++
++function transformCountPlugin(): Plugin {
++  let num = 0
++  return {
++    name: 'transform-count',
++    transform(code) {
++      if (code.includes('__TRANSFORM_COUNT__')) {
++        return code.replace('__TRANSFORM_COUNT__', String(++num))
++      }
++    },
++  }
++}

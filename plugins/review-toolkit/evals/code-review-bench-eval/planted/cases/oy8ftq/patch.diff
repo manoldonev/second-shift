@@ -1,0 +1,577 @@
+diff --git a/docs/config/build-options.md b/docs/config/build-options.md
+index 891b2e958..3419070bd 100644
+--- a/docs/config/build-options.md
++++ b/docs/config/build-options.md
+@@ -162,10 +162,28 @@ Options to pass on to [@rollup/plugin-dynamic-import-vars](https://github.com/ro
+ 
+ ## build.lib
+ 
+-- **Type:** `{ entry: string | string[] | { [entryAlias: string]: string }, name?: string, formats?: ('es' | 'cjs' | 'umd' | 'iife')[], fileName?: string | ((format: ModuleFormat, entryName: string) => string) }`
++- **Type:** `{ entry: string | string[] | { [entryAlias: string]: string }, name?: string, formats?: ('es' | 'cjs' | 'umd' | 'iife')[], fileName?: string | ((format: ModuleFormat, entryName: string) => string), cssFileName?: string }`
+ - **Related:** [Library Mode](/guide/build#library-mode)
+ 
+-Build as a library. `entry` is required since the library cannot use HTML as entry. `name` is the exposed global variable and is required when `formats` includes `'umd'` or `'iife'`. Default `formats` are `['es', 'umd']`, or `['es', 'cjs']`, if multiple entries are used. `fileName` is the name of the package file output, default `fileName` is the name option of package.json, it can also be defined as function taking the `format` and `entryName` as arguments.
++Build as a library. `entry` is required since the library cannot use HTML as entry. `name` is the exposed global variable and is required when `formats` includes `'umd'` or `'iife'`. Default `formats` are `['es', 'umd']`, or `['es', 'cjs']`, if multiple entries are used.
++
++`fileName` is the name of the package file output, which defaults to the `"name"` in `package.json`. It can also be defined as a function taking the `format` and `entryName` as arguments, and returning the file name.
++
++If your package imports CSS, `cssFileName` can be used to specify the name of the CSS file output. It defaults to the same value as `fileName` if it's set a string, otherwise it also falls back to the `"name"` in `package.json`.
++
++```js twoslash [vite.config.js]
++import { defineConfig } from 'vite'
++
++export default defineConfig({
++  build: {
++    lib: {
++      entry: ['src/main.js'],
++      fileName: (format, entryName) => `my-lib-${entryName}.${format}.js`,
++      cssFileName: 'my-lib-style',
++    },
++  },
++})
++```
+ 
+ ## build.manifest
+ 
+diff --git a/docs/guide/build.md b/docs/guide/build.md
+index 6472e6a1f..62c595338 100644
+--- a/docs/guide/build.md
++++ b/docs/guide/build.md
+@@ -200,7 +200,12 @@ import Bar from './Bar.vue'
+ export { Foo, Bar }
+ ```
+ 
+-Running `vite build` with this config uses a Rollup preset that is oriented towards shipping libraries and produces two bundle formats: `es` and `umd` (configurable via `build.lib`):
++Running `vite build` with this config uses a Rollup preset that is oriented towards shipping libraries and produces two bundle formats:
++
++- `es` and `umd` (for single entry)
++- `es` and `cjs` (for multiple entries)
++
++The formats can be configured with the [`build.lib.formats`](/config/build-options.md#build-lib) option.
+ 
+ ```
+ $ vite build
+@@ -251,6 +256,29 @@ Recommended `package.json` for your lib:
+ 
+ :::
+ 
++### CSS support
++
++If your library imports any CSS, it will be bundled as a single CSS file besides the built JS files, e.g. `dist/my-lib.css`. The name defaults to `build.lib.fileName`, but can also be changed with [`build.lib.cssFileName`](/config/build-options.md#build-lib).
++
++You can export the CSS file in your `package.json` to be imported by users:
++
++```json {12}
++{
++  "name": "my-lib",
++  "type": "module",
++  "files": ["dist"],
++  "main": "./dist/my-lib.umd.cjs",
++  "module": "./dist/my-lib.js",
++  "exports": {
++    ".": {
++      "import": "./dist/my-lib.js",
++      "require": "./dist/my-lib.umd.cjs"
++    },
++    "./style.css": "./dist/my-lib.css"
++  }
++}
++```
++
+ ::: tip File Extensions
+ If the `package.json` does not contain `"type": "module"`, Vite will generate different file extensions for Node.js compatibility. `.js` will become `.mjs` and `.cjs` will become `.js`.
+ :::
+diff --git a/docs/guide/migration.md b/docs/guide/migration.md
+index a48b9facc..5815e8050 100644
+--- a/docs/guide/migration.md
++++ b/docs/guide/migration.md
+@@ -32,6 +32,26 @@ From Vite 6, the modern API is used by default for Sass. If you wish to still us
+ 
+ To migrate to the modern API, see [the Sass documentation](https://sass-lang.com/documentation/breaking-changes/legacy-js-api/).
+ 
++### Customize CSS output file name in library mode
++
++In Vite 5, the CSS output file name in library mode was always `style.css` and cannot be easily changed through the Vite config.
++
++From Vite 6, the default file name now uses `"name"` in `package.json` similar to the JS output files. If [`build.lib.fileName`](/config/build-options.md#build-lib) is set with a string, the value will also be used for the CSS output file name. To explicitly set a different CSS file name, you can use the new [`build.lib.cssFileName`](/config/build-options.md#build-lib) to configure it.
++
++To migrate, if you had relied on the `style.css` file name, you should update references to it to the new name based on your package name. For example:
++
++```json [package.json]
++{
++  "name": "my-lib",
++  "exports": {
++    "./style.css": "./dist/style.css" // [!code --]
++    "./style.css": "./dist/my-lib.css" // [!code ++]
++  }
++}
++```
++
++If you prefer to stick with `style.css` like in Vite 5, you can set `build.lib.cssFileName: 'style'` instead.
++
+ ## Advanced
+ 
+ There are other breaking changes which only affect few users.
+diff --git a/docs/plans/vite-4863-plan.md b/docs/plans/vite-4863-plan.md
+new file mode 100644
+index 000000000..f36d95a78
+--- /dev/null
++++ b/docs/plans/vite-4863-plan.md
+@@ -0,0 +1,18 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A library with no cssFileName and no string fileName names its CSS file after the package.json name (packages/vite/src/node/__tests__/plugins/css.spec.ts) [AC-1]
++- [ ] 1.2 build.lib.cssFileName sets the CSS file name (packages/vite/src/node/__tests__/plugins/css.spec.ts) [AC-2]
++- [ ] 1.3 A string build.lib.fileName names the CSS file when cssFileName is not set, with a single or an array entry (packages/vite/src/node/__tests__/plugins/css.spec.ts) [AC-3]
++- [ ] 1.4 Single entry, multi entry and code-split library builds with CSS write the expected CSS files (playground/lib/__tests__/lib.spec.ts) [AC-4]
++
++## 2. CSS file name
++
++- [ ] 2.1 Add resolveLibCssFilename and the build.lib.cssFileName option, and resolve the bundle name in the css-post plugin's buildStart (packages/vite/src/node/plugins/css.ts, packages/vite/src/node/build.ts)
++- [ ] 2.2 Move getPkgName to the shared utils (packages/vite/src/node/utils.ts)
++- [ ] 2.3 Look up the resolved bundle name when the html plugin injects the CSS link with cssCodeSplit off (packages/vite/src/node/plugins/html.ts)
++
++## 3. Docs
++
++- [ ] 3.1 Document build.lib.cssFileName and the migration (docs/config/build-options.md, docs/guide/build.md, docs/guide/migration.md)
+diff --git a/packages/vite/src/node/__tests__/plugins/css.spec.ts b/packages/vite/src/node/__tests__/plugins/css.spec.ts
+index 5fdbbf45f..1d2428951 100644
+--- a/packages/vite/src/node/__tests__/plugins/css.spec.ts
++++ b/packages/vite/src/node/__tests__/plugins/css.spec.ts
+@@ -1,4 +1,5 @@
+ import path from 'node:path'
++import { fileURLToPath } from 'node:url'
+ import { describe, expect, test } from 'vitest'
+ import { resolveConfig } from '../../config'
+ import type { InlineConfig } from '../../config'
+@@ -9,9 +10,12 @@ import {
+   getEmptyChunkReplacer,
+   hoistAtRules,
+   preprocessCSS,
++  resolveLibCssFilename,
+ } from '../../plugins/css'
+ import { PartialEnvironment } from '../../baseEnvironment'
+ 
++const __dirname = path.resolve(fileURLToPath(import.meta.url), '..')
++
+ describe('search css url function', () => {
+   test('some spaces before it', () => {
+     expect(
+@@ -369,3 +373,48 @@ describe('preprocessCSS', () => {
+     `)
+   })
+ })
++
++describe('resolveLibCssFilename', () => {
++  test('use name from package.json', () => {
++    const filename = resolveLibCssFilename(
++      {
++        entry: 'mylib.js',
++      },
++      path.resolve(__dirname, '../packages/name'),
++    )
++    expect(filename).toBe('mylib.css')
++  })
++
++  test('set cssFileName', () => {
++    const filename = resolveLibCssFilename(
++      {
++        entry: 'mylib.js',
++        cssFileName: 'style',
++      },
++      path.resolve(__dirname, '../packages/noname'),
++    )
++    expect(filename).toBe('style.css')
++  })
++
++  test('use fileName if set', () => {
++    const filename = resolveLibCssFilename(
++      {
++        entry: 'mylib.js',
++        fileName: 'custom-name',
++      },
++      path.resolve(__dirname, '../packages/name'),
++    )
++    expect(filename).toBe('custom-name.css')
++  })
++
++  test('use fileName if set and has array entry', () => {
++    const filename = resolveLibCssFilename(
++      {
++        entry: ['mylib.js', 'mylib2.js'],
++        fileName: 'custom-name',
++      },
++      path.resolve(__dirname, '../packages/name'),
++    )
++    expect(filename).toBe('custom-name.css')
++  })
++})
+diff --git a/packages/vite/src/node/build.ts b/packages/vite/src/node/build.ts
+index 51fcd2216..222d2feae 100644
+--- a/packages/vite/src/node/build.ts
++++ b/packages/vite/src/node/build.ts
+@@ -44,6 +44,7 @@ import {
+   copyDir,
+   displayTime,
+   emptyDir,
++  getPkgName,
+   joinUrlSegments,
+   normalizePath,
+   partialEncodeURIPath,
+@@ -296,6 +297,12 @@ export interface LibraryOptions {
+    * format as an argument.
+    */
+   fileName?: string | ((format: ModuleFormat, entryName: string) => string)
++  /**
++   * The name of the CSS file output if the library imports CSS. Defaults to the
++   * same value as `build.lib.fileName` if it's set a string, otherwise it falls
++   * back to the name option of the project package.json.
++   */
++  cssFileName?: string
+ }
+ 
+ export type LibraryFormats = 'es' | 'cjs' | 'umd' | 'iife' | 'system'
+@@ -879,10 +886,6 @@ function prepareOutDir(
+   }
+ }
+ 
+-function getPkgName(name: string) {
+-  return name?.[0] === '@' ? name.split('/')[1] : name
+-}
+-
+ type JsExt = 'js' | 'cjs' | 'mjs'
+ 
+ function resolveOutputJsExtension(
+diff --git a/packages/vite/src/node/plugins/css.ts b/packages/vite/src/node/plugins/css.ts
+index ef59cf26a..9fde18e8b 100644
+--- a/packages/vite/src/node/plugins/css.ts
++++ b/packages/vite/src/node/plugins/css.ts
+@@ -41,6 +41,7 @@ import {
+   toOutputFilePathInCss,
+   toOutputFilePathInJS,
+ } from '../build'
++import type { LibraryOptions } from '../build'
+ import {
+   CLIENT_PUBLIC_PATH,
+   CSS_LANGS_RE,
+@@ -60,6 +61,7 @@ import {
+   generateCodeFrame,
+   getHash,
+   getPackageManagerCommand,
++  getPkgName,
+   injectQuery,
+   isDataUrl,
+   isExternalUrl,
+@@ -81,6 +83,8 @@ import { PartialEnvironment } from '../baseEnvironment'
+ import type { TransformPluginContext } from '../server/pluginContainer'
+ import { searchForWorkspaceRoot } from '../server/searchRoot'
+ import { type DevEnvironment } from '..'
++import type { PackageCache } from '../packages'
++import { findNearestPackageData } from '../packages'
+ import { addToHTMLProxyTransformResult } from './html'
+ import {
+   assetUrlRE,
+@@ -213,7 +217,7 @@ const functionCallRE = /^[A-Z_][.\w-]*\(/i
+ const transformOnlyRE = /[?&]transform-only\b/
+ const nonEscapedDoubleQuoteRe = /(?<!\\)"/g
+ 
+-const cssBundleName = 'style.css'
++const defaultCssBundleName = 'style.css'
+ 
+ const enum PreprocessLang {
+   less = 'less',
+@@ -256,6 +260,9 @@ export const removedPureCssFilesCache = new WeakMap<
+   Map<string, RenderedChunk>
+ >()
+ 
++// Used only if the config doesn't code-split CSS (builds a single CSS file)
++export const cssBundleNameCache = new WeakMap<ResolvedConfig, string>()
++
+ const postcssConfigCache = new WeakMap<
+   ResolvedConfig,
+   PostCSSConfigResult | null | Promise<PostCSSConfigResult | null>
+@@ -428,6 +435,7 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
+   // since output formats have no effect on the generated CSS.
+   let hasEmitted = false
+   let chunkCSSMap: Map<string, string>
++  let cssBundleName: string
+ 
+   const rollupOptionsOutput = config.build.rollupOptions.output
+   const assetFileNames = (
+@@ -464,6 +472,14 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
+       hasEmitted = false
+       chunkCSSMap = new Map()
+       codeSplitEmitQueue = createSerialPromiseQueue()
++      cssBundleName = config.build.lib
++        ? resolveLibCssFilename(
++            config.build.lib,
++            config.root,
++            config.packageCache,
++          )
++        : defaultCssBundleName
++      cssBundleNameCache.set(config, cssBundleName)
+     },
+ 
+     async transform(css, id) {
+@@ -1851,7 +1867,9 @@ async function minifyCSS(
+       ...config.css?.lightningcss,
+       targets: convertTargets(config.build.cssTarget),
+       cssModules: undefined,
+-      filename: cssBundleName,
++      // TODO: Pass actual filename here, which can also be passed to esbuild's
++      // `sourcefile` option below to improve error messages
++      filename: defaultCssBundleName,
+       code: Buffer.from(css),
+       minify: true,
+     })
+@@ -3255,3 +3273,25 @@ export const convertTargets = (
+   convertTargetsCache.set(esbuildTarget, targets)
+   return targets
+ }
++
++export function resolveLibCssFilename(
++  libOptions: LibraryOptions,
++  root: string,
++  packageCache?: PackageCache,
++): string {
++  if (typeof libOptions.cssFileName === 'string') {
++    return `${libOptions.cssFileName}.css`
++  } else if (typeof libOptions.fileName === 'string') {
++    return `${libOptions.fileName}.css`
++  }
++
++  const packageJson = findNearestPackageData(root, packageCache)?.data
++  const name = packageJson ? getPkgName(packageJson.name) : undefined
++
++  if (!name)
++    throw new Error(
++      'Name in package.json is required if option "build.lib.cssFileName" is not provided.',
++    )
++
++  return `${name}.css`
++}
+diff --git a/packages/vite/src/node/plugins/html.ts b/packages/vite/src/node/plugins/html.ts
+index cdf002b7a..cfe1fcf6c 100644
+--- a/packages/vite/src/node/plugins/html.ts
++++ b/packages/vite/src/node/plugins/html.ts
+@@ -39,7 +39,7 @@ import {
+   publicAssetUrlRE,
+   urlToBuiltUrl,
+ } from './asset'
+-import { isCSSRequest } from './css'
++import { cssBundleNameCache, isCSSRequest } from './css'
+ import { modulePreloadPolyfillId } from './modulePreloadPolyfill'
+ 
+ interface ScriptAssetsUrl {
+@@ -909,10 +909,15 @@ export function buildHtmlPlugin(config: ResolvedConfig): Plugin {
+ 
+         // inject css link when cssCodeSplit is false
+         if (!this.environment.config.build.cssCodeSplit) {
+-          const cssChunk = Object.values(bundle).find(
+-            (chunk) =>
+-              chunk.type === 'asset' && chunk.names.includes('style.css'),
+-          ) as OutputAsset | undefined
++          const cssBundleName = cssBundleNameCache.get(
++            this.environment.config,
++          )
++          const cssChunk =
++            cssBundleName &&
++            (Object.values(bundle).find(
++              (chunk) =>
++                chunk.type === 'asset' && chunk.names.includes(cssBundleName),
++            ) as OutputAsset | undefined)
+           if (cssChunk) {
+             result = injectToHead(result, [
+               {
+diff --git a/packages/vite/src/node/utils.ts b/packages/vite/src/node/utils.ts
+index 8b234f20c..a99d9e540 100644
+--- a/packages/vite/src/node/utils.ts
++++ b/packages/vite/src/node/utils.ts
+@@ -1314,6 +1314,10 @@ export function getNpmPackageName(importPath: string): string | null {
+   }
+ }
+ 
++export function getPkgName(name: string): string | undefined {
++  return name?.[0] === '@' ? name.split('/')[1] : name
++}
++
+ const escapeRegexRE = /[-/\\^$*+?.()|[\]{}]/g
+ export function escapeRegex(str: string): string {
+   return str.replace(escapeRegexRE, '\\$&')
+diff --git a/playground/lib/__tests__/lib.spec.ts b/playground/lib/__tests__/lib.spec.ts
+index af144de44..90fe833d9 100644
+--- a/playground/lib/__tests__/lib.spec.ts
++++ b/playground/lib/__tests__/lib.spec.ts
+@@ -90,6 +90,44 @@ describe.runIf(isBuild)('build', () => {
+     expect(iife).toMatch('process.env.NODE_ENV')
+     expect(umd).toMatch('process.env.NODE_ENV')
+   })
++
++  test('single entry with css', () => {
++    const css = readFile('dist/css-single-entry/test-my-lib.css')
++    const js = readFile('dist/css-single-entry/test-my-lib.js')
++    const umd = readFile('dist/css-single-entry/test-my-lib.umd.cjs')
++    expect(css).toMatch('entry-1.css')
++    expect(js).toMatch('css-entry-1')
++    expect(umd).toContain('css-entry-1')
++  })
++
++  test('multi entry with css', () => {
++    const css = readFile('dist/css-multi-entry/test-my-lib.css')
++    const js1 = readFile('dist/css-multi-entry/css-entry-1.js')
++    const js2 = readFile('dist/css-multi-entry/css-entry-2.js')
++    const cjs1 = readFile('dist/css-multi-entry/css-entry-1.cjs')
++    const cjs2 = readFile('dist/css-multi-entry/css-entry-2.cjs')
++    expect(css).toMatch('entry-1.css')
++    expect(css).toMatch('entry-2.css')
++    expect(js1).toMatch('css-entry-1')
++    expect(js2).toMatch('css-entry-2')
++    expect(cjs1).toContain('css-entry-1')
++    expect(cjs2).toContain('css-entry-2')
++  })
++
++  test('multi entry with css and code split', () => {
++    const css1 = readFile('dist/css-code-split/css-entry-1.css')
++    const css2 = readFile('dist/css-code-split/css-entry-2.css')
++    const js1 = readFile('dist/css-code-split/css-entry-1.js')
++    const js2 = readFile('dist/css-code-split/css-entry-2.js')
++    const cjs1 = readFile('dist/css-code-split/css-entry-1.cjs')
++    const cjs2 = readFile('dist/css-code-split/css-entry-2.cjs')
++    expect(css1).toMatch('entry-1.css')
++    expect(css2).toMatch('entry-2.css')
++    expect(js1).toMatch('css-entry-1')
++    expect(js2).toMatch('css-entry-2')
++    expect(cjs1).toContain('css-entry-1')
++    expect(cjs2).toContain('css-entry-2')
++  })
+ })
+ 
+ test.runIf(isServe)('dev', async () => {
+diff --git a/playground/lib/__tests__/serve.ts b/playground/lib/__tests__/serve.ts
+index 009bc3711..0401264ec 100644
+--- a/playground/lib/__tests__/serve.ts
++++ b/playground/lib/__tests__/serve.ts
+@@ -90,6 +90,24 @@ export async function serve(): Promise<{ close(): Promise<void> }> {
+       configFile: path.resolve(__dirname, '../vite.named-exports.config.js'),
+     })
+ 
++    await build({
++      root: rootDir,
++      logLevel: 'warn', // output esbuild warns
++      configFile: path.resolve(__dirname, '../vite.css-single-entry.config.js'),
++    })
++
++    await build({
++      root: rootDir,
++      logLevel: 'warn', // output esbuild warns
++      configFile: path.resolve(__dirname, '../vite.css-multi-entry.config.js'),
++    })
++
++    await build({
++      root: rootDir,
++      logLevel: 'warn', // output esbuild warns
++      configFile: path.resolve(__dirname, '../vite.css-code-split.config.js'),
++    })
++
+     // start static file server
+     const serve = sirv(path.resolve(rootDir, 'dist'))
+     const httpServer = http.createServer((req, res) => {
+diff --git a/playground/lib/src/css-entry-1.js b/playground/lib/src/css-entry-1.js
+new file mode 100644
+index 000000000..b94766d89
+--- /dev/null
++++ b/playground/lib/src/css-entry-1.js
+@@ -0,0 +1,3 @@
++import './entry-1.css'
++
++export default 'css-entry-1'
+diff --git a/playground/lib/src/css-entry-2.js b/playground/lib/src/css-entry-2.js
+new file mode 100644
+index 000000000..fdb7d8ae5
+--- /dev/null
++++ b/playground/lib/src/css-entry-2.js
+@@ -0,0 +1,3 @@
++import './entry-2.css'
++
++export default 'css-entry-2'
+diff --git a/playground/lib/src/entry-1.css b/playground/lib/src/entry-1.css
+new file mode 100644
+index 000000000..2587b2057
+--- /dev/null
++++ b/playground/lib/src/entry-1.css
+@@ -0,0 +1,3 @@
++h1 {
++  content: 'entry-1.css';
++}
+diff --git a/playground/lib/src/entry-2.css b/playground/lib/src/entry-2.css
+new file mode 100644
+index 000000000..e2c1e6115
+--- /dev/null
++++ b/playground/lib/src/entry-2.css
+@@ -0,0 +1,3 @@
++h2 {
++  content: 'entry-2.css';
++}
+diff --git a/playground/lib/vite.css-code-split.config.js b/playground/lib/vite.css-code-split.config.js
+new file mode 100644
+index 000000000..140d6358a
+--- /dev/null
++++ b/playground/lib/vite.css-code-split.config.js
+@@ -0,0 +1,16 @@
++import { fileURLToPath } from 'node:url'
++import { defineConfig } from 'vite'
++
++export default defineConfig({
++  build: {
++    cssCodeSplit: true,
++    lib: {
++      entry: [
++        fileURLToPath(new URL('src/css-entry-1.js', import.meta.url)),
++        fileURLToPath(new URL('src/css-entry-2.js', import.meta.url)),
++      ],
++      name: 'css-code-split',
++    },
++    outDir: 'dist/css-code-split',
++  },
++})
+diff --git a/playground/lib/vite.css-multi-entry.config.js b/playground/lib/vite.css-multi-entry.config.js
+new file mode 100644
+index 000000000..929679926
+--- /dev/null
++++ b/playground/lib/vite.css-multi-entry.config.js
+@@ -0,0 +1,15 @@
++import { fileURLToPath } from 'node:url'
++import { defineConfig } from 'vite'
++
++export default defineConfig({
++  build: {
++    lib: {
++      entry: [
++        fileURLToPath(new URL('src/css-entry-1.js', import.meta.url)),
++        fileURLToPath(new URL('src/css-entry-2.js', import.meta.url)),
++      ],
++      name: 'css-multi-entry',
++    },
++    outDir: 'dist/css-multi-entry',
++  },
++})
+diff --git a/playground/lib/vite.css-single-entry.config.js b/playground/lib/vite.css-single-entry.config.js
+new file mode 100644
+index 000000000..7e16cfe42
+--- /dev/null
++++ b/playground/lib/vite.css-single-entry.config.js
+@@ -0,0 +1,12 @@
++import { fileURLToPath } from 'node:url'
++import { defineConfig } from 'vite'
++
++export default defineConfig({
++  build: {
++    lib: {
++      entry: fileURLToPath(new URL('src/css-entry-1.js', import.meta.url)),
++      name: 'css-single-entry',
++    },
++    outDir: 'dist/css-single-entry',
++  },
++})
