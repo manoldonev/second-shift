@@ -746,7 +746,7 @@ a full 10-PR arm is about 45 session-minutes on the seat the checkouts' remote r
 ### The planted mode: does the lane review beat a plain review with the ticket?
 
 The known-bug set has no ticket, no record and no repo context, so it cannot measure what the lane
-adds. `code-review-bench-eval/planted/` can. Each of its 43 cases is a real TypeScript or JavaScript
+adds. `code-review-bench-eval/planted/` can. Each of its 49 cases is a real TypeScript or JavaScript
 issue and fix from Multi-SWE-bench, pinned by upstream and base sha, with one planted defect or none:
 
 | Class | Pillar | What is planted |
@@ -757,7 +757,9 @@ issue and fix from Multi-SWE-bench, pinned by upstream and base sha, with one pl
 | P4 | correctness | The change breaks an existing caller, or existing stored data. No upstream in the corpus stores data, so every P4 case breaks a caller. |
 | P5 | prior art | The change breaks a convention that the case's `review-context.md` declares. |
 
-There are sixteen P1 cases, ten P4 cases, four cases in each other class and five clean controls.
+There are sixteen P1 cases, sixteen P4 cases, four cases in each other class and five clean controls.
+The P4 cases hold three `rejects-held-input`, three `dead-guard`, two `two-hop-caller` and four
+`omitted-option` cases.
 No upstream holds more than 40% of the cases; `check` fails naming the upstream and its share.
 Each P4 case outside the 29 that predate the rule names its `truth.pattern`, one of four shapes:
 `rejects-held-input` (a new rule rejects a value an existing caller passes back from an object it
@@ -773,14 +775,16 @@ cases break an AC only where an unchanged caller meets the new code, so the chan
 pass, and four more leave the AC unmet at a site two calls from the diff, in a file the patch does
 not touch. A P1 truth names the AC it leaves unmet; a broken caller outside every AC is P4.
 
-Beside those 43 sit 32 **pilot** P4 candidates, eight per pattern, listed in `PILOT` in
-`planted.py`. Some come from merged upstream pull requests outside Multi-SWE-bench; such a case's
-`instance` is `<owner>__<repo>-pr<N>`, and `check` accepts no other form. `check` applies every case
-rule to a pilot case and also requires a truth range outside every hunk, where the broken caller
-sits. A pilot case is left out of the class counts, the pattern counts, the 40% cap and a normal
-`run`. `planted.py run --pilot` reviews only the pilot cases, with the plain arm only, and writes no
-changelog row. `planted.py cases <results.json>` prints right, wrong and noise per case, run and arm,
-and the right rate over the `--case` ids it is given, with no model.
+A **pilot** P4 candidate is listed in `PILOT` in `planted.py`, which is empty today. Six of the 49
+cases are former pilot candidates that a plain review got wrong, listed in `PROMOTED`. Some cases
+come from merged upstream pull requests outside Multi-SWE-bench; such a case's `instance` is
+`<owner>__<repo>-pr<N>`, and `check` accepts no other form. `check` applies every case rule to a
+pilot case, and requires of a pilot or promoted case a truth range outside every hunk, where the
+broken caller sits. A pilot case is left out of the class counts, the pattern counts, the 40% cap
+and a normal `run`. `planted.py run --pilot` reviews only the pilot cases, with the plain arm only,
+and writes no changelog row; with an empty `PILOT` it exits before any model call.
+`planted.py cases <results.json>` prints right, wrong and noise per case, run and arm, and the right
+rate over the `--case` ids it is given, with no model.
 
 Four P1 cases are **runner cases**: their fix is complete, and the test their plan tags for one AC
 never exercises the change. Such a case names the overlay `anuraghazra__github-readme-stats-jest`,

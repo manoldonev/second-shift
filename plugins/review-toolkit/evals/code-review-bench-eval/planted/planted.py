@@ -61,10 +61,10 @@ FROZEN = frozenset("""
     n4d9sw o6z3fl q4m8zt r2n5ax r8b3kz s9b2ze t5j8ke u1c9nb v6d1ij w2k7np x5l9dn y2h6cv y8k1rv z8c2lm
 """.split())
 # P4 candidates that only a plain pilot reviews: checked like every case, but outside the counts, the cap and a normal run
-PILOT = frozenset("""
-    ba4kxe ce7nwr dh2qyu fm8tzo gj3wvs hq6lna jt9rme kx5vdb la2swf mn7cuh nw4ejk oy8ftq qb3hzm rc6giv sd9kwn tf2mxa
-    ug5nrb vh8qsc wk3tyd xm6uze yn9vaf zq4wbg ar7xch bs2yei cu5zfj dv8agk ew3bhl fx6cim gy9djn hz4eko ib7flq jc2gmr
-""".split())
+PILOT = frozenset()
+# former pilot cases now scored, which keep the pilot's truth range outside every hunk
+PROMOTED = frozenset("fx6cim kx5vdb la2swf mn7cuh qb3hzm ug5nrb".split())
+NO_PILOT = "--pilot: there are no pilot cases; PILOT is empty"
 ARMS = ("plain", "lane")
 SENDBACK_SCORES = ("violated", "undeterminable")
 CASE_ID_RE = re.compile(r"[a-z0-9]{6}")
@@ -307,7 +307,7 @@ def check_runner(case: dict, cfg: dict, patch: str, bad) -> None:
             bad(f"the plan tags {f} for {ac}, which no when glob of overlay {ov}'s testRunners matches")
 
 
-def check_case(case: dict, root: Path) -> list[str]:
+def check_case(case: dict, root: Path, pilot_ids: frozenset = PILOT, promoted_ids: frozenset = PROMOTED) -> list[str]:
     p, cid, d = [], case["id"], case["dir"]
 
     def bad(msg):
@@ -333,7 +333,7 @@ def check_case(case: dict, root: Path) -> list[str]:
         return p
     if case["instance"] not in (f"{upstream_key(case)}-{case['pr']}", f"{upstream_key(case)}-pr{case['pr']}"):
         bad(f"instance {case['instance']!r} is neither {upstream_key(case)}-{case['pr']} nor {upstream_key(case)}-pr{case['pr']}")
-    if cid in PILOT and (case.get("truth") or {}).get("class") != "P4":
+    if cid in pilot_ids and (case.get("truth") or {}).get("class") != "P4":
         bad("a pilot case is not P4")
     ov = root / "overlays" / case["overlay"]
     if not (ov / "review-context.md").is_file() or not (ov / "review-context.md").read_text().strip():
@@ -417,7 +417,7 @@ def check_case(case: dict, root: Path) -> list[str]:
             hit, outside = hit or inside, outside or not inside
         if locs and not hit:
             bad("no ranged truth location falls inside a hunk of the patch")
-        if cid in PILOT and locs and not outside:
+        if cid in pilot_ids | promoted_ids and locs and not outside:
             bad("no ranged truth location falls outside every hunk of the patch, where the broken caller sits")
         if cls == "P2":
             if truth.get("row") not in rows:
@@ -445,19 +445,20 @@ def check_case(case: dict, root: Path) -> list[str]:
     return p
 
 
-def check_corpus(root: Path) -> tuple[list[str], dict[str, int], dict[str, int], dict[str, int]]:
+def check_corpus(root: Path, pilot_ids: frozenset = PILOT,
+                 promoted_ids: frozenset = PROMOTED) -> tuple[list[str], dict[str, int], dict[str, int], dict[str, int]]:
     """The problems, then the scored corpus's class and P4 pattern counts, then the pilot cases' pattern counts."""
     everything = load_cases(root)
     problems: list[str] = []
     counts = {c: 0 for c in (*CLASSES, CONTROL)}
     patterns = {p: 0 for p in PATTERNS}
     pilot = {p: 0 for p in PATTERNS}
-    for cid in sorted(PILOT - {c["id"] for c in everything}):
+    for cid in sorted(pilot_ids - {c["id"] for c in everything}):
         problems.append(f"corpus: PILOT names {cid}, which has no case")
     for case in everything:
-        problems += check_case(case, root)
+        problems += check_case(case, root, pilot_ids, promoted_ids)
         truth = case.get("truth") or {}
-        if case["id"] in PILOT:
+        if case["id"] in pilot_ids:
             if truth.get("pattern") in PATTERNS:
                 pilot[truth["pattern"]] += 1
             continue
@@ -465,7 +466,7 @@ def check_corpus(root: Path) -> tuple[list[str], dict[str, int], dict[str, int],
             counts[truth["class"]] += 1
         if truth.get("class") == "P4" and truth.get("pattern") in PATTERNS:
             patterns[truth["pattern"]] += 1
-    cases = [c for c in everything if c["id"] not in PILOT]
+    cases = [c for c in everything if c["id"] not in pilot_ids]
     for c in CLASSES:
         if counts[c] < MIN_PER_CLASS:
             problems.append(f"corpus: class {c} has {counts[c]} cases, fewer than {MIN_PER_CLASS}")
@@ -1048,6 +1049,8 @@ async def review_one(case: dict, arm: str, run_no: int, work: Path, clones: Path
 
 def select_cases(cases: list[dict], ids: list[str], pilot: bool, pilot_ids: frozenset = PILOT) -> list[dict]:
     """The cases a run reviews: the pilot cases under --pilot, every other case without it, then --case."""
+    if pilot and not pilot_ids:
+        raise ValueError(NO_PILOT)
     wrong = sorted(i for i in set(ids) if (i in pilot_ids) != pilot)
     if wrong:
         raise ValueError(f"--case {', '.join(wrong)}: " + ("not a pilot case, and --pilot reviews only pilot cases" if pilot
@@ -1376,6 +1379,8 @@ def main() -> int:
             sys.exit(f"[planted] {name} is empty")
     try:
         args.arm = run_arms(args.arm, args.pilot)
+        if args.pilot:
+            select_cases([], [], True)
     except ValueError as e:
         sys.exit(f"[planted] {e}")
     if not args.arm:
