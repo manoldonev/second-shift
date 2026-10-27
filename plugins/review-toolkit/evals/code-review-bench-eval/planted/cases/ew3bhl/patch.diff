@@ -1,177 +1,206 @@
-diff --git a/docs/plans/vite-13967-plan.md b/docs/plans/vite-13967-plan.md
+diff --git a/docs/plans/vite-6741-plan.md b/docs/plans/vite-6741-plan.md
 new file mode 100644
-index 000000000..10a553e74
+index 000000000..d88167696
 --- /dev/null
-+++ b/docs/plans/vite-13967-plan.md
-@@ -0,0 +1,9 @@
++++ b/docs/plans/vite-6741-plan.md
+@@ -0,0 +1,13 @@
 +# Plan
 +
 +## 1. Tests
 +
-+- [ ] 1.1 Build a playground with rollupOptions.output.inlineDynamicImports set, whose entry imports a module both statically and dynamically, and check the build log has no ineffective dynamic import warning (playground/dynamic-import-inline/__tests__/dynamic-import-inline.spec.ts) [AC-1]
++- [ ] 1.1 In the assets playground, check that the icon, apple-touch-icon and manifest links in index.html build to hashed files under assets/ instead of data URLs (playground/assets/__tests__/assets.spec.ts) [AC-1] [AC-2]
 +
-+## 2. Reporter
++## 2. Asset URLs
 +
-+- [ ] 2.1 Skip the ineffective dynamic import check when dynamic imports are inlined (packages/vite/src/node/plugins/reporter.ts)
-diff --git a/packages/vite/src/node/plugins/reporter.ts b/packages/vite/src/node/plugins/reporter.ts
-index e03bb5618..ec3422ee0 100644
---- a/packages/vite/src/node/plugins/reporter.ts
-+++ b/packages/vite/src/node/plugins/reporter.ts
-@@ -25,6 +25,10 @@ const COMPRESSIBLE_ASSETS_RE = /\.(?:html|json|svg|txt|xml|xhtml)$/
- export function buildReporterPlugin(config: ResolvedConfig): Plugin {
-   const compress = promisify(gzip)
-   const chunkLimit = config.build.chunkSizeWarningLimit
-+  const { output } = config.build.rollupOptions
-+  const inlineDynamicImports = Array.isArray(output)
-+    ? output[0]?.inlineDynamicImports
-+    : output?.inlineDynamicImports
- 
-   const numberFormatter = new Intl.NumberFormat('en', {
-     maximumFractionDigits: 2,
-@@ -120,29 +124,32 @@ export function buildReporterPlugin(config: ResolvedConfig): Plugin {
-     },
- 
-     renderChunk(code, chunk) {
--      for (const id of chunk.moduleIds) {
--        const module = this.getModuleInfo(id)
--        if (!module) continue
--        // When a dynamic importer shares a chunk with the imported module,
--        // warn that the dynamic imported module will not be moved to another chunk (#12850).
--        if (module.importers.length && module.dynamicImporters.length) {
--          // Filter out the intersection of dynamic importers and sibling modules in
--          // the same chunk. The intersecting dynamic importers' dynamic import is not
--          // expected to work. Note we're only detecting the direct ineffective
--          // dynamic import here.
--          const detectedIneffectiveDynamicImport = module.dynamicImporters.some(
--            (id) => !isInNodeModules(id) && chunk.moduleIds.includes(id),
--          )
--          if (detectedIneffectiveDynamicImport) {
--            this.warn(
--              `\n(!) ${
--                module.id
--              } is dynamically imported by ${module.dynamicImporters.join(
--                ', ',
--              )} but also statically imported by ${module.importers.join(
--                ', ',
--              )}, dynamic import will not move module into another chunk.\n`,
--            )
-+      if (!inlineDynamicImports) {
-+        for (const id of chunk.moduleIds) {
-+          const module = this.getModuleInfo(id)
-+          if (!module) continue
-+          // When a dynamic importer shares a chunk with the imported module,
-+          // warn that the dynamic imported module will not be moved to another chunk (#12850).
-+          if (module.importers.length && module.dynamicImporters.length) {
-+            // Filter out the intersection of dynamic importers and sibling modules in
-+            // the same chunk. The intersecting dynamic importers' dynamic import is not
-+            // expected to work. Note we're only detecting the direct ineffective
-+            // dynamic import here.
-+            const detectedIneffectiveDynamicImport =
-+              module.dynamicImporters.some(
-+                (id) => !isInNodeModules(id) && chunk.moduleIds.includes(id),
-+              )
-+            if (detectedIneffectiveDynamicImport) {
-+              this.warn(
-+                `\n(!) ${
-+                  module.id
-+                } is dynamically imported by ${module.dynamicImporters.join(
-+                  ', ',
-+                )} but also statically imported by ${module.importers.join(
-+                  ', ',
-+                )}, dynamic import will not move module into another chunk.\n`,
-+              )
-+            }
-           }
-         }
-       }
-diff --git a/playground/dynamic-import-inline/__tests__/dynamic-import-inline.spec.ts b/playground/dynamic-import-inline/__tests__/dynamic-import-inline.spec.ts
-new file mode 100644
-index 000000000..6c2c0c447
---- /dev/null
-+++ b/playground/dynamic-import-inline/__tests__/dynamic-import-inline.spec.ts
-@@ -0,0 +1,12 @@
-+import { expect, test } from 'vitest'
-+import { isBuild, serverLogs } from '~utils'
++- [ ] 2.1 Let callers of fileToBuiltUrl and urlToBuiltUrl pass shouldInline to force the inline decision, keeping the size heuristics when it is left out (packages/vite/src/node/plugins/asset.ts)
 +
-+test.runIf(isBuild)(
-+  'dont warn when inlineDynamicImports is set to true',
-+  async () => {
-+    const log = serverLogs.join('\n')
-+    expect(log).not.toContain(
-+      'dynamic import will not move module into another chunk',
-+    )
-+  },
-+)
-diff --git a/playground/dynamic-import-inline/index.html b/playground/dynamic-import-inline/index.html
-new file mode 100644
-index 000000000..d86d5c089
---- /dev/null
-+++ b/playground/dynamic-import-inline/index.html
-@@ -0,0 +1 @@
-+<script type="module" src="./src/index.js"></script>
-diff --git a/playground/dynamic-import-inline/package.json b/playground/dynamic-import-inline/package.json
-new file mode 100644
-index 000000000..32a989272
---- /dev/null
-+++ b/playground/dynamic-import-inline/package.json
-@@ -0,0 +1,12 @@
-+{
-+  "name": "@vitejs/test-dynamic-import-inline",
-+  "private": true,
-+  "version": "0.0.0",
-+  "type": "module",
-+  "scripts": {
-+    "dev": "vite",
-+    "build": "vite build",
-+    "debug": "node --inspect-brk ../../packages/vite/bin/vite",
-+    "preview": "vite preview"
++## 3. HTML
++
++- [ ] 3.1 Pass shouldInline: false for link rels that must stay files: icon, apple-touch-icon, apple-touch-startup-image and manifest (packages/vite/src/node/plugins/html.ts)
+diff --git a/packages/vite/src/node/plugins/asset.ts b/packages/vite/src/node/plugins/asset.ts
+index 4cdd846e4..d656b1b60 100644
+--- a/packages/vite/src/node/plugins/asset.ts
++++ b/packages/vite/src/node/plugins/asset.ts
+@@ -329,6 +329,7 @@ async function fileToBuiltUrl(
+   config: ResolvedConfig,
+   pluginContext: PluginContext,
+   skipPublicCheck = false,
++  shouldInline?: boolean,
+ ): Promise<string> {
+   if (!skipPublicCheck && checkPublicFile(id, config)) {
+     return publicFileToBuiltUrl(id, config)
+@@ -343,15 +344,16 @@ async function fileToBuiltUrl(
+   const file = cleanUrl(id)
+   const content = await fsp.readFile(file)
+
++  if (shouldInline == null) {
++    shouldInline =
++      !!config.build.lib ||
++      (!file.endsWith('.html') &&
++        content.length < Number(config.build.assetsInlineLimit) &&
++        !isGitLfsPlaceholder(content))
 +  }
-+}
-diff --git a/playground/dynamic-import-inline/src/foo.js b/playground/dynamic-import-inline/src/foo.js
-new file mode 100644
-index 000000000..483b987b3
---- /dev/null
-+++ b/playground/dynamic-import-inline/src/foo.js
-@@ -0,0 +1,3 @@
-+export default function foo() {
-+  return 'foo'
-+}
-diff --git a/playground/dynamic-import-inline/src/index.js b/playground/dynamic-import-inline/src/index.js
-new file mode 100644
-index 000000000..a151a21a5
---- /dev/null
-+++ b/playground/dynamic-import-inline/src/index.js
-@@ -0,0 +1,9 @@
-+import foo from './foo'
 +
-+const asyncImport = async () => {
-+  const { foo } = await import('./foo.js')
-+  foo()
-+}
+   let url: string
+-  if (
+-    config.build.lib ||
+-    // Don't inline SVG with fragments, as they are meant to be reused
+-    (!(file.endsWith('.svg') && id.includes('#')) &&
+-      !file.endsWith('.html') &&
+-      content.length < Number(config.build.assetsInlineLimit) &&
+-      !isGitLfsPlaceholder(content))
+-  ) {
++  if (shouldInline) {
+     if (config.build.lib && isGitLfsPlaceholder(content)) {
+       config.logger.warn(
+         colors.yellow(`Inlined file ${id} was not downloaded via Git LFS`),
+@@ -392,6 +394,7 @@ export async function urlToBuiltUrl(
+   importer: string,
+   config: ResolvedConfig,
+   pluginContext: PluginContext,
++  shouldInline?: boolean,
+ ): Promise<string> {
+   if (checkPublicFile(url, config)) {
+     return publicFileToBuiltUrl(url, config)
+@@ -406,6 +409,7 @@ export async function urlToBuiltUrl(
+     pluginContext,
+     // skip public check since we just did it above
+     true,
++    shouldInline,
+   )
+ }
+
+diff --git a/packages/vite/src/node/plugins/html.ts b/packages/vite/src/node/plugins/html.ts
+index 8440abe42..287976000 100644
+--- a/packages/vite/src/node/plugins/html.ts
++++ b/packages/vite/src/node/plugins/html.ts
+@@ -50,6 +50,7 @@ const inlineCSSRE = /__VITE_INLINE_CSS__([a-z\d]{8}_\d+)__/g
+ const inlineImportRE =
+   /(?<!(?<!\.\.)\.)\bimport\s*\(("(?:[^"]|(?<=\\)")*"|'(?:[^']|(?<=\\)')*')\)/dg
+ const htmlLangRE = /\.(?:html|htm)$/
++const spaceRe = /[\t\n\f\r ]/
+
+ const importMapRE =
+   /[ \t]*<script[^>]*type\s*=\s*(?:"importmap"|'importmap'|importmap)[^>]*>.*?<\/script>/is
+@@ -141,6 +142,17 @@ export const assetAttrsConfig: Record<string, string[]> = {
+   use: ['xlink:href', 'href'],
+ }
+
++// Some `<link rel>` elements should not be inlined in build. Excluding:
++// - `shortcut`                     : only valid for IE <9, use `icon`
++// - `mask-icon`                    : deprecated since Safari 12 (for pinned tabs)
++// - `apple-touch-icon-precomposed` : only valid for iOS <7 (for avoiding gloss effect)
++const noInlineLinkRels = new Set([
++  'icon',
++  'apple-touch-icon',
++  'apple-touch-startup-image',
++  'manifest',
++])
 +
-+foo()
-+asyncImport()
-diff --git a/playground/dynamic-import-inline/vite.config.js b/playground/dynamic-import-inline/vite.config.js
+ export const isAsyncScriptMap = new WeakMap<
+   ResolvedConfig,
+   Map<string, boolean>
+@@ -386,14 +398,14 @@ export function buildHtmlPlugin(config: ResolvedConfig): Plugin {
+         const namedOutput = Object.keys(
+           config?.build?.rollupOptions?.input || {},
+         )
+-        const processAssetUrl = async (url: string) => {
++        const processAssetUrl = async (url: string, shouldInline?: boolean) => {
+           if (
+             url !== '' && // Empty attribute
+             !namedOutput.includes(url) && // Direct reference to named output
+             !namedOutput.includes(removeLeadingSlash(url)) // Allow for absolute references as named output can't be an absolute path
+           ) {
+             try {
+-              return await urlToBuiltUrl(url, id, config, this)
++              return await urlToBuiltUrl(url, id, config, this, shouldInline)
+             } catch (e) {
+               if (e.code !== 'ENOENT') {
+                 throw e
+@@ -522,9 +534,30 @@ export function buildHtmlPlugin(config: ResolvedConfig): Plugin {
+                       })
+                       js += importExpression
+                     } else {
++                      // Check if the reference can be inlined. If not, set `shouldInline`
++                      // to `false` to force no inline. If `undefined`, it leaves to the default heuristics.
++                      const isNoInlineLink =
++                        node.nodeName === 'link' &&
++                        node.attrs.some(
++                          (p) =>
++                            p.name === 'rel' &&
++                            p.value
++                              .split(spaceRe)
++                              .some((v) =>
++                                noInlineLinkRels.has(v.toLowerCase()),
++                              ),
++                        )
++                      // SVG with fragments are meant to be reused
++                      const isSvgFragment =
++                        cleanUrl(url).endsWith('.svg') && url.includes('#')
++                      const shouldInline =
++                        isNoInlineLink || isSvgFragment ? false : undefined
+                       assetUrlsPromises.push(
+                         (async () => {
+-                          const processedUrl = await processAssetUrl(url)
++                          const processedUrl = await processAssetUrl(
++                            url,
++                            shouldInline,
++                          )
+                           if (processedUrl !== url) {
+                             overwriteAttrValue(
+                               s,
+diff --git a/playground/assets/__tests__/assets.spec.ts b/playground/assets/__tests__/assets.spec.ts
+index 74aa0f3ff..62fd8950b 100644
+--- a/playground/assets/__tests__/assets.spec.ts
++++ b/playground/assets/__tests__/assets.spec.ts
+@@ -223,10 +223,26 @@ describe('css url() references', () => {
+     const match = isBuild ? `data:image/png;base64` : `/foo/bar/nested/icon.png`
+     expect(await getBg('.css-url-base64-inline')).toMatch(match)
+     expect(await getBg('.css-url-quotes-base64-inline')).toMatch(match)
+-    const icoMatch = isBuild ? `data:image/x-icon;base64` : `favicon.ico`
+-    const el = await page.$(`link.ico`)
+-    const href = await el.getAttribute('href')
+-    expect(href).toMatch(icoMatch)
++  })
++
++  test('no base64 inline for icon and manifest links', async () => {
++    const iconEl = await page.$(`link.ico`)
++    const href = await iconEl.getAttribute('href')
++    expect(href).toMatch(
++      isBuild ? /\/foo\/bar\/assets\/favicon-[-\w]{8}\.ico/ : 'favicon.ico',
++    )
++
++    const manifestEl = await page.$(`link[rel="manifest"]`)
++    const manifestHref = await manifestEl.getAttribute('href')
++    expect(manifestHref).toMatch(
++      isBuild ? /\/foo\/bar\/assets\/manifest-[-\w]{8}\.json/ : 'manifest.json',
++    )
++
++    const touchIconEl = await page.$(`link[rel="apple-touch-icon"]`)
++    const touchIconHref = await touchIconEl.getAttribute('href')
++    expect(touchIconHref).toMatch(
++      isBuild ? /\/foo\/bar\/assets\/favicon-[-\w]{8}\.ico/ : 'favicon.ico',
++    )
+   })
+
+   test('multiple urls on the same line', async () => {
+diff --git a/playground/assets/index.html b/playground/assets/index.html
+index e0684db90..d7c79f238 100644
+--- a/playground/assets/index.html
++++ b/playground/assets/index.html
+@@ -3,6 +3,8 @@
+ <head>
+   <meta charset="UTF-8" />
+   <link class="ico" rel="icon" type="image/svg+xml" href="favicon.ico" />
++  <link rel="manifest" href="manifest.json" />
++  <link rel="apple-touch-icon" href="favicon.ico" />
+ </head>
+
+ <link class="data-href" rel="icon" href="data:," />
+diff --git a/playground/assets/manifest.json b/playground/assets/manifest.json
 new file mode 100644
-index 000000000..2d69e108f
+index 000000000..0967ef424
 --- /dev/null
-+++ b/playground/dynamic-import-inline/vite.config.js
-@@ -0,0 +1,18 @@
-+import path from 'node:path'
-+import { defineConfig } from 'vite'
-+
-+export default defineConfig({
-+  resolve: {
-+    alias: {
-+      '@': path.resolve(__dirname, 'alias'),
-+    },
-+  },
-+  build: {
-+    sourcemap: true,
-+    rollupOptions: {
-+      output: {
-+        inlineDynamicImports: true,
-+      },
-+    },
-+  },
-+})
++++ b/playground/assets/manifest.json
+@@ -0,0 +1 @@
++{}

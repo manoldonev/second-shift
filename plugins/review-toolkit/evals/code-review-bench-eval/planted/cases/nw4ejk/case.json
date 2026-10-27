@@ -11,11 +11,11 @@
   "truth": {
     "class": "P4",
     "pattern": "dead-guard",
-    "description": "handleModuleSoftInvalidation matches each import in the kept code to an imported module by a url that keeps the base, but importAnalysis writes every import with config.base prepended while module urls carry none, so with a base other than / the timestamp rewrite never fires and a soft-invalidated importer keeps importing the stale module after an HMR update.",
+    "description": "invalidateModule hard-invalidates an importer only when the changed file is in importer.pluginWatchedFiles, whose only producer is importAnalysis, which skips CSS requests, while css.ts registers each @import dependency of a CSS module through updateModuleInfo, so for a CSS importer the guard is always false and editing an @imported stylesheet soft-invalidates the importing CSS module, which is then served with its stale compiled CSS.",
     "locations": [
-      {"file": "packages/vite/src/node/server/transformRequest.ts", "start": 419, "end": 421, "side": "head"},
-      {"file": "packages/vite/src/node/plugins/importAnalysis.ts", "start": 389, "end": 390, "side": "head"},
-      {"file": "packages/vite/src/node/server/hmr.ts", "start": 160, "end": 166, "side": "head"}
+      {"file": "packages/vite/src/node/server/moduleGraph.ts", "start": 214, "end": 217, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/importAnalysis.ts", "start": 771, "end": 771, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/css.ts", "start": 322, "end": 353, "side": "head"}
     ]
   },
   "distractions": [

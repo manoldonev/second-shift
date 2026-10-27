@@ -11,15 +11,16 @@
   "truth": {
     "class": "P4",
     "pattern": "dead-guard",
-    "description": "handleError in format.js now reads the --ignore-unknown flag as context.argv[\"ignore-unknown\"], but parseArgv in parse-cli-arguments.js, the only producer of context.argv, stores every flag under its camel-cased name, so that half of the guard is always false and prettier --check --ignore-unknown on explicit files, a glob or stdin now reports each file with no inferable parser as an error and exits with 2 instead of skipping it.",
+    "description": "formatFiles now tells handleError to skip an unknown file when the expanded entry has type \"dir\", but expandPatterns in expand-patterns.js yields only filename and ignoreUnknown and expandPatternsInternal keeps type on its pattern entries without forwarding it, so type is always undefined, the directory half of the skip guard is always false, and prettier --check run on a directory now reports every file with no inferable parser found inside the directory as an error and exits with 2 instead of skipping it.",
     "locations": [
-      {"file": "src/cli/format.js", "start": 30, "end": 33, "side": "head"},
-      {"file": "src/cli/options/parse-cli-arguments.js", "start": 23, "end": 28, "side": "head"},
-      {"file": "src/cli/context.js", "start": 38, "end": 39, "side": "head"}
+      {"file": "src/cli/format.js", "start": 383, "end": 389, "side": "head"},
+      {"file": "src/cli/format.js", "start": 305, "end": 307, "side": "head"},
+      {"file": "src/cli/expand-patterns.js", "start": 18, "end": 35, "side": "head"},
+      {"file": "src/cli/expand-patterns.js", "start": 116, "end": 134, "side": "head"}
     ]
   },
   "distractions": [
     {"file": "tests/integration/__tests__/infer-parser.js", "start": 148, "end": 148, "side": "head",
-     "why": "FOO has no inferable parser and this run passes no flag to skip unknown files, so the error on it sets exit code 2 even though --write fixed foo.js."}
+     "why": "FOO has no inferable parser and the * glob does not expand a directory, so the error on it sets exit code 2 even though --write fixed foo.js."}
   ]
 }

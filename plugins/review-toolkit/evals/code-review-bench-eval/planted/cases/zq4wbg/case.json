@@ -11,10 +11,10 @@
   "truth": {
     "class": "P4",
     "pattern": "two-hop-caller",
-    "description": "printString in src/common/util.js now returns a doc array instead of a string, but the CSS printer still passes it as the callback of String.replace in adjustStrings, which coerces the doc to text, so a CSS attribute selector whose quoted value continues onto a second line after a backslash is printed with [object Object] in place of the line break.",
+    "description": "printString in src/common/util.js now returns a doc array instead of a string, and the CSS printer's selector-attribute branch in genericPrint still prints its value through adjustStrings, whose String.replace callback turns that array into comma-joined text, so an attribute selector whose quoted value continues onto a second line after a backslash prints ,[object Object], in place of the line break.",
     "locations": [
       {"file": "src/common/util.js", "start": 286, "end": 287, "side": "head"},
-      {"file": "src/language-css/printer-postcss.js", "start": 419, "end": 422, "side": "head"},
+      {"file": "src/language-css/printer-postcss.js", "start": 419, "end": 423, "side": "head"},
       {"file": "src/language-css/printer-postcss.js", "start": 1093, "end": 1094, "side": "head"}
     ]
   },

@@ -193,7 +193,7 @@ index 8d04d30f9..1b45cddad 100644
    const placeholderRegex = new RegExp(
      composePlaceholder(String.raw`(\d+)`),
 diff --git a/src/language-js/print/template-literal.js b/src/language-js/print/template-literal.js
-index d6e483dba..2bbf27915 100644
+index d6e483dba..452f76c75 100644
 --- a/src/language-js/print/template-literal.js
 +++ b/src/language-js/print/template-literal.js
 @@ -28,104 +28,25 @@ import {
@@ -312,13 +312,16 @@ index d6e483dba..2bbf27915 100644
  }
  
  function printTaggedTemplateExpression(path, options, print) {
-@@ -175,17 +96,15 @@ function printJestEachTemplateLiteral(path, options, print) {
+@@ -174,18 +95,16 @@ function printJestEachTemplateLiteral(path, options, print) {
+     headerNames.length > 1 ||
      headerNames.some((headerName) => headerName.length > 0)
    ) {
-     options.__inJestEach = true;
+-    options.__inJestEach = true;
 -    const expressions = path.map(print, "expressions");
-+    const expressions = printTemplateExpressions(path, options, print);
-     options.__inJestEach = false;
+-    options.__inJestEach = false;
++    const expressions = printTemplateExpressions(path, options, print, {
++      inJestEach: true,
++    });
      const stringifiedExpressions = expressions.map(
        (doc) =>
 -        "${" +
@@ -332,7 +335,7 @@ index d6e483dba..2bbf27915 100644
      );
  
      const tableBody = [{ hasLineBreak: false, cells: [] }];
-@@ -248,17 +167,108 @@ function printJestEachTemplateLiteral(path, options, print) {
+@@ -248,17 +167,113 @@ function printJestEachTemplateLiteral(path, options, print) {
    }
  }
  
@@ -365,7 +368,7 @@ index d6e483dba..2bbf27915 100644
 +- `TemplateLiteral`
 +- `TSTemplateLiteralType` (TypeScript)
 +*/
-+function printTemplateExpression(path, options, print) {
++function printTemplateExpression(path, options, print, inJestEach) {
 +  const { node, index } = path;
 +  let expressionDoc = print();
 +
@@ -427,7 +430,7 @@ index d6e483dba..2bbf27915 100644
 +    options,
 +  );
 +  // In `jest.each`, we know expression will at least indent 2 level
-+  if (options.__inJestEach) {
++  if (inJestEach) {
 +    indentSize = Math.max(indentSize, options.tabWidth);
    }
 -  return ["${", printed, lineSuffixBoundary, "}"];
@@ -441,15 +444,20 @@ index d6e483dba..2bbf27915 100644
  
 -function printTemplateExpressions(path, print) {
 -  return path.map(() => printTemplateExpression(path, print), "expressions");
-+function printTemplateExpressions(path, options, print) {
++function printTemplateExpressions(
++  path,
++  options,
++  print,
++  { inJestEach = false } = {},
++) {
 +  return path.map(
-+    () => printTemplateExpression(path, options, print),
-+    "expressions",
++    () => printTemplateExpression(path, options, print, inJestEach),
++    path.node.type === "TSTemplateLiteralType" ? "types" : "expressions",
 +  );
  }
- 
+
  function escapeTemplateCharacters(doc, raw) {
-@@ -277,19 +287,20 @@ function uncookTemplateElementValue(cookedValue) {
+@@ -277,19 +292,20 @@ function uncookTemplateElementValue(cookedValue) {
    return cookedValue.replaceAll(/([\\`]|\$\{)/gu, String.raw`\$1`);
  }
  

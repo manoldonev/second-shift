@@ -1,39 +1,27 @@
-# TypeError in HTML parser when parsing a custom element followed by a prototype
+# JavaScript parsers ignore the source type that .cjs and .mjs file names fix
 
-**Prettier 3.0.3**
-[Playground link](https://prettier.io/playground/#N4Igxg9gdgLgprEAuEAeSUDOMBOBXMGCHAPgAccIiYyBPOCEAGhAjJgEtpNlQBDHJQDuABQEIeKPgBshfWjxYAjHHzABrODADKfALZwAMhyhxkAMxmY4y1Rq3ayakwHNkuPDZDW9Hd-i9MV2k4AEU8KjMkS2lrFgArTAAPbWCwiPgLKy8ARwy4EUoySRA+TABaUzgAExrmEFw+DmlXAGEIPT0+ZFLpaXqgqBcQgEEYXA4lPHgROBxjUyzYrwALGD1pAHUVjnhMJzA4bQldjgA3XdoesExFEDPPAEkoWthtMBwOdhGX7RhaEJLOIgCgQaybVRkHoUODWHBnMwsExwmCFPguLpArxOHBwnprDb1CgmGCbDjVGArZAADgADCwcHA8hxGWiMd1otkWDA+EoyRSqUgAEwsPDWAAqvMkMWBcD0ShqtWqhj4Qzw6LgADFiF1xq4enxpowAL7GoA)
+A `.cjs` file is always a CommonJS script and a `.mjs` file is always an ES module, but Prettier's
+JavaScript parsers do not look at the file name. acorn, espree and meriyah parse every file as a
+module first and fall back to a script, and babel parses everything as a module that may hold
+`import` and `export` anywhere.
 
-```sh
-# Options (if any):
+So code that the file's own extension makes invalid is formatted without complaint:
+
+```js
+// script.cjs: a script cannot import
+import "foo"
 ```
 
-**Input:**
-
-```html
-<constructor>prototpyeo
+```js
+// module.mjs: module code is strict, so `with` is not allowed
+with (foo) {}
 ```
 
-**Output:**
-
-```jsx
-TypeError: u(A).getContentType is not a function. (In 'u(A).getContentType()', 'u(A).getContentType' is undefined)
-o@https://prettier.io/lib/plugins/html.js:17:16572
-_consumeTagOpen@https://prettier.io/lib/plugins/html.js:17:6729
-tokenize@https://prettier.io/lib/plugins/html.js:17:511
-As@https://prettier.io/lib/plugins/html.js:16:27954
-parse@https://prettier.io/lib/plugins/html.js:17:16590
-ks@https://prettier.io/lib/plugins/html.js:19:14585
-Bs@https://prettier.io/lib/plugins/html.js:19:17013
-@https://prettier.io/lib/standalone.js:25:13319
-```
-
-**Expected behavior:**
-
-The parser either throws an expected error "invalid HTML", or it reasonably parses the input without error.
-
-Discovered via https://github.com/jasikpark/fuzz-prettier, my messy attempt at fuzzing prettier and its plugin formatters, hope this is helpful 👍
+And when such a file does fail to parse, the error shown is the one for the wrong goal, which
+points at the wrong problem.
 
 ## Acceptance criteria
 
-- AC-1: Formatting HTML whose element is named after an `Object.prototype` property (`constructor`, `hasOwnProperty`, `isPrototypeOf`, `propertyIsEnumerable`, `toLocaleString`, `toString`, `valueOf`) completes without a TypeError.
-- AC-2: Such an element is printed like any other unknown inline element, with its text kept on the same line, for example `<constructor>constructor</constructor>`.
+- AC-1: Formatting `import "foo"` in a file named `script.cjs` with the acorn, espree or meriyah parser fails with that parser's error for an import outside a module.
+- AC-2: Formatting `with(foo) {}` in `module.mjs`, or `delete foo` in `module.mJs` (the extension is matched without case), fails with the parser's strict-mode error.
+- AC-3: A file with any other extension, and input with no file path, still parses as a module first and then as a script.

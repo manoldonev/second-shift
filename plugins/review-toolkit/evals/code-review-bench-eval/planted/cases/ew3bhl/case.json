@@ -1,25 +1,26 @@
 {
   "upstream": "https://github.com/vitejs/vite.git",
-  "instance": "vitejs__vite-pr13970",
+  "instance": "vitejs__vite-pr14958",
   "license": "MIT",
-  "base": "2c73d10ed2e18db6da892acdcfe1637b86d72599",
+  "base": "8409b662d6891491c997126d14bb88101851a3d5",
   "base_branch": "main",
   "overlay": "vitejs__vite",
-  "issue": 13967,
-  "pr": 13970,
-  "commit": "fix(build): silence warn dynamic import module when inlineDynamicImports true",
+  "issue": 6741,
+  "pr": 14958,
+  "commit": "fix(html): skip inlining icon and manifest links",
   "truth": {
     "class": "P4",
     "pattern": "omitted-option",
-    "description": "buildReporterPlugin now reads inlineDynamicImports from config.build.rollupOptions.output, but buildOutputOptions in build.ts turns inlining on for umd and iife library outputs and single-entry webworker SSR builds only on the output it hands to Rollup, so those builds leave the option out of the config and still print the ineffective dynamic import warning the change silences for user-set inlining.",
+    "description": "fileToBuiltUrl's default inline heuristic no longer keeps SVG files with a #fragment out of inlining, a rule only the HTML plugin now applies by passing shouldInline false, so the CSS url() replacer in css.ts, which reaches fileToBuiltUrl through fileToUrl without that option, inlines a small sprite such as fragment-bg.svg#icon-clock-view as a data URL and loses the fragment that the emitted file kept before.",
     "locations": [
-      {"file": "packages/vite/src/node/plugins/reporter.ts", "start": 28, "end": 31, "side": "head"},
-      {"file": "packages/vite/src/node/build.ts", "start": 622, "end": 627, "side": "head"},
-      {"file": "packages/vite/src/node/build.ts", "start": 639, "end": 645, "side": "head"}
+      {"file": "packages/vite/src/node/plugins/asset.ts", "start": 347, "end": 353, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/html.ts", "start": 550, "end": 554, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/asset.ts", "start": 257, "end": 261, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/css.ts", "start": 274, "end": 277, "side": "head"}
     ]
   },
   "distractions": [
-    {"file": "packages/vite/src/node/plugins/reporter.ts", "start": 138, "end": 141, "side": "head",
-     "why": "A dynamic importer under node_modules is a dependency's own code that the user cannot change, so leaving it out only drops a warning nobody can act on."}
+    {"file": "packages/vite/src/node/plugins/html.ts", "start": 145, "end": 154, "side": "head",
+     "why": "Leaving shortcut out of the set is safe because a rel of shortcut icon is split on whitespace and still matches its icon token."}
   ]
 }

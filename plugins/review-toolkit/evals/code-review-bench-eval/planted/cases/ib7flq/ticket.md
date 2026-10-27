@@ -1,37 +1,44 @@
-# Prettier formatting is inconsistent when using escaping in string
+# Prettier prints a trailing comma after type argument list even if the languages is `ts` in markdown
 
-**Prettier 3.0.3**
+**Prettier 3.0.2**
 
 ```sh
---parser babel
+--parser markdown
 ```
 
 **Input:**
 
 <!-- prettier-ignore -->
-```jsx
-export const MSG_GENERIC_OPERATION_FAILURE_BODY =
-   goog.getMsg('That\'s all we know');
+````markdown
+```ts
+const t = <T,>() => {};
 ```
+
+```tsx
+const t = <T,>() => {}
+```
+````
 
 **Output:**
 
 <!-- prettier-ignore -->
-```jsx
-export const MSG_GENERIC_OPERATION_FAILURE_BODY = goog.getMsg(
-  "That's all we know",
-);
+````markdown
+```ts
+const t = <T,>() => {};
 ```
 
-**Second Output:**
-
-<!-- prettier-ignore -->
-```jsx
-export const MSG_GENERIC_OPERATION_FAILURE_BODY =
-  goog.getMsg("That's all we know");
+```tsx
+const t = <T,>() => {}
 ```
+
+````
+
+The second codeblock prints a trailing comma and it's the correct behavior, however the first codeblock should remove the trailing comma
+
+**Expected behavior:**
+The first codeblock should not have a trailing comma
 
 ## Acceptance criteria
 
-- AC-1: `export const MSG_GENERIC_OPERATION_FAILURE_BODY_2 = goog.getMsg("That\'s all we know");` formats exactly like the same declaration with `"That's all we know"`: the line breaks after `=` and the call stays on one line.
-- AC-2: Formatting that declaration a second time gives the same output as the first time, with `trailingComma` set to `all` and to `es5`.
+- AC-1: In a Markdown file, a `ts` or `typescript` code block holding `const test = <T,>(value: T) => {};` prints `const test = <T>(value: T) => {};`.
+- AC-2: A `tsx` code block holding the same line keeps `<T,>(value: T) => {}`, as it does today.

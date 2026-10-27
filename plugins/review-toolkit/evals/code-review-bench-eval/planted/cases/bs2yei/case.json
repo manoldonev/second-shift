@@ -11,15 +11,14 @@
   "truth": {
     "class": "P4",
     "pattern": "two-hop-caller",
-    "description": "printTemplateExpressions now maps only the expressions key, but printTypescript in typescript.js still sends every TSTemplateLiteralType, whose interpolations live under types, through printTemplateLiteral into it, so formatting a TypeScript template literal type such as type Key = `on${string}` throws a TypeError on reading length of undefined.",
+    "description": "printJestEachTemplateLiteral now hands inJestEach to printTemplateExpressions as an argument and no longer sets options.__inJestEach while it prints the table cells, but printArray in array.js still reads that flag to stop a matrix-like array from force-breaking, so a jest each cell such as ${[{ start: 1, end: 3 }, { start: 15, end: 20 }]} now prints across several lines and its table row loses the column alignment.",
     "locations": [
-      {"file": "src/language-js/print/template-literal.js", "start": 268, "end": 271, "side": "head"},
-      {"file": "src/language-js/print/typescript.js", "start": 93, "end": 94, "side": "head"},
-      {"file": "src/language-js/print/index.js", "start": 21, "end": 28, "side": "head"}
+      {"file": "src/language-js/print/template-literal.js", "start": 98, "end": 100, "side": "head"},
+      {"file": "src/language-js/print/array.js", "start": 89, "end": 92, "side": "head"}
     ]
   },
   "distractions": [
-    {"file": "src/language-js/print/template-literal.js", "start": 101, "end": 108, "side": "head",
-     "why": "printTemplateExpression now returns each expression already wrapped in its own ${ and }, so the jest each table renders the docs as they are instead of adding the braces a second time."}
+    {"file": "src/language-js/embed/graphql.js", "start": 62, "end": 64, "side": "head",
+     "why": "A template literal has exactly one expression fewer than it has quasis, so pushing expressionDocs[i] after every quasi but the last places each interpolation where the old truthiness check on expressionDoc did, now that every expression doc is a group object."}
   ]
 }

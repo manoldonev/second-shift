@@ -1,39 +1,15 @@
-# Hydration mismatch when using v-if="false" in nested <slot> of external component
+# Pass filenames including queries to `renderBuiltUrl` like <8.3.0
 
-### Vue version
+https://github.com/vitejs/vite/pull/22886 made filenames passed to `renderBuiltUrl` not to contain the queries (and hashes). But Vinext returns URL containing queries from `renderBuiltUrl` and that causes final URL to be like `asset.svg?dpl=id?marker=value` (https://github.com/cloudflare/vinext/pull/3263, it was `asset.svg?dpl=id&marker=value` as the query injection was handled by `renderBuiltUrl`).
 
-3.4.27
+To fix this we need to either:
 
-### Link to minimal reproduction
+- pass a new param to `renderBuiltUrl` that contains queries / hashes
+- include queries / hashes in the `filename` param of `renderBuiltUrl` as before
 
-https://stackblitz.com/edit/nuxt-starter-s8nc2r?file=app.vue
-
-### Steps to reproduce
-
-Just run the nuxt app, and you can see the warning in console.
-![image](https://github.com/vuejs/core/assets/18690631/a445590f-5483-48f6-81cf-ad1104f81436)
-
-It seems that the ssr render output for code `<div v-if="false">test</div>` is wrong, and the output is  `<div><!--[--><!--v-if--><!--]--></div>`, which contains more child nodes than client vdom(`<div><!--[--><!--]--></div>`).
-
-This warning only occured when i use external component(ex. <el-button> of element-ui).  However, it is normal when i use a local component, even if the local compnent is same as the external one completely.
-
-### What is expected?
-
-Fixing the warning of hydration mismatch, the ssr render output shouldn't include `<!--v-if-->`?
-
-### What is actually happening?
-
-Hydration mismatch,  ssr render output `<div><!--[--><!--v-if--><!--]--></div>`
-
-### System Info
-
-_No response_
-
-### Any additional comments?
-
-Maybe this issue is similar to https://github.com/vuejs/core/issues/5834.
+Another thing we need to decide is whether this query handling should exist on Rolldown (/ Rollup) side, or be handled by `urlId`.
 
 ## Acceptance criteria
 
-- AC-1: When a slot is rendered on the server from vnodes (a slot passed through a dynamic `<component>`, or a nested component's slot under it) and its content holds only `v-if="false"` placeholders, the server output for that slot is an empty fragment `<!--[--><!--]-->` with no `<!--v-if-->` comment, the same as the client renders.
-- AC-2: The same server-rendered slot with `v-if="true"` content still renders that content inside the slot fragment.
+- AC-1: When a JS module imports an asset with a query, such as `/asset.txt?url&marker=value`, the `filename` that `experimental.renderBuiltUrl` receives for it includes the query, so a `renderBuiltUrl` that adds its own query renders `?dpl=id&marker=value`, and two imports of the same file with different queries keep their own query each.
+- AC-2: A `url()` reference with a query in CSS reaches `renderBuiltUrl` the same way: the `filename` includes the query, and the built stylesheet holds the rendered URL with both queries for each reference.

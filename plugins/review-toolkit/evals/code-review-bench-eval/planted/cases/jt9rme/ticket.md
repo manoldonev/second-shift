@@ -21,4 +21,4 @@ finds the ignore file, so a file it lists is reported as not ignored.
 ## Acceptance criteria
 
 - AC-1: `prettier.getFileInfo(file, { ignorePath })` reports `{ ignored: true, inferredParser: null }` for a file the ignore file lists when `ignorePath` is a `URL`, a `file://` URL string or an absolute path, given alone or in an array.
-- AC-2: The patterns of an ignore file given as a `URL` match relative to that ignore file's folder, as they do for a path, with and without `resolveConfig`.
+- AC-2: The patterns of an ignore file given as a `URL` match relative to that ignore file's folder, as they do for a path, and `resolveConfig` still infers the parser from the file's config.

@@ -1,25 +1,28 @@
 {
-  "upstream": "https://github.com/vuejs/core.git",
-  "instance": "vuejs__core-11491",
+  "upstream": "https://github.com/vitejs/vite.git",
+  "instance": "vitejs__vite-pr23586",
   "license": "MIT",
-  "base": "79602f9ecd9559954f844774a90286305b13e056",
+  "base": "a2bd6fa897c35c8a691671a7d70061c1cdd5c688",
   "base_branch": "main",
-  "overlay": "vuejs__core",
-  "issue": 11326,
-  "pr": 11491,
-  "commit": "fix(ssr): ensure content is valid when rendering normal slot",
+  "overlay": "vitejs__vite",
+  "issue": 23487,
+  "pr": 23586,
+  "commit": "fix: pass queries to `renderBuiltUrl`",
   "truth": {
     "class": "P4",
     "pattern": "two-hop-caller",
-    "description": "ensureValidVNode now returns a new array of normalized vnodes instead of the array the slot returned, and renderSlot reads its fragment key from that result, so the branch key that createSlots attaches to the content of a conditional slot is lost, a <template v-if> slot and its <template v-else> slot both get the key _default, and switching branches patches the same input or component in place, keeping its typed value and state, instead of mounting a fresh one.",
+    "description": "formatBuiltAsset no longer writes an asset's query or hash after the __VITE_ASSET__ token but keeps it under a urlId that, among the token's readers, only renderAssetUrlInJS and the CSS chunk replacement look up, while the HTML plugin, which gets that token for every asset URL in index.html through urlToBuiltUrl and fileToBuiltUrl, still replaces it with the bare output path in generateBundle, so a built page loses the fragment or query of each such reference and <img src=\"./sprite.svg#icon\"> points at the whole sprite.",
     "locations": [
-      {"file": "packages/runtime-core/src/helpers/renderSlot.ts", "start": 103, "end": 105, "side": "head"},
-      {"file": "packages/runtime-core/src/helpers/createSlots.ts", "start": 34, "end": 41, "side": "head"},
-      {"file": "packages/runtime-core/src/helpers/renderSlot.ts", "start": 68, "end": 73, "side": "head"}
+      {"file": "packages/vite/src/node/plugins/asset.ts", "start": 628, "end": 628, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/asset.ts", "start": 49, "end": 50, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/html.ts", "start": 1077, "end": 1083, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/html.ts", "start": 532, "end": 547, "side": "head"}
     ]
   },
   "distractions": [
-    {"file": "packages/server-renderer/__tests__/ssrSlot.spec.ts", "start": 212, "end": 219, "side": "head",
-     "why": "The slot renders one empty text string, which is content and not a comment, so the server keeps the slot and skips the fallback exactly as the client's renderSlot does for an empty text vnode."}
+    {"file": "packages/vite/src/node/plugins/asset.ts", "start": 336, "end": 336, "side": "head",
+     "why": "The file name handed to renderBuiltUrl now carries the asset's query or hash, which is what the ticket asks for, and the postfix is looked up by the urlId Rolldown passes to resolveFileUrl, so a reference without one appends an empty string."},
+    {"file": "packages/vite/src/node/plugins/css.ts", "start": 755, "end": 759, "side": "head",
+     "why": "The postfix joins the file name before importedAssets records it, but cleanUrl strips the query and hash there, so the recorded name is still the emitted file and only the rendered URL keeps the postfix."}
   ]
 }

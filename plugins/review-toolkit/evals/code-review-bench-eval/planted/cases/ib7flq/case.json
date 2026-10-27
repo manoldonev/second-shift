@@ -1,26 +1,25 @@
 {
   "upstream": "https://github.com/prettier/prettier.git",
-  "instance": "prettier__prettier-pr15525",
+  "instance": "prettier__prettier-pr15286",
   "license": "MIT",
-  "base": "3974359d32d070aa3f1c4eb0f0b3892e47f79430",
+  "base": "347c60730e12d6e9e52aaa360526d8792fb818e8",
   "base_branch": "main",
   "overlay": "prettier__prettier",
-  "issue": 15284,
-  "pr": 15525,
-  "commit": "fix(javascript): consistently format strings containing escapes",
+  "issue": 15282,
+  "pr": 15286,
+  "commit": "fix(markdown): do not print trailing commas in arrow function type parameter lists in ts code blocks",
   "truth": {
     "class": "P4",
     "pattern": "omitted-option",
-    "description": "isLoneShortArgument now measures a string by its printed form only when the caller passes measurePrinted, and printTernary in ternary.js still calls it without that option, so under --experimental-ternaries a consequent string with an unnecessary escape before an apostrophe is still judged by its raw length and the same ternary formats differently with and without the escape.",
+    "description": "mayBeTsx now keeps the forced comma in embedded code only when the embedding printer passes a .tsx filepath, which only the Markdown embed does, but the HTML and Vue embed in src/language-html/embed.js formats a <script lang=\"tsx\"> block with the typescript parser and no filepath of its own, so const identity = <T,>(value: T) => value; in that block now prints as <T>(value: T) => value, which TSX reads as a JSX tag.",
     "locations": [
-      {"file": "src/language-js/utils/index.js", "start": 573, "end": 577, "side": "head"},
-      {"file": "src/language-js/utils/index.js", "start": 548, "end": 548, "side": "head"},
-      {"file": "src/language-js/print/ternary.js", "start": 267, "end": 270, "side": "head"},
-      {"file": "src/language-js/print/estree.js", "start": 322, "end": 323, "side": "head"}
+      {"file": "src/language-js/print/type-parameters.js", "start": 45, "end": 48, "side": "head"},
+      {"file": "src/language-html/embed.js", "start": 69, "end": 77, "side": "head"},
+      {"file": "src/language-html/utils/index.js", "start": 384, "end": 386, "side": "head"}
     ]
   },
   "distractions": [
-    {"file": "tests/format/js/strings/escaped.js", "start": 4, "end": 5, "side": "head",
-     "why": "Inside double quotes the backslash before the apostrophe is an unnecessary escape, so this string has the same value as the one on line 2 and only its source width differs, which is what the test needs."}
+    {"file": "tests/format/markdown/code/__snapshots__/jsfmt.spec.js.snap", "start": 314, "end": 320, "side": "head",
+     "why": "A ts or typescript code block is parsed as TypeScript without JSX, so <T>(value: T) => {} cannot be read as a tag there and dropping the comma is the requested output."}
   ]
 }

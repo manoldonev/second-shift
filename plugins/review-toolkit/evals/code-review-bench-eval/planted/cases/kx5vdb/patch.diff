@@ -1,156 +1,342 @@
-diff --git a/changelog_unreleased/html/17501.md b/changelog_unreleased/html/17501.md
+diff --git a/docs/plans/prettier-13772-plan.md b/docs/plans/prettier-13772-plan.md
 new file mode 100644
-index 000000000..e792c4e09
+index 000000000..c89a86e66
 --- /dev/null
-+++ b/changelog_unreleased/html/17501.md
-@@ -0,0 +1,15 @@
-+#### Fix formatting when tag name is an object prototype property (#17501 by @fisker)
-+
-+<!-- prettier-ignore -->
-+```html
-+<!-- Input -->
-+<constructor>
-+	text
-+</constructor>
-+
-+<!-- Prettier stable -->
-+TypeError: Vn(...).startsWith is not a function
-+
-+<!-- Prettier main -->
-+<constructor> text </constructor>
-+```
-diff --git a/docs/plans/prettier-15511-plan.md b/docs/plans/prettier-15511-plan.md
-new file mode 100644
-index 000000000..41c6a9a47
---- /dev/null
-+++ b/docs/plans/prettier-15511-plan.md
-@@ -0,0 +1,12 @@
++++ b/docs/plans/prettier-13772-plan.md
+@@ -0,0 +1,13 @@
 +# Plan
 +
 +## 1. Tests
 +
-+- [ ] 1.1 Format elements named after Object.prototype properties without a TypeError (tests/format/html/tags/object-prototype-properties/format.test.js) [AC-1]
-+- [ ] 1.2 Print those elements inline with their text, like any unknown element (tests/format/html/tags/object-prototype-properties/format.test.js) [AC-2]
++- [ ] 1.1 `import "foo"` in a file named script.cjs fails to parse with acorn, espree and meriyah, with the script-goal error (tests/format/misc/errors/js/known-source-type/jsfmt.spec.js) [AC-1]
++- [ ] 1.2 `with(foo) {}` in module.mjs and `delete foo` in module.mJs fail with the strict-mode error of each parser (tests/format/misc/errors/js/known-source-type/jsfmt.spec.js) [AC-2]
 +
 +## 2. Fix
 +
-+- [ ] 2.1 Read the CSS display table only through own keys in getNodeCssStyleDisplay (src/language-html/utils/index.js)
-+- [ ] 2.2 Read the CSS white-space table only through own keys in getNodeCssStyleWhiteSpace (src/language-html/utils/index.js)
-+- [ ] 2.3 Add the changelog entry (changelog_unreleased/html/17501.md)
-diff --git a/src/language-html/utils/index.js b/src/language-html/utils/index.js
-index 1196bbd16..0fca93c18 100644
---- a/src/language-html/utils/index.js
-+++ b/src/language-html/utils/index.js
-@@ -499,24 +499,30 @@ function getNodeCssStyleDisplay(node, options) {
-     case "ignore":
-       return "block";
-     default:
--      return (
--        (node.type === "element" &&
--          (!node.namespace ||
--            isInSvgForeignObject ||
--            isUnknownNamespace(node)) &&
--          CSS_DISPLAY_TAGS[node.name]) ||
--        CSS_DISPLAY_DEFAULT
--      );
-+      if (
-+        node.type === "element" &&
-+        (!node.namespace || isInSvgForeignObject || isUnknownNamespace(node))
-+      ) {
-+        const tagName = node.name.toLowerCase();
-+        if (Object.hasOwn(CSS_DISPLAY_TAGS, tagName)) {
-+          return CSS_DISPLAY_TAGS[tagName];
-+        }
-+      }
-   }
-+
-+  return CSS_DISPLAY_DEFAULT;
++- [ ] 2.1 Read the source type from the file extension: `.cjs` is a script, `.mjs` is a module, matched without case, anything else unknown (src/language-js/parse/utils/get-source-type.js)
++- [ ] 2.2 Parse with only that source type when it is known, and keep trying module then script when it is not (src/language-js/parse/acorn.js, espree.js, meriyah.js)
++- [ ] 2.3 Let babel use the same source type when no explicit one is given, and reject import and export in script code as the other parsers do (src/language-js/parse/babel.js)
++- [ ] 2.4 Take the combinations as one array (src/utils/try-combinations.js, src/language-js/parse/typescript.js)
+diff --git a/src/language-js/parse/acorn.js b/src/language-js/parse/acorn.js
+index d7abbb801..7b23d38c1 100644
+--- a/src/language-js/parse/acorn.js
++++ b/src/language-js/parse/acorn.js
+@@ -3,15 +3,16 @@ import createError from "../../common/parser-create-error.js";
+ import tryCombinations from "../../utils/try-combinations.js";
+ import createParser from "./utils/create-parser.js";
+ import postprocess from "./postprocess/index.js";
++import getSourceType from "./utils/get-source-type.js";
+
+ const require = createRequire(import.meta.url);
+
+ /** @type {import("acorn").Options} */
+ const parseOptions = {
+   ecmaVersion: "latest",
+-  sourceType: "module",
++  // sourceType: "module",
+   allowReturnOutsideFunction: true,
+-  allowImportExportEverywhere: true,
++  // allowImportExportEverywhere: true,
+   allowSuperOutsideMethod: true,
+   locations: true,
+   ranges: true,
+@@ -55,6 +56,7 @@ function parseWithOptions(text, sourceType) {
+   const ast = parser.parse(text, {
+     ...parseOptions,
+     sourceType,
++    allowImportExportEverywhere: sourceType === "module",
+     onComment: comments,
+     onToken: tokens,
+   });
+@@ -65,14 +67,15 @@ function parseWithOptions(text, sourceType) {
  }
- 
- function getNodeCssStyleWhiteSpace(node) {
--  return (
--    (node.type === "element" &&
--      (!node.namespace || isUnknownNamespace(node)) &&
--      CSS_WHITE_SPACE_TAGS[node.name]) ||
--    CSS_WHITE_SPACE_DEFAULT
+
+ function parse(text, options = {}) {
+-  const { result: ast, error: moduleParseError } = tryCombinations(
+-    () => parseWithOptions(text, /* sourceType */ "module"),
+-    () => parseWithOptions(text, /* sourceType */ "script")
++  const sourceType = getSourceType(options);
++  const combinations = (sourceType ? [sourceType] : ["module", "script"]).map(
++    (sourceType) => () => parseWithOptions(text, sourceType)
+   );
+
++  const { result: ast, error } = tryCombinations(combinations);
++
+   if (!ast) {
+-    // throw the error for `module` parsing
+-    throw createParseError(moduleParseError);
++    throw createParseError(error);
+   }
+
+   options.originalText = text;
+diff --git a/src/language-js/parse/babel.js b/src/language-js/parse/babel.js
+index 04fa3be84..224fd0267 100644
+--- a/src/language-js/parse/babel.js
++++ b/src/language-js/parse/babel.js
+@@ -6,6 +6,7 @@ import jsonParsers from "../../language-json/parser-json.js";
+ import createParser from "./utils/create-parser.js";
+ import createBabelParseError from "./utils/create-babel-parse-error.js";
+ import postprocess from "./postprocess/index.js";
++import getSourceType from "./utils/get-source-type.js";
+
+ /**
+  * @typedef {import("@babel/parser").parse | import("@babel/parser").parseExpression} Parse
+@@ -106,10 +107,12 @@ function createParse(parseMethod, ...optionsCombinations) {
+     }
+
+     let combinations = optionsCombinations;
+-    if (opts.__babelSourceType === "script") {
++    const sourceType = opts.__babelSourceType ?? getSourceType(opts);
++    if (sourceType === "script") {
+       combinations = combinations.map((options) => ({
+         ...options,
+         sourceType: "script",
++        allowImportExportEverywhere: false,
+       }));
+     }
+
+@@ -143,7 +146,7 @@ function createParse(parseMethod, ...optionsCombinations) {
+     const parseFunction =
+       parseMethod === "parseExpression" ? parseExpression : babelParse;
+     const { result: ast, error } = tryCombinations(
+-      ...combinations.map(
++      combinations.map(
+         (options) => () => parseWithOptions(parseFunction, text, options)
+       )
+     );
+diff --git a/src/language-js/parse/espree.js b/src/language-js/parse/espree.js
+index ebca17002..3d18b1538 100644
+--- a/src/language-js/parse/espree.js
++++ b/src/language-js/parse/espree.js
+@@ -3,6 +3,7 @@ import createError from "../../common/parser-create-error.js";
+ import tryCombinations from "../../utils/try-combinations.js";
+ import createParser from "./utils/create-parser.js";
+ import postprocess from "./postprocess/index.js";
++import getSourceType from "./utils/get-source-type.js";
+
+ const require = createRequire(import.meta.url);
+
+@@ -38,14 +39,16 @@ function createParseError(error) {
+ function parse(text, options = {}) {
+   const { parse: espreeParse } = require("espree");
+
+-  const { result: ast, error: moduleParseError } = tryCombinations(
+-    () => espreeParse(text, { ...parseOptions, sourceType: "module" }),
+-    () => espreeParse(text, { ...parseOptions, sourceType: "script" })
++  const sourceType = getSourceType(options);
++  const combinations = (sourceType ? [sourceType] : ["module", "script"]).map(
++    (/** @type {"module"|"script"} */ sourceType) => () =>
++      espreeParse(text, { ...parseOptions, sourceType })
+   );
+
++  const { result: ast, error } = tryCombinations(combinations);
++
+   if (!ast) {
+-    // throw the error for `module` parsing
+-    throw createParseError(moduleParseError);
++    throw createParseError(error);
+   }
+
+   options.originalText = text;
+diff --git a/src/language-js/parse/meriyah.js b/src/language-js/parse/meriyah.js
+index fe8242219..002f8e148 100644
+--- a/src/language-js/parse/meriyah.js
++++ b/src/language-js/parse/meriyah.js
+@@ -2,11 +2,12 @@ import createError from "../../common/parser-create-error.js";
+ import tryCombinations from "../../utils/try-combinations.js";
+ import createParser from "./utils/create-parser.js";
+ import postprocess from "./postprocess/index.js";
++import getSourceType from "./utils/get-source-type.js";
+
+ // https://github.com/meriyah/meriyah/blob/4676f60b6c149d7082bde2c9147f9ae2359c8075/src/parser.ts#L185
+ const parseOptions = {
+   // Allow module code
+-  module: true,
++  // module: true,
+   // Enable stage 3 support (ESNext)
+   next: true,
+   // Enable start and end offsets to each node
+@@ -39,14 +40,14 @@ const parseOptions = {
+   uniqueKeyInPattern: false,
+ };
+
+-function parseWithOptions(parse, text, module) {
++function parseWithOptions(parse, text, sourceType) {
+   const comments = [];
+   const tokens = [];
+
+   /** @type {any} */
+   const ast = parse(text, {
+     ...parseOptions,
+-    module,
++    module: sourceType === "module",
+     onComment: comments,
+     onToken: tokens,
+   });
+@@ -86,14 +87,15 @@ function createParseError(error) {
+
+ async function parse(text, options = {}) {
+   const { parse } = await import("meriyah");
+-  const { result: ast, error: moduleParseError } = tryCombinations(
+-    () => parseWithOptions(parse, text, /* module */ true),
+-    () => parseWithOptions(parse, text, /* module */ false)
++
++  const sourceType = getSourceType(options);
++  const combinations = (sourceType ? [sourceType] : ["module", "script"]).map(
++    (sourceType) => () => parseWithOptions(parse, text, sourceType)
+   );
++  const { result: ast, error } = tryCombinations(combinations);
+
+   if (!ast) {
+-    // Throw the error for `module` parsing
+-    throw createParseError(moduleParseError);
++    throw createParseError(error);
+   }
+
+   options.originalText = text;
+diff --git a/src/language-js/parse/typescript.js b/src/language-js/parse/typescript.js
+index 50ee8adb4..058807696 100644
+--- a/src/language-js/parse/typescript.js
++++ b/src/language-js/parse/typescript.js
+@@ -42,16 +42,16 @@ async function parse(text, options = {}) {
+   const { parseWithNodeMaps } = await import(
+     "@typescript-eslint/typescript-estree/dist/parser.js"
+   );
+-  const { result, error: firstError } = tryCombinations(
++  const { result, error } = tryCombinations([
+     // Try passing with our best guess first.
+     () => parseWithNodeMaps(textToParse, { ...parseOptions, jsx }),
+     // But if we get it wrong, try the opposite.
+-    () => parseWithNodeMaps(textToParse, { ...parseOptions, jsx: !jsx })
 -  );
-+  if (
-+    node.type === "element" &&
-+    (!node.namespace || isUnknownNamespace(node)) &&
-+    Object.hasOwn(CSS_WHITE_SPACE_TAGS, node.name)
-+  ) {
-+    return CSS_WHITE_SPACE_TAGS[node.name];
++    () => parseWithNodeMaps(textToParse, { ...parseOptions, jsx: !jsx }),
++  ]);
+
+   if (!result) {
+     // Suppose our guess is correct, throw the first error
+-    throw createParseError(firstError);
++    throw createParseError(error);
+   }
+
+   options.originalText = text;
+diff --git a/src/language-js/parse/utils/get-source-type.js b/src/language-js/parse/utils/get-source-type.js
+new file mode 100644
+index 000000000..ce721f0c1
+--- /dev/null
++++ b/src/language-js/parse/utils/get-source-type.js
+@@ -0,0 +1,18 @@
++/** @returns {"module" | "script" | undefined} */
++function getSourceType(options) {
++  let { filepath } = options;
++  if (!filepath) {
++    return;
++  }
++  filepath = filepath.toLowerCase();
++
++  if (filepath.endsWith(".cjs")) {
++    return "script";
 +  }
 +
-+  return CSS_WHITE_SPACE_DEFAULT;
- }
- 
- function getMinIndentation(text) {
-diff --git a/tests/format/html/tags/object-prototype-properties/__snapshots__/format.test.js.snap b/tests/format/html/tags/object-prototype-properties/__snapshots__/format.test.js.snap
++  if (filepath.endsWith(".mjs")) {
++    return "module";
++  }
++}
++
++export default getSourceType;
+diff --git a/src/utils/try-combinations.js b/src/utils/try-combinations.js
+index 4e9714549..4f628f27f 100644
+--- a/src/utils/try-combinations.js
++++ b/src/utils/try-combinations.js
+@@ -1,4 +1,4 @@
+-function tryCombinations(...combinations) {
++function tryCombinations(combinations) {
+   let firstError;
+   for (const [index, fn] of combinations.entries()) {
+     try {
+diff --git a/tests/format/misc/errors/js/known-source-type/__snapshots__/jsfmt.spec.js.snap b/tests/format/misc/errors/js/known-source-type/__snapshots__/jsfmt.spec.js.snap
 new file mode 100644
-index 000000000..01c2cf3ed
+index 000000000..79f98bebc
 --- /dev/null
-+++ b/tests/format/html/tags/object-prototype-properties/__snapshots__/format.test.js.snap
-@@ -0,0 +1,37 @@
++++ b/tests/format/misc/errors/js/known-source-type/__snapshots__/jsfmt.spec.js.snap
+@@ -0,0 +1,55 @@
 +// Jest Snapshot v1, https://goo.gl/fbAQLP
 +
-+exports[`object-prototype-properties.html format 1`] = `
-+====================================options=====================================
-+parsers: ["html"]
-+printWidth: 80
-+                                                                                | printWidth
-+=====================================input======================================
-+<constructor>constructor</constructor>
-+<hasOwnProperty>hasOwnProperty</hasOwnProperty>
-+<isPrototypeOf>isPrototypeOf</isPrototypeOf>
-+<propertyIsEnumerable>propertyIsEnumerable</propertyIsEnumerable>
-+<toLocaleString>toLocaleString</toLocaleString>
-+<toString>toString</toString>
-+<valueOf>valueOf</valueOf>
-+<!-- <__defineGetter__>__defineGetter__</__defineGetter__> -->
-+<!-- <__defineSetter__>__defineSetter__</__defineSetter__> -->
-+<!-- <__lookupGetter__>__lookupGetter__</__lookupGetter__> -->
-+<!-- <__lookupSetter__>__lookupSetter__</__lookupSetter__> -->
-+<!-- <__proto__>__proto__</__proto__> -->
-+
-+=====================================output=====================================
-+<constructor>constructor</constructor>
-+<hasOwnProperty>hasOwnProperty</hasOwnProperty>
-+<isPrototypeOf>isPrototypeOf</isPrototypeOf>
-+<propertyIsEnumerable>propertyIsEnumerable</propertyIsEnumerable>
-+<toLocaleString>toLocaleString</toLocaleString>
-+<toString>toString</toString>
-+<valueOf>valueOf</valueOf>
-+<!-- <__defineGetter__>__defineGetter__</__defineGetter__> -->
-+<!-- <__defineSetter__>__defineSetter__</__defineSetter__> -->
-+<!-- <__lookupGetter__>__lookupGetter__</__lookupGetter__> -->
-+<!-- <__lookupSetter__>__lookupSetter__</__lookupSetter__> -->
-+<!-- <__proto__>__proto__</__proto__> -->
-+
-+================================================================================
++exports[`snippet: #0 [acorn] format 1`] = `
++"'import' and 'export' may appear only with 'sourceType: module' (1:1)
++> 1 | import "foo"
++    | ^"
 +`;
-diff --git a/tests/format/html/tags/object-prototype-properties/format.test.js b/tests/format/html/tags/object-prototype-properties/format.test.js
++
++exports[`snippet: #0 [espree] format 1`] = `
++"'import' and 'export' may appear only with 'sourceType: module' (1:1)
++> 1 | import "foo"
++    | ^"
++`;
++
++exports[`snippet: #0 [meriyah] format 1`] = `
++"The import keyword can only be used with the module goal (1:12)
++> 1 | import "foo"
++    |            ^"
++`;
++
++exports[`snippet: #1 [acorn] format 1`] = `
++"'with' in strict mode (1:1)
++> 1 | with(foo) {}
++    | ^"
++`;
++
++exports[`snippet: #1 [espree] format 1`] = `
++"'with' in strict mode (1:1)
++> 1 | with(foo) {}
++    | ^"
++`;
++
++exports[`snippet: #1 [meriyah] format 1`] = `
++"Strict mode code may not include a with statement (1:5)
++> 1 | with(foo) {}
++    |     ^"
++`;
++
++exports[`snippet: #2 [acorn] format 1`] = `
++"Deleting local variable in strict mode (1:1)
++> 1 | delete foo
++    | ^"
++`;
++
++exports[`snippet: #2 [espree] format 1`] = `
++"Deleting local variable in strict mode (1:1)
++> 1 | delete foo
++    | ^"
++`;
++
++exports[`snippet: #2 [meriyah] format 1`] = `
++"Calling delete on expression not allowed in strict mode (1:10)
++> 1 | delete foo
++    |          ^"
++`;
+diff --git a/tests/format/misc/errors/js/known-source-type/jsfmt.spec.js b/tests/format/misc/errors/js/known-source-type/jsfmt.spec.js
 new file mode 100644
-index 000000000..88a427864
+index 000000000..732019d1f
 --- /dev/null
-+++ b/tests/format/html/tags/object-prototype-properties/format.test.js
-@@ -0,0 +1 @@
-+runFormatTest(import.meta, ["html"]);
-diff --git a/tests/format/html/tags/object-prototype-properties/object-prototype-properties.html b/tests/format/html/tags/object-prototype-properties/object-prototype-properties.html
-new file mode 100644
-index 000000000..f3855a49e
---- /dev/null
-+++ b/tests/format/html/tags/object-prototype-properties/object-prototype-properties.html
-@@ -0,0 +1,12 @@
-+<constructor>constructor</constructor>
-+<hasOwnProperty>hasOwnProperty</hasOwnProperty>
-+<isPrototypeOf>isPrototypeOf</isPrototypeOf>
-+<propertyIsEnumerable>propertyIsEnumerable</propertyIsEnumerable>
-+<toLocaleString>toLocaleString</toLocaleString>
-+<toString>toString</toString>
-+<valueOf>valueOf</valueOf>
-+<!-- <__defineGetter__>__defineGetter__</__defineGetter__> -->
-+<!-- <__defineSetter__>__defineSetter__</__defineSetter__> -->
-+<!-- <__lookupGetter__>__lookupGetter__</__lookupGetter__> -->
-+<!-- <__lookupSetter__>__lookupSetter__</__lookupSetter__> -->
-+<!-- <__proto__>__proto__</__proto__> -->
++++ b/tests/format/misc/errors/js/known-source-type/jsfmt.spec.js
+@@ -0,0 +1,20 @@
++run_spec(
++  {
++    importMeta: import.meta,
++    snippets: [
++      {
++        code: 'import "foo"',
++        filename: "script.cjs",
++      },
++      {
++        code: "with(foo) {}",
++        filename: "module.mjs",
++      },
++      {
++        code: "delete foo",
++        filename: "module.mJs",
++      },
++    ],
++  },
++  ["acorn", "espree", "meriyah"]
++);

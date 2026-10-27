@@ -11,11 +11,11 @@
   "truth": {
     "class": "P4",
     "pattern": "rejects-held-input",
-    "description": "createIsIgnoredFunction now turns every ignore file into a URL resolved against url.pathToFileURL(process.cwd()), which has no trailing slash, so a relative path such as the .gitignore and .prettierignore that the CLI passes from context.argv.ignorePath through createIsIgnoredFromContextOrDie is read from the parent folder and the project's own ignore files stop applying.",
+    "description": "createIsIgnoredFunction now throws a TypeError for every ignore file that is not a string or URL, but getFileInfo wraps the options.ignorePath it holds into an array even when it is missing and passes that [undefined] on through isIgnored, so every prettier.getFileInfo() call without an ignorePath rejects instead of reporting the file.",
     "locations": [
-      {"file": "src/utils/ignore.js", "start": 70, "end": 75, "side": "head"},
-      {"file": "src/cli/format.js", "start": 235, "end": 240, "side": "head"},
-      {"file": "src/cli/cli-options.evaluate.js", "start": 195, "end": 198, "side": "head"}
+      {"file": "src/utils/ignore.js", "start": 65, "end": 71, "side": "head"},
+      {"file": "src/common/get-file-info.js", "start": 26, "end": 32, "side": "head"},
+      {"file": "src/utils/ignore.js", "start": 94, "end": 96, "side": "head"}
     ]
   },
   "distractions": [

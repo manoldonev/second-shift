@@ -1,6 +1,6 @@
 diff --git a/docs/plans/vite-14654-plan.md b/docs/plans/vite-14654-plan.md
 new file mode 100644
-index 000000000..c607c0b62
+index 000000000..7b108c1bd
 --- /dev/null
 +++ b/docs/plans/vite-14654-plan.md
 @@ -0,0 +1,14 @@
@@ -12,50 +12,26 @@ index 000000000..c607c0b62
 +
 +## 2. Module graph
 +
-+- [ ] 2.1 Record the statically imported urls of each module next to its imported modules (packages/vite/src/node/server/moduleGraph.ts, packages/vite/src/node/plugins/importAnalysis.ts)
-+- [ ] 2.2 Soft-invalidate an importer that imports the changed module statically, keeping its previous transform result; hard-invalidate every other importer (packages/vite/src/node/server/moduleGraph.ts)
++- [ ] 2.1 Record the files that plugins added with `addWatchFile` for each module next to its imported modules (packages/vite/src/node/server/moduleGraph.ts, packages/vite/src/node/plugins/importAnalysis.ts)
++- [ ] 2.2 Soft-invalidate an importer that imports the changed module in code, keeping its previous transform result; hard-invalidate an importer that only watches it (packages/vite/src/node/server/moduleGraph.ts)
 +
 +## 3. Transform
 +
 +- [ ] 3.1 Serve a soft-invalidated module from its previous transform result with the import timestamps updated (packages/vite/src/node/server/transformRequest.ts)
 diff --git a/packages/vite/src/node/plugins/importAnalysis.ts b/packages/vite/src/node/plugins/importAnalysis.ts
-index 88832054d..becbd0d55 100644
+index 88832054d..bdfa2d51d 100644
 --- a/packages/vite/src/node/plugins/importAnalysis.ts
 +++ b/packages/vite/src/node/plugins/importAnalysis.ts
-@@ -31,6 +31,7 @@ import {
-   injectQuery,
-   isBuiltin,
-   isDataUrl,
-+  isDefined,
-   isExternalUrl,
-   isInNodeModules,
-   isJSRequest,
-@@ -677,9 +678,12 @@ export function importAnalysisPlugin(config: ResolvedConfig): Plugin {
-         }),
-       )
- 
--      const importedUrls = new Set(
--        orderedImportedUrls.filter(Boolean) as string[],
--      )
-+      const _orderedImportedUrls = orderedImportedUrls.filter(isDefined)
-+      const importedUrls = new Set(_orderedImportedUrls)
-+      // `importedUrls` will be mixed with watched files for the module graph,
-+      // `staticImportedUrls` will only contain the static top-level imports and
-+      // dynamic imports
-+      const staticImportedUrls = new Set(_orderedImportedUrls)
-       const acceptedUrls = mergeAcceptedUrls(orderedAcceptedUrls)
-       const acceptedExports = mergeAcceptedUrls(orderedAcceptedExports)
- 
-@@ -767,6 +771,7 @@ export function importAnalysisPlugin(config: ResolvedConfig): Plugin {
-           isPartiallySelfAccepting ? acceptedExports : null,
+@@ -768,6 +768,7 @@ export function importAnalysisPlugin(config: ResolvedConfig): Plugin {
            isSelfAccepting,
            ssr,
-+          staticImportedUrls,
          )
++        importerModule.pluginWatchedFiles = new Set(pluginImports)
          if (hasHMR && prunedImports) {
            handlePrunedModules(prunedImports, server)
+         }
 diff --git a/packages/vite/src/node/server/moduleGraph.ts b/packages/vite/src/node/server/moduleGraph.ts
-index 888f8d72d..9266e2090 100644
+index 888f8d72d..caf94c412 100644
 --- a/packages/vite/src/node/server/moduleGraph.ts
 +++ b/packages/vite/src/node/server/moduleGraph.ts
 @@ -36,6 +36,28 @@ export class ModuleNode {
@@ -78,13 +54,13 @@ index 888f8d72d..9266e2090 100644
 +   */
 +  ssrInvalidationState: TransformResult | 'HARD_INVALIDATED' | undefined
 +  /**
-+   * The module urls that are statically imported in the code. This information is separated
-+   * out from `importedModules` as only importers that statically import the module can be
-+   * soft invalidated. Other imports (e.g. watched files) needs the importer to be hard invalidated.
++   * The files that plugins added with `addWatchFile` while transforming this module. They are
++   * part of `importedModules`, but the code does not import them: their content can feed the
++   * transform itself, so a change to one of them needs this module to be hard invalidated.
 +   * @internal
 +   */
-+  staticImportedUrls?: Set<string>
- 
++  pluginWatchedFiles?: Set<string>
+
    /**
     * @param setIsSelfAccepting - set `false` to set `isSelfAccepting` later. e.g. #7870
 @@ -131,11 +153,35 @@ export class ModuleGraph {
@@ -132,17 +108,19 @@ index 888f8d72d..9266e2090 100644
      // Don't invalidate mod.info and mod.meta, as they are part of the processing pipeline
      // Invalidating the transform result is enough to ensure this module is re-processed next time it is requested
      mod.transformResult = null
-@@ -160,7 +207,20 @@ export class ModuleGraph {
+@@ -160,7 +207,22 @@ export class ModuleGraph {
      }
      mod.importers.forEach((importer) => {
        if (!importer.acceptedHmrDeps.has(mod)) {
 -        this.invalidateModule(importer, seen, timestamp, isHmr)
-+        // If the importer statically imports the current module, we can soft-invalidate the importer
-+        // to only update the import timestamps. If it's not statically imported, e.g. watched/glob file,
-+        // we can only soft invalidate if the current module was also soft-invalidated. A soft-invalidation
-+        // doesn't need to trigger a re-load and re-transform of the importer.
++        // If the importer only watches the current module, the module's content can feed the
++        // importer's transform, so it is hard invalidated unless the current module was itself
++        // soft-invalidated. Otherwise the importer imports it in code and we can soft-invalidate
++        // the importer to only update the import timestamps, without a re-load and re-transform.
++        const isWatchedByImporter =
++          !!mod.file && !!importer.pluginWatchedFiles?.has(mod.file)
 +        const shouldSoftInvalidateImporter =
-+          importer.staticImportedUrls?.has(mod.url) || softInvalidate
++          !isWatchedByImporter || softInvalidate
 +        this.invalidateModule(
 +          importer,
 +          seen,
@@ -154,34 +132,8 @@ index 888f8d72d..9266e2090 100644
        }
      })
    }
-@@ -177,6 +237,9 @@ export class ModuleGraph {
-    * Update the module graph based on a module's updated imports information
-    * If there are dependencies that no longer have any importers, they are
-    * returned as a Set.
-+   *
-+   * @param staticImportedUrls Subset of `importedModules` where they're statically imported in code.
-+   *   This is only used for soft invalidations so `undefined` is fine but may cause more runtime processing.
-    */
-   async updateModuleInfo(
-     mod: ModuleNode,
-@@ -186,6 +249,7 @@ export class ModuleGraph {
-     acceptedExports: Set<string> | null,
-     isSelfAccepting: boolean,
-     ssr?: boolean,
-+    staticImportedUrls?: Set<string>,
-   ): Promise<Set<ModuleNode> | undefined> {
-     mod.isSelfAccepting = isSelfAccepting
-     const prevImports = ssr ? mod.ssrImportedModules : mod.clientImportedModules
-@@ -257,6 +321,7 @@ export class ModuleGraph {
-     }
- 
-     mod.acceptedHmrDeps = new Set(resolveResults)
-+    mod.staticImportedUrls = staticImportedUrls
- 
-     // update accepted hmr exports
-     mod.acceptedHmrExports = acceptedExports
 diff --git a/packages/vite/src/node/server/transformRequest.ts b/packages/vite/src/node/server/transformRequest.ts
-index 69304c7f9..269965027 100644
+index 69304c7f9..5b485ed6c 100644
 --- a/packages/vite/src/node/server/transformRequest.ts
 +++ b/packages/vite/src/node/server/transformRequest.ts
 @@ -3,6 +3,8 @@ import path from 'node:path'
@@ -193,7 +145,7 @@ index 69304c7f9..269965027 100644
  import type { PartialResolvedId, SourceDescription, SourceMap } from 'rollup'
  import colors from 'picocolors'
  import type { ModuleNode, ViteDevServer } from '..'
-@@ -10,10 +12,13 @@ import {
+@@ -10,10 +12,14 @@ import {
    blankReplacer,
    cleanUrl,
    createDebugger,
@@ -202,20 +154,26 @@ index 69304c7f9..269965027 100644
    prettifyUrl,
 +  removeImportQuery,
    removeTimestampQuery,
++  stripBase,
    timeFrom,
 +  unwrapId,
  } from '../utils'
  import { checkPublicFile } from '../plugins/asset'
  import { getDepsOptimizer } from '../optimizer'
-@@ -128,16 +133,20 @@ async function doTransform(
- 
+@@ -128,16 +134,25 @@ async function doTransform(
+
    const module = await server.moduleGraph.getModuleByUrl(url, ssr)
- 
+
 +  // tries to handle soft invalidation of the module if available,
 +  // returns a boolean true is successful, or false if no handling is needed
 +  const softInvalidatedTransformResult =
 +    module &&
-+    (await handleModuleSoftInvalidation(module, ssr, timestamp))
++    (await handleModuleSoftInvalidation(
++      module,
++      ssr,
++      timestamp,
++      server.config.base,
++    ))
 +  if (softInvalidatedTransformResult) {
 +    debugCache?.(`[memory-hmr] ${prettyUrl}`)
 +    return softInvalidatedTransformResult
@@ -234,7 +192,7 @@ index 69304c7f9..269965027 100644
      debugCache?.(`[memory] ${prettyUrl}`)
      return cached
    }
-@@ -357,3 +366,88 @@ function createConvertSourceMapReadMap(originalFileName: string) {
+@@ -357,3 +372,92 @@ function createConvertSourceMapReadMap(originalFileName: string) {
      )
    }
  }
@@ -250,6 +208,7 @@ index 69304c7f9..269965027 100644
 +  mod: ModuleNode,
 +  ssr: boolean,
 +  timestamp: number,
++  base: string,
 +) {
 +  const transformResult = ssr ? mod.ssrInvalidationState : mod.invalidationState
 +
@@ -288,7 +247,10 @@ index 69304c7f9..269965027 100644
 +      }
 +
 +      const urlWithoutTimestamp = removeTimestampQuery(rawUrl)
-+      const hmrUrl = unwrapId(removeImportQuery(urlWithoutTimestamp))
++      // hmrUrl must be derived the same way as importAnalysis
++      const hmrUrl = unwrapId(
++        stripBase(removeImportQuery(urlWithoutTimestamp), base),
++      )
 +      for (const importedMod of mod.clientImportedModules) {
 +        if (importedMod.url !== hmrUrl) continue
 +        if (importedMod.lastHMRTimestamp > 0) {
@@ -330,7 +292,7 @@ index 02371a836..fcfec0f35 100644
 @@ -171,6 +171,20 @@ if (!isBuild) {
      await untilUpdated(() => el.textContent(), 'child updated')
    })
- 
+
 +  test('soft invalidate', async () => {
 +    const el = await page.$('.soft-invalidation')
 +    expect(await el.textContent()).toBe(
@@ -357,7 +319,7 @@ index 3fd552c1e..872258511 100644
  import './intermediate-file-delete'
  import logo from './logo.svg'
 +import { msg as softInvalidationMsg } from './soft-invalidation'
- 
+
  export const foo = 1
  text('.app', foo)
  text('.dep', depFoo)
@@ -365,7 +327,7 @@ index 3fd552c1e..872258511 100644
  text('.virtual', virtual)
 +text('.soft-invalidation', softInvalidationMsg)
  setLogo(logo)
- 
+
  const btn = document.querySelector('.virtual-update') as HTMLButtonElement
 diff --git a/playground/hmr/index.html b/playground/hmr/index.html
 index 9fac186d5..c21f6b13b 100644
@@ -407,7 +369,7 @@ index 1d952cf12..9ae2186d1 100644
 +    transformCountPlugin(),
    ],
  })
- 
+
 @@ -53,3 +54,15 @@ export const virtual = _virtual + '${num}';`
      },
    }

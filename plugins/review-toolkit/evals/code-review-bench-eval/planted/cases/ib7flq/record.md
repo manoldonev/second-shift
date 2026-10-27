@@ -1,23 +1,22 @@
-# Decision record — #15284 Prettier formatting is inconsistent when using escaping in string
+# Decision record — #15282 Prettier prints a trailing comma after type argument list even if the languages is `ts` in markdown
 
 ## Summary
 
-When the right side of an assignment is a call with a lone string argument, the string is
-measured by its printed form, after quote normalization drops unnecessary escapes, so a string
-with an unnecessary escape and the same string without it get the same layout, and a second
-format no longer changes the output.
+The trailing comma after the lone type parameter of an arrow function, as in `<T,>() => {}`, is
+kept only where the code may be TSX, so a `ts` or `typescript` code block in Markdown prints
+`<T>() => {}` and a `tsx` block keeps the comma.
 
 ## Decision Ledger
 
 | ID | Decision | Resolution | Provenance | Kind |
 | --- | --- | --- | --- | --- |
-| D-1 | How a lone string argument is measured | By the string `printString` would print for it under the current options, not by its source text. | user-answered | intent |
-| D-2 | Where the measurement lives | In `isLoneShortArgument`, which receives the formatting options for it. | user-answered | intent |
-| D-3 | What the tests cover | `tests/format/js/strings/escaped.js`: the declaration with and without the escape, under the babel and flow parsers, for trailingComma `all` and `es5`. | user-answered | intent |
+| D-1 | When the comma after a lone type parameter is kept | Wherever the code may be TSX, since `<T>() =>` reads as a JSX tag there; not in TypeScript that cannot hold JSX. | user-answered | intent |
+| D-2 | Where the choice is made | In `shouldForceTrailingComma` in `src/language-js/print/type-parameters.js`, which already makes it; the Markdown embed is not changed. | user-answered | intent |
+| D-3 | What the tests cover | `tests/format/markdown/code/ts-trailing-comma.md`: one `ts`, one `typescript` and one `tsx` block with the same arrow function. | user-answered | intent |
 
 ## Test intent
 
 ACs: AC-1 AC-2
 
-AC-1: escaped.js prints both declarations as a break after = with goog.getMsg("That's all we know") on the next line
-AC-2: escaped.js output is stable on a second format under trailingComma all and es5
+AC-1: the ts and typescript blocks of ts-trailing-comma.md print <T>(value: T) => {} without the comma
+AC-2: the tsx block of ts-trailing-comma.md and tsx-trailing-comma.md keep <T,>(value: T) => {}
