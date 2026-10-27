@@ -4,6 +4,8 @@ You are reviewing ONE pull request of an open-source project as a reviewer would
 
 The checkout at `{checkout}` is on the PR branch. The change under review is
 `git -C {checkout} diff {base}...{head}`. Read anything inside the checkout.
+A file under `docs/plans/` is the author's task plan, which the project's build tooling commits
+with every change.
 
 The ticket this pull request implements:
 
