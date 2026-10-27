@@ -2,8 +2,8 @@
 # corpus-selftest.sh — the shipped corpus passes `planted.py check`, and a copy that lacks any part a case
 # must carry, or holds a marker, or falls short of a class or a P4 pattern, or a new case that misses the
 # size floor or the distraction rule, or an upstream above 40% of the cases, or a runner case whose runner
-# the gate cannot run, or a pilot case that breaks a rule, or an instance in neither form, fails naming it.
-# Pilot cases fill no count of the scored corpus. No network and no model.
+# the gate cannot run, or a promoted or pilot case that breaks a rule, or an instance in neither form, fails
+# naming it. The pilot checks inject a fixture id as PILOT; pilot cases fill no count. No network and no model.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASS=0 FAIL=0
@@ -16,11 +16,19 @@ trap 'rm -rf "$T"' EXIT
 DP="$HERE/../../../../dev-pipeline"
 HAVE_LANE=""; [ -f "$DP/skills/run/run.sh" ] && [ -f "$DP/tools/plan-coverage.sh" ] && [ -f "$DP/tools/verdict-check.sh" ] && HAVE_LANE=1
 check() { if [ -n "$HAVE_LANE" ]; then python3 "$HERE/planted.py" --root "$1" check 2>&1; else python3 "$HERE/planted.py" --root "$1" check 2>/dev/null; fi; }
+check_pilot() { # check_pilot <root> <pilot ids> -> the check's problems with <pilot ids> standing in for PILOT
+  python3 -c '
+import sys; sys.path.insert(0, sys.argv[1]); import planted, pathlib
+problems = planted.check_corpus(pathlib.Path(sys.argv[2]), pilot_ids=frozenset(sys.argv[3].split()))[0]
+print("\n".join(f"check: {p}" for p in problems) or "check: ok")
+sys.exit(1 if problems else 0)' "$HERE" "$1" "$2" 2>/dev/null
+}
 copy() { # copy <name> -> a fresh copy of the corpus at $T/<name>
   mkdir -p "$T/$1" && cp -R "$HERE/cases" "$HERE/overlays" "$HERE/NOTICE" "$T/$1/" && printf '%s' "$T/$1"
 }
-expect_red() { # expect_red <root> <what> <message the check must print>
-  local out rc; out="$(check "$1")"; rc=$?
+expect_red() { # expect_red <root> <what> <message the check must print> [<pilot ids>]
+  local out rc
+  if [ $# -ge 4 ]; then out="$(check_pilot "$1" "$4")"; else out="$(check "$1")"; fi; rc=$?
   if [ "$rc" -ne 0 ] && grep -qF -- "$3" <<<"$out"; then ok "$2"; else bad "$2: rc=$rc, wanted [$3], got: $(head -n 3 <<<"$out" | tr '\n' '|')"; fi
 }
 edit_case() { # edit_case <root> <id> <jq filter>
@@ -29,10 +37,25 @@ edit_case() { # edit_case <root> <id> <jq filter>
 
 echo "== the shipped corpus =="
 out="$(check "$HERE")"; rc=$?
-[ "$rc" -eq 0 ] && [ "$(head -n 1 <<<"$out")" = "check: ok (P1 16, P2 4, P3 4, P4 10, P5 4, control 5; P4 patterns: rejects-held-input 2, dead-guard 2, two-hop-caller 1, omitted-option 1)" ] \
-  && ok "the shipped corpus passes, with sixteen P1 cases and ten P4 cases that cover all four patterns, the pilot cases left out" || bad "shipped corpus: rc=$rc $out"
-[ "$(sed -n 2p <<<"$out")" = "check: pilot 32 P4 (rejects-held-input 8, dead-guard 8, two-hop-caller 8, omitted-option 8)" ] \
-  && ok "the shipped corpus reports 32 pilot cases, 8 per pattern" || bad "pilot line: $(sed -n 2p <<<"$out")"
+[ "$rc" -eq 0 ] && [ "$(head -n 1 <<<"$out")" = "check: ok (P1 16, P2 4, P3 4, P4 16, P5 4, control 5; P4 patterns: rejects-held-input 3, dead-guard 3, two-hop-caller 2, omitted-option 4)" ] \
+  && ok "the shipped corpus passes, with sixteen P1 cases and sixteen P4 cases that cover all four patterns" || bad "shipped corpus: rc=$rc $out"
+[ "$(sed -n 2p <<<"$out")" = "check: pilot 0 P4 (rejects-held-input 0, dead-guard 0, two-hop-caller 0, omitted-option 0)" ] \
+  && ok "the shipped corpus reports no pilot case" || bad "pilot line: $(sed -n 2p <<<"$out")"
+sets="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import planted; print(" ".join(sorted(planted.PROMOTED)), "|", " ".join(sorted(planted.PILOT)))' "$HERE" 2>&1)"
+[ "$sets" = "fx6cim kx5vdb la2swf mn7cuh qb3hzm ug5nrb | " ] \
+  && ok "the six promoted ids sit in PROMOTED and PILOT is empty" || bad "PROMOTED | PILOT: [$sets]"
+left=""
+for id in ar7xch ba4kxe bs2yei ce7nwr cu5zfj dh2qyu dv8agk ew3bhl fm8tzo gj3wvs gy9djn hq6lna hz4eko \
+          ib7flq jc2gmr jt9rme nw4ejk oy8ftq rc6giv sd9kwn tf2mxa vh8qsc wk3tyd xm6uze yn9vaf zq4wbg; do
+  [ -e "$HERE/cases/$id" ] && left="$left $id"
+done
+[ -z "$left" ] && ok "the 26 dropped candidates have no case directory" || bad "dropped candidates still present:$left"
+orphans=""
+for ov in "$HERE"/overlays/*/; do
+  ov="$(basename "$ov")"
+  jq -e --arg ov "$ov" 'select(.overlay == $ov)' "$HERE"/cases/*/case.json >/dev/null || orphans="$orphans $ov"
+done
+[ -z "$orphans" ] && ok "every overlay is still named by a case" || bad "overlays no case names:$orphans"
 hard="$(python3 -c '
 import sys; sys.path.insert(0, sys.argv[1]); import planted, pathlib
 for c in planted.load_cases(pathlib.Path(sys.argv[1])):
@@ -117,10 +140,10 @@ R="$(copy notice)"; grep -v 'github.com/axios/axios' "$HERE/NOTICE" > "$R/NOTICE
 expect_red "$R" "a NOTICE that omits an upstream" "corpus: NOTICE does not name https://github.com/axios/axios"
 
 echo "== the P4 patterns =="
-R="$(copy no-two-hop)"; rm -r "$R/cases/b3v8qn"
-expect_red "$R" "a corpus whose only two-hop case is gone" "corpus: no P4 case has pattern two-hop-caller"
-R="$(copy no-omitted)"; rm -r "$R/cases/q7d2hv"
-expect_red "$R" "a corpus whose only omitted-option case is gone" "corpus: no P4 case has pattern omitted-option"
+R="$(copy no-two-hop)"; rm -r "$R/cases/b3v8qn" "$R/cases/ug5nrb"
+expect_red "$R" "a corpus whose two two-hop cases are gone" "corpus: no P4 case has pattern two-hop-caller"
+R="$(copy no-omitted)"; rm -r "$R/cases/q7d2hv" "$R/cases/fx6cim" "$R/cases/mn7cuh" "$R/cases/qb3hzm"
+expect_red "$R" "a corpus whose four omitted-option cases are gone" "corpus: no P4 case has pattern omitted-option"
 R="$(copy no-pattern)"; edit_case "$R" e7k3wb 'del(.truth.pattern)'
 expect_red "$R" "a new P4 case with no pattern" "e7k3wb: truth.pattern None is not one of"
 R="$(copy odd-pattern)"; edit_case "$R" e7k3wb '.truth.pattern = "far-caller"'
@@ -164,31 +187,42 @@ R="$(copy runner-no-distraction)"; edit_case "$R" t3h7we '.distractions = []'
 expect_red "$R" "a runner P1 case with no distraction" "t3h7we: case.json has no distractions"
 
 echo "== no upstream above 40% of the corpus =="
-R="$(copy cap-41)"; rm -r "$R/cases/k2v7ad" "$R/cases/s4w9mf" "$R/cases/x7c3nh" "$R/cases/g8r2ub"
+R="$(copy cap-41)"; for id in k2v7ad s4w9mf x7c3nh g8r2ub fx6cim kx5vdb la2swf mn7cuh qb3hzm ug5nrb; do rm -r "$R/cases/$id"; done
 expect_red "$R" "dayjs at 16 of 39 cases" "corpus: https://github.com/iamkun/dayjs holds 16 of 39 cases (41.0%), more than 40%"
-R="$(copy cap-40)"; rm -r "$R/cases/k2v7ad" "$R/cases/s4w9mf" "$R/cases/x7c3nh"
+R="$(copy cap-40)"; for id in k2v7ad s4w9mf x7c3nh fx6cim kx5vdb la2swf mn7cuh qb3hzm ug5nrb; do rm -r "$R/cases/$id"; done
 out="$(check "$R")"; rc=$?
 [ "$rc" -eq 0 ] && ! grep -q 'more than 40%' <<<"$out" && ok "dayjs at exactly 16 of 40 cases passes" || bad "cap at 40%: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
 R="$(copy cap-readme)"; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do cp -R "$R/cases/g8r2ub" "$R/cases/g8r$(printf '%03d' "$i" | tr 0-9 a-j)"; done
 out="$(check "$R")"; rc=$?
-[ "$rc" -ne 0 ] && [ "$out" = "check: corpus: https://github.com/anuraghazra/github-readme-stats holds 34 of 63 cases (54.0%), more than 40%" ] \
-  && ok "readme-stats at 34 of 63 cases fails on its share alone" || bad "readme-stats cap: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
+[ "$rc" -ne 0 ] && [ "$out" = "check: corpus: https://github.com/anuraghazra/github-readme-stats holds 34 of 69 cases (49.3%), more than 40%" ] \
+  && ok "readme-stats at 34 of 69 cases fails on its share alone" || bad "readme-stats cap: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
 
-echo "== the pilot cases =="
-R="$(copy pilot-inside)"; edit_case "$R" ba4kxe '.truth.locations |= .[:1]'
-expect_red "$R" "a pilot case whose every truth range sits inside a hunk" "ba4kxe: no ranged truth location falls outside every hunk of the patch"
-R="$(copy pilot-no-distraction)"; edit_case "$R" la2swf 'del(.distractions)'
-expect_red "$R" "a pilot case with no distraction" "la2swf: case.json has no distractions"
-R="$(copy pilot-no-pattern)"; edit_case "$R" ug5nrb 'del(.truth.pattern)'
-expect_red "$R" "a pilot case with no pattern" "ug5nrb: truth.pattern None is not one of"
-R="$(copy pilot-p1)"; edit_case "$R" cu5zfj '.truth.class = "P1" | del(.truth.pattern)'
-expect_red "$R" "a pilot case outside P4" "cu5zfj: a pilot case is not P4"
-R="$(copy pilot-gone)"; rm -r "$R/cases/jc2gmr"
-expect_red "$R" "a PILOT id with no case" "corpus: PILOT names jc2gmr, which has no case"
-R="$(copy pilot-notice)"; grep -v 'github.com/vitejs/vite' "$HERE/NOTICE" > "$R/NOTICE"
-expect_red "$R" "a NOTICE that omits an upstream only pilot cases come from" "corpus: NOTICE does not name https://github.com/vitejs/vite"
-R="$(copy pilot-cap)"; for id in a7t4yp b3v8qn; do rm -r "$R/cases/$id"; done
+echo "== the promoted cases keep a truth range outside every hunk =="
+R="$(copy promoted-inside)"
+for id in fx6cim kx5vdb la2swf mn7cuh qb3hzm ug5nrb; do edit_case "$R" "$id" '.truth.locations |= .[:1]'; done
 out="$(check "$R")"; rc=$?
+missing=""
+for id in fx6cim kx5vdb la2swf mn7cuh qb3hzm ug5nrb; do
+  grep -qF "$id: no ranged truth location falls outside every hunk of the patch" <<<"$out" || missing="$missing $id"
+done
+[ "$rc" -ne 0 ] && [ -z "$missing" ] && ok "each promoted case whose every truth range sits inside a hunk fails, naming the case" \
+  || bad "promoted inside: rc=$rc, not named:$missing"
+
+echo "== the pilot rules run on a fixture id in PILOT =="
+R="$(copy pilot-inside)"; cp -R "$R/cases/kx5vdb" "$R/cases/pilfix"; edit_case "$R" pilfix '.truth.locations |= .[:1]'
+expect_red "$R" "a pilot case whose every truth range sits inside a hunk" "pilfix: no ranged truth location falls outside every hunk of the patch" pilfix
+R="$(copy pilot-no-distraction)"; cp -R "$R/cases/la2swf" "$R/cases/pilfix"; edit_case "$R" pilfix 'del(.distractions)'
+expect_red "$R" "a pilot case with no distraction" "pilfix: case.json has no distractions" pilfix
+R="$(copy pilot-no-pattern)"; cp -R "$R/cases/ug5nrb" "$R/cases/pilfix"; edit_case "$R" pilfix 'del(.truth.pattern)'
+expect_red "$R" "a pilot case with no pattern" "pilfix: truth.pattern None is not one of" pilfix
+R="$(copy pilot-p1)"; cp -R "$R/cases/mn7cuh" "$R/cases/pilfix"; edit_case "$R" pilfix '.truth.class = "P1" | del(.truth.pattern)'
+expect_red "$R" "a pilot case outside P4" "pilfix: a pilot case is not P4" pilfix
+R="$(copy pilot-gone)"
+expect_red "$R" "a PILOT id with no case" "corpus: PILOT names pilfix, which has no case" pilfix
+R="$(copy pilot-notice)"; mv "$R/cases/fx6cim" "$R/cases/pilfix"; rm -r "$R/cases/qb3hzm"; grep -v 'github.com/vitejs/vite' "$HERE/NOTICE" > "$R/NOTICE"
+expect_red "$R" "a NOTICE that omits an upstream only pilot cases come from" "corpus: NOTICE does not name https://github.com/vitejs/vite" pilfix
+R="$(copy pilot-cap)"; for id in a7t4yp b3v8qn; do rm -r "$R/cases/$id"; done; mv "$R/cases/ug5nrb" "$R/cases/pilfix"
+out="$(check_pilot "$R" pilfix)"; rc=$?
 grep -qF "corpus: class P2 has 3 cases" <<<"$out" && grep -qF "corpus: no P4 case has pattern two-hop-caller" <<<"$out" \
   && ok "pilot cases fill no class and no pattern of the scored corpus" || bad "pilot counts: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
 

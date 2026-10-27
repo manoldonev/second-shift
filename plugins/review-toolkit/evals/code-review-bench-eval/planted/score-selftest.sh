@@ -172,6 +172,19 @@ out="$(pilot)"
 [ "$(sed -n 9p <<<"$out")" = "False False True False" ] && ok "a pilot run or rescore writes no changelog row; a normal run writes one unless --no-record" || bad "rows: $(sed -n 9p <<<"$out")"
 out="$(REVIEWER_MODEL=x JUDGE_MODEL=y python3 "$HERE/planted.py" --root "$R" run --pilot --arm lane 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && [ "$out" = "[planted] --pilot reviews with the plain arm only; drop --arm lane" ] && ok "run --pilot --arm lane exits before any model call" || bad "run --pilot --arm lane: rc=$rc $out"
+out="$(python3 -c '
+import sys; sys.path.insert(0, sys.argv[1]); import planted, pathlib
+try:
+    print(planted.select_cases(planted.load_cases(pathlib.Path(sys.argv[2])), [], True, frozenset()))
+except ValueError as e:
+    print(f"refused: {e}")' "$HERE" "$R")"
+[ "$out" = "refused: --pilot: there are no pilot cases; PILOT is empty" ] && ok "--pilot on an empty pilot set selects nothing and is refused" || bad "empty pilot selection: $out"
+mkdir -p "$T/fakebin"
+printf '#!/bin/sh\necho "$@" >> "%s/claude-called"\nexit 1\n' "$T" > "$T/fakebin/claude"; chmod +x "$T/fakebin/claude"
+out="$(PATH="$T/fakebin:$PATH" REVIEWER_MODEL=x JUDGE_MODEL=y python3 "$HERE/planted.py" --root "$R" run --pilot 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && [ "$out" = "[planted] --pilot: there are no pilot cases; PILOT is empty" ] && [ ! -e "$T/claude-called" ] \
+  && ok "run --pilot with an empty PILOT exits before any model call, saying there are no pilot cases" \
+  || bad "run --pilot on an empty PILOT: rc=$rc claude called: $([ -e "$T/claude-called" ] && echo yes || echo no) $out"
 
 echo "== the per-case report =="
 cases() { python3 "$HERE/planted.py" --root "$R" cases "$T/out-true.json" "$@" 2>&1; }
