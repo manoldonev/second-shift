@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr15364",
+  "license": "MIT",
+  "base": "ae6f9ac25bb677690b26ee4c7ff035724060daf8",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 15364,
+  "pr": 15364,
+  "commit": "feat(api): accept a URL as ignorePath in getFileInfo()",
+  "truth": {
+    "class": "P4",
+    "pattern": "rejects-held-input",
+    "description": "createIsIgnoredFunction now throws a TypeError for every ignore file that is not a string or URL, but getFileInfo wraps the options.ignorePath it holds into an array even when it is missing and passes that [undefined] on through isIgnored, so every prettier.getFileInfo() call without an ignorePath rejects instead of reporting the file.",
+    "locations": [
+      {"file": "src/utils/ignore.js", "start": 65, "end": 71, "side": "head"},
+      {"file": "src/common/get-file-info.js", "start": 26, "end": 32, "side": "head"},
+      {"file": "src/utils/ignore.js", "start": 94, "end": 96, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/utils/read-file.js", "start": 9, "end": 11, "side": "head",
+     "why": "fs.readFile takes a string as a path even when it starts with file:, so a URL string has to become a URL object before the read, while a URL object passes through unchanged."}
+  ]
+}

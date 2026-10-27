@@ -1,0 +1,12 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "core": {
+      "lint": "yarn lint",
+      "test": "yarn test"
+    }
+  }
+}

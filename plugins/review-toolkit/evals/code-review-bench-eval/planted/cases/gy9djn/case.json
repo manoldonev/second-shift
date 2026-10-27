@@ -1,0 +1,26 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr16891",
+  "license": "MIT",
+  "base": "d52e905869dffd6e870fed453f25aaf2f78b736c",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 16889,
+  "pr": 16891,
+  "commit": "fix: keep comments between a decorator and a class method in place",
+  "truth": {
+    "class": "P4",
+    "pattern": "dead-guard",
+    "description": "handleMethodNameComments now keeps an own-line block comment on the decorator when the placement it destructures from its comment context is ownLine, but attachComments builds that context from decorateComment and the comment alone and writes placement only onto the comment object, so placement is always undefined, the new branch never runs and the JSDoc block between @decorator and async method() is still printed after async.",
+    "locations": [
+      {"file": "src/language-js/comments/handle-comments.js", "start": 545, "end": 549, "side": "head"},
+      {"file": "src/language-js/comments/handle-comments.js", "start": 515, "end": 521, "side": "head"},
+      {"file": "src/main/comments/attach.js", "start": 162, "end": 169, "side": "head"},
+      {"file": "src/main/comments/attach.js", "start": 203, "end": 216, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "tests/format/typescript/comments/__snapshots__/format.test.js.snap", "start": 382, "end": 383, "side": "head",
+     "why": "Outside a comment `*/` is not a token, so the generator star is read on its own before the block comment opens and the printed method parses as the input did."}
+  ]
+}

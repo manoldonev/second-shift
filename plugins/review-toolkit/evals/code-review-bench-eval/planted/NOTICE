@@ -1,7 +1,8 @@
 The cases under cases/ are built from issues, fixes and tests of these upstream projects, taken
-from the Multi-SWE-bench dataset (https://huggingface.co/datasets/ByteDance-Seed/Multi-SWE-bench).
-Each case's patch.diff edits the upstream fix. The recipe clones each upstream at the base sha
-its case.json names; no upstream source tree is vendored here.
+from the Multi-SWE-bench dataset (https://huggingface.co/datasets/ByteDance-Seed/Multi-SWE-bench)
+and from merged upstream pull requests outside it. Each case's patch.diff edits the upstream fix.
+The recipe clones each upstream at the base sha its case.json names; no upstream source tree is
+vendored here.
 
 - Day.js — https://github.com/iamkun/dayjs — MIT License, Copyright (c) 2018-present, iamkun
 - Express — https://github.com/expressjs/express — MIT License, Copyright (c) 2009-2014 TJ
@@ -14,6 +15,12 @@ its case.json names; no upstream source tree is vendored here.
   Copyright (c) 2021 Anurag Hazra
 - Vue.js — https://github.com/vuejs/core — MIT License, Copyright (c) 2018-present, Yuxi (Evan)
   You and Vue contributors
+- Vite — https://github.com/vitejs/vite — MIT License, Copyright (c) 2019-present, VoidZero Inc.
+  and Vite contributors
+- Prettier — https://github.com/prettier/prettier — MIT License, Copyright © James Long and
+  contributors
 
-The ticket texts are the upstream issues' text, each with an acceptance-criteria block written
-for its case. Multi-SWE-bench is distributed under its own license on its dataset page.
+The ticket texts are the upstream issues' text, or, for a pull request with no linked issue, a
+problem statement written from the upstream pull request; each carries an acceptance-criteria
+block written for its case. Multi-SWE-bench is distributed under its own license on its dataset
+page.

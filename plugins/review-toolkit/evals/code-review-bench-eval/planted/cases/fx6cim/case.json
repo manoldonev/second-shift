@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vitejs/vite.git",
+  "instance": "vitejs__vite-pr18395",
+  "license": "MIT",
+  "base": "887ce8bc9a04e4f99be8d02630f2077ea3fc54c9",
+  "base_branch": "main",
+  "overlay": "vitejs__vite",
+  "issue": 18395,
+  "pr": 18395,
+  "commit": "feat(resolve)!: allow removing conditions",
+  "truth": {
+    "class": "P4",
+    "pattern": "omitted-option",
+    "description": "resolveExportsOrImports now matches package exports only against options.conditions and adds development or production only for a development|production entry, but createCSSResolvers in css.ts still builds its css, sass and less resolvers with conditions such as ['style'] that omit that entry, so a CSS @import of a package whose style export is split into development and production files fails to resolve.",
+    "locations": [
+      {"file": "packages/vite/src/node/plugins/resolve.ts", "start": 1025, "end": 1030, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/css.ts", "start": 1113, "end": 1116, "side": "head"},
+      {"file": "packages/vite/src/node/idResolver.ts", "start": 23, "end": 27, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/vite/src/node/packages.ts", "start": 226, "end": 233, "side": "head",
+     "why": "The conditions list stays in the cache key and now carries everything overrideConditions and webCompatible used to vary, so resolutions with different conditions still never share a cached entry."}
+  ]
+}

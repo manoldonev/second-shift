@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr15209",
+  "license": "MIT",
+  "base": "d541f0d699af1ed08511565bc10607cb2f0b578b",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 3368,
+  "pr": 15209,
+  "commit": "feat(javascript): avoid introducing line breaks in template literal interpolations",
+  "truth": {
+    "class": "P4",
+    "pattern": "omitted-option",
+    "description": "printInterpolation keeps an interpolation on one line only when keepSourceLineBreaks is passed, which printTemplateLiteral forwards from its own optional argument, and printTypescript in typescript.js still calls printTemplateLiteral for TSTemplateLiteralType without it, so under the typescript parser a long template literal type still splits an interpolation that has no line break in the source, such as a union inside `${...}`, while babel-ts prints the same type through the TemplateLiteral printer and keeps it on one line.",
+    "locations": [
+      {"file": "src/language-js/print/template-literal.js", "start": 120, "end": 124, "side": "head"},
+      {"file": "src/language-js/print/template-literal.js", "start": 26, "end": 31, "side": "head"},
+      {"file": "src/language-js/print/typescript.js", "start": 131, "end": 132, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "tests/format/js/strings/__snapshots__/jsfmt.spec.js.snap", "start": 533, "end": 537, "side": "head",
+     "why": "The input of otherMessage already has a line break inside its second interpolation, so breaking that call across lines is the formatting the rule keeps, while the first interpolation without one stays on its line."}
+  ]
+}

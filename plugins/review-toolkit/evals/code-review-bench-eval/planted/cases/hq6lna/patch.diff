@@ -1,0 +1,717 @@
+diff --git a/docs/plans/prettier-13400-plan.md b/docs/plans/prettier-13400-plan.md
+new file mode 100644
+index 000000000..4d9ca7716
+--- /dev/null
++++ b/docs/plans/prettier-13400-plan.md
+@@ -0,0 +1,14 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A printer that calls print() on a string property, or on a missing property that is not a child key, rejects with the non-node error; a printer without getVisitorKeys is checked against the node's own keys (tests/integration/__tests__/print-pre-check.js) [AC-1]
++- [ ] 1.2 print() on a missing property that is a child key prints nothing (tests/integration/__tests__/print-pre-check.js) [AC-2]
++- [ ] 1.3 TypeScript abstract class properties and GraphQL definitions and extensions format unchanged with the check on (tests/integration/__tests__/print-pre-check.js) [AC-3]
++
++## 2. Fix
++
++- [ ] 2.1 Run the check in mainPrintInternal for every printer, before the empty-value return, against printer.getVisitorKeys or the node's own keys; a no-op in production (src/main/create-print-pre-check-function.js, src/main/ast-to-doc.js)
++- [ ] 2.2 Remove the per-language checks (src/language-{css,graphql,handlebars,html,markdown,yaml}/printer-*.js, src/language-js/printer-estree.js)
++- [ ] 2.3 Stop the built-in printers calling print() on keys their nodes do not have (src/language-graphql/printer-graphql.js, src/language-js/print/assignment.js, src/language-js/print/class.js)
++- [ ] 2.4 Throw for a node type with no visitor keys in every build (src/utils/create-get-visitor-keys.js)
+diff --git a/src/language-css/printer-postcss.js b/src/language-css/printer-postcss.js
+index 778d8254a..e3838f57d 100644
+--- a/src/language-css/printer-postcss.js
++++ b/src/language-css/printer-postcss.js
+@@ -21,7 +21,6 @@ import {
+ } from "../document/builders.js";
+ import { removeLines, getDocParts } from "../document/utils.js";
+ import createGetVisitorKeys from "../utils/create-get-visitor-keys.js";
+-import createPrintPreCheckFunction from "../utils/create-print-pre-check-function.js";
+ import UnexpectedNodeError from "../utils/unexpected-node-error.js";
+ import clean from "./clean.js";
+ import embed from "./embed.js";
+@@ -79,7 +78,6 @@ import { locStart, locEnd } from "./loc.js";
+ import printUnit from "./utils/print-unit.js";
+ 
+ const getVisitorKeys = createGetVisitorKeys(visitorKeys);
+-const ensurePrintingNode = createPrintPreCheckFunction(getVisitorKeys);
+ 
+ function shouldPrintComma(options) {
+   return options.trailingComma === "es5" || options.trailingComma === "all";
+@@ -88,10 +86,6 @@ function shouldPrintComma(options) {
+ function genericPrint(path, options, print) {
+   const node = path.getValue();
+ 
+-  if (process.env.NODE_ENV !== "production") {
+-    ensurePrintingNode(path);
+-  }
+-
+   switch (node.type) {
+     case "front-matter":
+       return [node.raw, hardline];
+diff --git a/src/language-graphql/printer-graphql.js b/src/language-graphql/printer-graphql.js
+index 4493e873e..ecb9b0a9b 100644
+--- a/src/language-graphql/printer-graphql.js
++++ b/src/language-graphql/printer-graphql.js
+@@ -9,22 +9,16 @@ import {
+ } from "../document/builders.js";
+ import { isNextLineEmpty, isNonEmptyArray } from "../common/util.js";
+ import createGetVisitorKeys from "../utils/create-get-visitor-keys.js";
+-import createPrintPreCheckFunction from "../utils/create-print-pre-check-function.js";
+ import UnexpectedNodeError from "../utils/unexpected-node-error.js";
+ import { insertPragma } from "./pragma.js";
+ import { locStart, locEnd } from "./loc.js";
+ import visitorKeys from "./visitor-keys.evaluate.js";
+ 
+ const getVisitorKeys = createGetVisitorKeys(visitorKeys, "kind");
+-const ensurePrintingNode = createPrintPreCheckFunction(getVisitorKeys);
+ 
+ function genericPrint(path, options, print) {
+   const node = path.getValue();
+ 
+-  if (process.env.NODE_ENV !== "production") {
+-    ensurePrintingNode(path);
+-  }
+-
+   switch (node.kind) {
+     case "Document": {
+       const parts = [];
+@@ -232,29 +226,50 @@ function genericPrint(path, options, print) {
+     }
+ 
+     case "ObjectTypeExtension":
+-    case "ObjectTypeDefinition": {
+-      return [
+-        print("description"),
+-        node.description ? hardline : "",
+-        node.kind === "ObjectTypeExtension" ? "extend " : "",
+-        "type ",
+-        print("name"),
+-        node.interfaces.length > 0
+-          ? [" implements ", ...printInterfaces(path, options, print)]
+-          : "",
+-        printDirectives(path, print, node),
+-        node.fields.length > 0
+-          ? [
+-              " {",
+-              indent([
+-                hardline,
+-                join(hardline, printSequence(path, options, print, "fields")),
+-              ]),
+-              hardline,
+-              "}",
+-            ]
+-          : "",
+-      ];
++    case "ObjectTypeDefinition":
++    case "InputObjectTypeExtension":
++    case "InputObjectTypeDefinition":
++    case "InterfaceTypeExtension":
++    case "InterfaceTypeDefinition": {
++      const { kind } = node;
++      const parts = [];
++
++      if (kind.endsWith("TypeDefinition")) {
++        if (node.description) {
++          parts.push(print("description"), hardline);
++        }
++      } else {
++        parts.push("extend ");
++      }
++
++      if (kind.startsWith("ObjectType")) {
++        parts.push("type");
++      } else if (kind.startsWith("InputObjectType")) {
++        parts.push("input");
++      } else {
++        parts.push("interface");
++      }
++      parts.push(" ", print("name"));
++
++      if (!kind.startsWith("InputObjectType") && node.interfaces.length > 0) {
++        parts.push(" implements ", ...printInterfaces(path, options, print));
++      }
++
++      parts.push(printDirectives(path, print, node));
++
++      if (node.fields.length > 0) {
++        parts.push([
++          " {",
++          indent([
++            hardline,
++            join(hardline, printSequence(path, options, print, "fields")),
++          ]),
++          hardline,
++          "}",
++        ]);
++      }
++
++      return parts;
+     }
+ 
+     case "FieldDefinition": {
+@@ -312,8 +327,7 @@ function genericPrint(path, options, print) {
+     case "EnumTypeExtension":
+     case "EnumTypeDefinition": {
+       return [
+-        print("description"),
+-        node.description ? hardline : "",
++        ...(node.description ? [print("description"), hardline] : []),
+         node.kind === "EnumTypeExtension" ? "extend " : "",
+         "enum ",
+         print("name"),
+@@ -353,29 +367,6 @@ function genericPrint(path, options, print) {
+       ];
+     }
+ 
+-    case "InputObjectTypeExtension":
+-    case "InputObjectTypeDefinition": {
+-      return [
+-        print("description"),
+-        node.description ? hardline : "",
+-        node.kind === "InputObjectTypeExtension" ? "extend " : "",
+-        "input ",
+-        print("name"),
+-        printDirectives(path, print, node),
+-        node.fields.length > 0
+-          ? [
+-              " {",
+-              indent([
+-                hardline,
+-                join(hardline, printSequence(path, options, print, "fields")),
+-              ]),
+-              hardline,
+-              "}",
+-            ]
+-          : "",
+-      ];
+-    }
+-
+     case "SchemaExtension": {
+       return [
+         "extend schema",
+@@ -421,32 +412,6 @@ function genericPrint(path, options, print) {
+       return [node.operation, ": ", print("type")];
+     }
+ 
+-    case "InterfaceTypeExtension":
+-    case "InterfaceTypeDefinition": {
+-      return [
+-        print("description"),
+-        node.description ? hardline : "",
+-        node.kind === "InterfaceTypeExtension" ? "extend " : "",
+-        "interface ",
+-        print("name"),
+-        node.interfaces.length > 0
+-          ? [" implements ", ...printInterfaces(path, options, print)]
+-          : "",
+-        printDirectives(path, print, node),
+-        node.fields.length > 0
+-          ? [
+-              " {",
+-              indent([
+-                hardline,
+-                join(hardline, printSequence(path, options, print, "fields")),
+-              ]),
+-              hardline,
+-              "}",
+-            ]
+-          : "",
+-      ];
+-    }
+-
+     case "FragmentSpread": {
+       return ["...", print("name"), printDirectives(path, print, node)];
+     }
+@@ -464,8 +429,7 @@ function genericPrint(path, options, print) {
+     case "UnionTypeExtension":
+     case "UnionTypeDefinition": {
+       return group([
+-        print("description"),
+-        node.description ? hardline : "",
++        ...(node.description ? [print("description"), hardline] : []),
+         group([
+           node.kind === "UnionTypeExtension" ? "extend " : "",
+           "union ",
+@@ -488,8 +452,7 @@ function genericPrint(path, options, print) {
+     case "ScalarTypeExtension":
+     case "ScalarTypeDefinition": {
+       return [
+-        print("description"),
+-        node.description ? hardline : "",
++        ...(node.description ? [print("description"), hardline] : []),
+         node.kind === "ScalarTypeExtension" ? "extend " : "",
+         "scalar ",
+         print("name"),
+diff --git a/src/language-handlebars/printer-glimmer.js b/src/language-handlebars/printer-glimmer.js
+index d1d678f8a..e487453ed 100644
+--- a/src/language-handlebars/printer-glimmer.js
++++ b/src/language-handlebars/printer-glimmer.js
+@@ -12,7 +12,6 @@ import {
+ import { replaceEndOfLine } from "../document/utils.js";
+ import { getPreferredQuote, isNonEmptyArray } from "../common/util.js";
+ import createGetVisitorKeys from "../utils/create-get-visitor-keys.js";
+-import createPrintPreCheckFunction from "../utils/create-print-pre-check-function.js";
+ import UnexpectedNodeError from "../utils/unexpected-node-error.js";
+ import { locStart, locEnd } from "./loc.js";
+ import clean from "./clean.js";
+@@ -31,7 +30,6 @@ import {
+ import visitorKeys from "./visitor-keys.evaluate.js";
+ 
+ const getVisitorKeys = createGetVisitorKeys(visitorKeys);
+-const ensurePrintingNode = createPrintPreCheckFunction(getVisitorKeys);
+ 
+ const NEWLINES_TO_PRESERVE_MAX = 2;
+ 
+@@ -41,10 +39,6 @@ const NEWLINES_TO_PRESERVE_MAX = 2;
+ function print(path, options, print) {
+   const node = path.getValue();
+ 
+-  if (process.env.NODE_ENV !== "production") {
+-    ensurePrintingNode(path);
+-  }
+-
+   const favoriteQuote = options.singleQuote ? "'" : '"';
+ 
+   switch (node.type) {
+diff --git a/src/language-html/printer-html.js b/src/language-html/printer-html.js
+index 72166bd3b..e8f1ea0d8 100644
+--- a/src/language-html/printer-html.js
++++ b/src/language-html/printer-html.js
+@@ -5,7 +5,6 @@
+ import { fill, group, hardline } from "../document/builders.js";
+ import { cleanDoc, replaceEndOfLine } from "../document/utils.js";
+ import createGetVisitorKeys from "../utils/create-get-visitor-keys.js";
+-import createPrintPreCheckFunction from "../utils/create-print-pre-check-function.js";
+ import UnexpectedNodeError from "../utils/unexpected-node-error.js";
+ import clean from "./clean.js";
+ import {
+@@ -28,15 +27,10 @@ import { printChildren } from "./print/children.js";
+ import visitorKeys from "./visitor-keys.js";
+ 
+ const getVisitorKeys = createGetVisitorKeys(visitorKeys);
+-const ensurePrintingNode = createPrintPreCheckFunction(getVisitorKeys);
+ 
+ function genericPrint(path, options, print) {
+   const node = path.getValue();
+ 
+-  if (process.env.NODE_ENV !== "production") {
+-    ensurePrintingNode(path);
+-  }
+-
+   switch (node.type) {
+     case "front-matter":
+       return replaceEndOfLine(node.raw);
+diff --git a/src/language-js/print/assignment.js b/src/language-js/print/assignment.js
+index 0fd328078..36f348bdd 100644
+--- a/src/language-js/print/assignment.js
++++ b/src/language-js/print/assignment.js
+@@ -34,7 +34,9 @@ function printAssignment(
+ ) {
+   const layout = chooseLayout(path, options, print, leftDoc, rightPropertyName);
+ 
+-  const rightDoc = print(rightPropertyName, { assignmentLayout: layout });
++  const rightDoc = rightPropertyName
++    ? print(rightPropertyName, { assignmentLayout: layout })
++    : "";
+ 
+   switch (layout) {
+     // First break after operator, then the sides are broken independently on their own lines
+diff --git a/src/language-js/print/class.js b/src/language-js/print/class.js
+index 4c181954c..9f8441b94 100644
+--- a/src/language-js/print/class.js
++++ b/src/language-js/print/class.js
+@@ -229,7 +229,17 @@ function printClassProperty(path, options, print) {
+     printTypeAnnotation(path, options, print)
+   );
+ 
+-  return [printAssignment(path, options, print, parts, " =", "value"), semi];
++  return [
++    printAssignment(
++      path,
++      options,
++      print,
++      parts,
++      " =",
++      node.type === "TSAbstractPropertyDefinition" ? undefined : "value"
++    ),
++    semi,
++  ];
+ }
+ 
+ export {
+diff --git a/src/language-js/printer-estree.js b/src/language-js/printer-estree.js
+index de2f03941..85a7d5f71 100644
+--- a/src/language-js/printer-estree.js
++++ b/src/language-js/printer-estree.js
+@@ -12,7 +12,6 @@ import {
+   indent,
+ } from "../document/builders.js";
+ import { replaceEndOfLine } from "../document/utils.js";
+-import createPrintPreCheckFunction from "../utils/create-print-pre-check-function.js";
+ import UnexpectedNodeError from "../utils/unexpected-node-error.js";
+ import embed from "./embed.js";
+ import clean from "./clean.js";
+@@ -90,15 +89,9 @@ import { printComment } from "./print/comment.js";
+ import { printLiteral } from "./print/literal.js";
+ import { printDecorators } from "./print/decorators.js";
+ 
+-const ensurePrintingNode = createPrintPreCheckFunction(getVisitorKeys);
+-
+ function genericPrint(path, options, print, args) {
+   const node = path.getValue();
+ 
+-  if (process.env.NODE_ENV !== "production") {
+-    ensurePrintingNode(path);
+-  }
+-
+   const printed = printPathNoParens(path, options, print, args);
+   if (!printed) {
+     return "";
+diff --git a/src/language-markdown/printer-markdown.js b/src/language-markdown/printer-markdown.js
+index 668e7ab9d..d3a644c3e 100644
+--- a/src/language-markdown/printer-markdown.js
++++ b/src/language-markdown/printer-markdown.js
+@@ -23,7 +23,6 @@ import {
+ import { normalizeDoc, replaceEndOfLine } from "../document/utils.js";
+ import { printDocToString } from "../document/printer.js";
+ import createGetVisitorKeys from "../utils/create-get-visitor-keys.js";
+-import createPrintPreCheckFunction from "../utils/create-print-pre-check-function.js";
+ import UnexpectedNodeError from "../utils/unexpected-node-error.js";
+ import embed from "./embed.js";
+ import { insertPragma } from "./pragma.js";
+@@ -42,7 +41,6 @@ import {
+ import visitorKeys from "./visitor-keys.js";
+ 
+ const getVisitorKeys = createGetVisitorKeys(visitorKeys);
+-const ensurePrintingNode = createPrintPreCheckFunction(getVisitorKeys);
+ 
+ /**
+  * @typedef {import("../document/builders.js").Doc} Doc
+@@ -59,10 +57,6 @@ const SIBLING_NODE_TYPES = new Set([
+ function genericPrint(path, options, print) {
+   const node = path.getValue();
+ 
+-  if (process.env.NODE_ENV !== "production") {
+-    ensurePrintingNode(path);
+-  }
+-
+   if (shouldRemainTheSameContent(path)) {
+     return splitText(
+       options.originalText.slice(
+diff --git a/src/language-yaml/printer-yaml.js b/src/language-yaml/printer-yaml.js
+index d50a400ae..1f8bbc529 100644
+--- a/src/language-yaml/printer-yaml.js
++++ b/src/language-yaml/printer-yaml.js
+@@ -12,7 +12,6 @@ import {
+ import { replaceEndOfLine } from "../document/utils.js";
+ import { isPreviousLineEmpty } from "../common/util.js";
+ import createGetVisitorKeys from "../utils/create-get-visitor-keys.js";
+-import createPrintPreCheckFunction from "../utils/create-print-pre-check-function.js";
+ import UnexpectedNodeError from "../utils/unexpected-node-error.js";
+ import { insertPragma, isPragma } from "./pragma.js";
+ import { locStart } from "./loc.js";
+@@ -44,15 +43,10 @@ import printMappingItem from "./print/mapping-item.js";
+ import printBlock from "./print/block.js";
+ 
+ const getVisitorKeys = createGetVisitorKeys(visitorKeys);
+-const ensurePrintingNode = createPrintPreCheckFunction(getVisitorKeys);
+ 
+ function genericPrint(path, options, print) {
+   const node = path.getValue();
+ 
+-  if (process.env.NODE_ENV !== "production") {
+-    ensurePrintingNode(path);
+-  }
+-
+   /** @type {Doc[]} */
+   const parts = [];
+ 
+diff --git a/src/main/ast-to-doc.js b/src/main/ast-to-doc.js
+index 8966af3f2..eba75e827 100644
+--- a/src/main/ast-to-doc.js
++++ b/src/main/ast-to-doc.js
+@@ -3,6 +3,7 @@ import { hardline, addAlignmentToDoc } from "../document/builders.js";
+ import { propagateBreaks } from "../document/utils.js";
+ import { printComments } from "./comments.js";
+ import { printEmbeddedLanguages } from "./multiparser.js";
++import createPrintPreCheckFunction from "./create-print-pre-check-function.js";
+ 
+ /**
+  * Takes an abstract syntax tree (AST) and recursively converts it to a
+@@ -35,7 +36,9 @@ async function printAstToDoc(ast, options, alignmentSize = 0) {
+   const cache = new Map();
+   const path = new AstPath(ast);
+ 
++  const ensurePrintingNode = createPrintPreCheckFunction(options);
+   const embeds = new Map();
++
+   await printEmbeddedLanguages(path, mainPrint, options, printAstToDoc, embeds);
+ 
+   // Only the root call of the print method is awaited.
+@@ -71,6 +74,8 @@ async function printAstToDoc(ast, options, alignmentSize = 0) {
+   }
+ 
+   function mainPrintInternal(args) {
++    ensurePrintingNode(path);
++
+     const value = path.getValue();
+ 
+     if (value === undefined || value === null) {
+diff --git a/src/main/create-print-pre-check-function.js b/src/main/create-print-pre-check-function.js
+new file mode 100644
+index 000000000..24193cf67
+--- /dev/null
++++ b/src/main/create-print-pre-check-function.js
+@@ -0,0 +1,63 @@
++import createGetVisitorKeysFunction from "./create-get-visitor-keys-function.js";
++
++function createPrintPreCheckFunction(options) {
++  if (process.env.NODE_ENV === "production") {
++    return () => {};
++  }
++
++  // All core plugins have full list of keys for possible child nodes
++  // Ensure we only pass node to `print`
++  const getVisitorKeys = createGetVisitorKeysFunction(
++    options.printer.getVisitorKeys
++  );
++
++  return function (path) {
++    let name = path.getName();
++
++    // AST root
++    if (name === null) {
++      return;
++    }
++
++    let parentNode;
++    if (typeof name === "number") {
++      /*
++      Nodes in array are stored in path.stack like
++
++      ```js
++      [
++        parentNode,
++        property, // <-
++        array,
++        index,
++        node,
++      ]
++      ```
++      */
++      name = path.stack[path.stack.length - 4];
++      parentNode = path.stack[path.stack.length - 5];
++    } else {
++      // `path.getParentNode()` skips falsely value
++      parentNode = path.stack[path.stack.length - 3];
++    }
++
++    const visitorKeys = getVisitorKeys(parentNode);
++    if (visitorKeys.includes(name)) {
++      return;
++    }
++
++    /* istanbul ignore next */
++    throw Object.assign(new Error("Calling `print()` on non-node object."), {
++      parentNode,
++      allowedProperties: visitorKeys,
++      printingProperty: name,
++      printingValue: path.getValue(),
++      pathStack:
++        path.stack.length > 5
++          ? ["...", ...path.stack.slice(-5)]
++          : [...path.stack],
++    });
++  };
++}
++
++export default createPrintPreCheckFunction;
+diff --git a/src/utils/create-get-visitor-keys.js b/src/utils/create-get-visitor-keys.js
+index 8068363a1..6504b59c9 100644
+--- a/src/utils/create-get-visitor-keys.js
++++ b/src/utils/create-get-visitor-keys.js
+@@ -6,6 +6,7 @@ function createGetVisitorKeys(visitorKeys, typeProperty = "type") {
+   function getVisitorKeys(node) {
+     const type = node[typeProperty];
+ 
++    /* istanbul ignore next */
+     if (process.env.NODE_ENV !== "production" && typeof type === "undefined") {
+       throw new Error(
+         `Can't get node type, you must pass the wrong typeProperty '${typeProperty}'`
+@@ -13,7 +14,8 @@ function createGetVisitorKeys(visitorKeys, typeProperty = "type") {
+     }
+ 
+     const keys = visitorKeys[type];
+-    if (process.env.NODE_ENV !== "production" && !Array.isArray(keys)) {
++    /* istanbul ignore next */
++    if (!Array.isArray(keys)) {
+       throw Object.assign(new Error(`Missing visitor keys for '${type}'.`), {
+         node,
+       });
+diff --git a/src/utils/create-print-pre-check-function.js b/src/utils/create-print-pre-check-function.js
+deleted file mode 100644
+index 5185dbd7b..000000000
+--- a/src/utils/create-print-pre-check-function.js
++++ /dev/null
+@@ -1,44 +0,0 @@
+-// TODO: Move this check to `../main/ast-to-doc.js` after all languages pass it
+-function createPrintPreCheckFunction(getVisitorKeys) {
+-  return function (path) {
+-    let name = path.getName();
+-
+-    // AST root
+-    if (name === null) {
+-      return;
+-    }
+-
+-    if (typeof name === "number") {
+-      /*
+-      Nodes in array are stored in path.stack like
+-
+-      ```js
+-      [
+-        parentNode,
+-        property, // <-
+-        array,
+-        index,
+-        node,
+-      ]
+-      ```
+-      */
+-      name = path.stack[path.stack.length - 4];
+-    }
+-
+-    const parent = path.getParentNode();
+-    const visitorKeys = getVisitorKeys(parent);
+-    if (visitorKeys.includes(name)) {
+-      return;
+-    }
+-
+-    /* istanbul ignore next */
+-    throw Object.assign(new Error("Calling `print()` on non-node object."), {
+-      parentNode: parent,
+-      allowedProperties: visitorKeys,
+-      printingProperty: name,
+-      printingValue: path.getValue(),
+-    });
+-  };
+-}
+-
+-export default createPrintPreCheckFunction;
+diff --git a/tests/integration/__tests__/print-pre-check.js b/tests/integration/__tests__/print-pre-check.js
+new file mode 100644
+index 000000000..1671b17bf
+--- /dev/null
++++ b/tests/integration/__tests__/print-pre-check.js
+@@ -0,0 +1,110 @@
++import prettier from "../../config/prettier-entry.js";
++
++const NON_NODE_ERROR = "Calling `print()` on non-node object.";
++
++let pluginCount = 0;
++function createPlugin(print, getVisitorKeys) {
++  // parsers leak across tests, so the name needs to be unique
++  const name = `print-pre-check-${pluginCount++}`;
++  return {
++    name,
++    plugin: {
++      parsers: {
++        [name]: {
++          parse: (text) => ({
++            type: "root",
++            text,
++            body: { type: "body", text },
++          }),
++          astFormat: name,
++        },
++      },
++      printers: {
++        [name]: { print, getVisitorKeys },
++      },
++    },
++  };
++}
++
++const visitorKeys = {
++  root: ["body", "missing"],
++  body: [],
++};
++
++function format(text, print, getVisitorKeys) {
++  const { name, plugin } = createPlugin(print, getVisitorKeys);
++  return prettier.format(text, { parser: name, plugins: [plugin] });
++}
++
++test("print() on a child node passes the check", async () => {
++  const result = await format(
++    "foo",
++    (path, options, print) => {
++      const node = path.getValue();
++      return node.type === "root" ? print("body") : node.text;
++    },
++    (node) => visitorKeys[node.type]
++  );
++
++  expect(result).toBe("foo");
++});
++
++test("print() on a string property throws", async () => {
++  await expect(
++    format(
++      "foo",
++      (path, options, print) => print("text"),
++      (node) => visitorKeys[node.type]
++    )
++  ).rejects.toThrow(NON_NODE_ERROR);
++});
++
++test("print() on a missing property throws when it is not a child key", async () => {
++  await expect(
++    format(
++      "foo",
++      (path, options, print) => {
++        const node = path.getValue();
++        return node.type === "root" ? print("notAChild") : node.text;
++      },
++      (node) => visitorKeys[node.type]
++    )
++  ).rejects.toThrow(NON_NODE_ERROR);
++});
++
++test("print() on a missing child key prints nothing", async () => {
++  const result = await format(
++    "foo",
++    (path, options, print) => {
++      const node = path.getValue();
++      return node.type === "root" ? [print("missing"), print("body")] : "bar";
++    },
++    (node) => visitorKeys[node.type]
++  );
++
++  expect(result).toBe("bar");
++});
++
++test("a printer without getVisitorKeys checks against the node's own keys", async () => {
++  const print = (path, options, print) => {
++    const node = path.getValue();
++    return node.type === "root" ? print("body") : node.text;
++  };
++
++  await expect(format("foo", print)).resolves.toBe("foo");
++  await expect(
++    format("foo", (path, options, print) => print("notAChild"))
++  ).rejects.toThrow(NON_NODE_ERROR);
++});
++
++describe("built-in printers pass the check", () => {
++  test.each([
++    ["typescript", "abstract class A {\n  abstract a: string;\n  b = 1;\n}\n"],
++    ["babel-ts", "abstract class A {\n  abstract a: string;\n  b = 1;\n}\n"],
++    ["graphql", "extend input A {\n  a: String\n}\n"],
++    ["graphql", '"""\nDescription\n"""\ninterface A implements B {\n  a: String\n}\n'],
++    ["graphql", "type A {\n  a: String\n}\n\nunion B = A\n\nscalar C\n"],
++  ])("%s", async (parser, input) => {
++    await expect(prettier.format(input, { parser })).resolves.toBe(input);
++  });
++});

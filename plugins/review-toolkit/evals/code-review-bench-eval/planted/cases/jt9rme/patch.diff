@@ -1,0 +1,284 @@
+diff --git a/changelog_unreleased/api/15332.md b/changelog_unreleased/api/15332.md
+index 79bf48983..48fc80981 100644
+--- a/changelog_unreleased/api/15332.md
++++ b/changelog_unreleased/api/15332.md
+@@ -1,4 +1,4 @@
+-#### Accept `URL` in `prettier.{resolveConfig,resolveConfigFile,getFileInfo}()` (#15332, #15354, #15360 by @fisker)
++#### Accept `URL` in `prettier.{resolveConfig,resolveConfigFile,getFileInfo}()` (#15332, #15354, #15360, #15364 by @fisker)
+
+ [`prettier.resolveConfig()`](https://prettier.io/docs/en/api#prettierresolveconfigfileurlorpath--options), [`prettier.resolveConfigFile()`](https://prettier.io/docs/en/api#prettierresolveconfigfilefileurlorpath), and [`prettier.getFileInfo()`](https://prettier.io/docs/en/api#prettiergetfileinfofileurlorpath--options) now accepts an [URL](https://developer.mozilla.org/en-US/docs/Web/API/URL) with `file:` protocol or a url string starts with `file://`.
+
+@@ -7,9 +7,15 @@
+ await prettier.resolveConfig(new URL("./path/to/file", import.meta.url));
+ await prettier.resolveConfigFile(new URL("./path/to/file", import.meta.url));
+ await prettier.getFileInfo(new URL("./path/to/file", import.meta.url));
++await prettier.getFileInfo("/path/to/file", {
++  ignorePath: new URL("./.eslintignore", import.meta.url),
++});
+
+ // URL string
+ await prettier.resolveConfig("file:///path/to/file");
+ await prettier.resolveConfigFile("file:///path/to/file");
+ await prettier.getFileInfo("file:///path/to/file");
++await prettier.getFileInfo("/path/to/file", {
++  ignorePath: "file:///path/to/.eslintignore",
++});
+ ```
+diff --git a/docs/api.md b/docs/api.md
+index aac954776..af40bde7e 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -90,7 +90,7 @@ When Prettier loads configuration files and plugins, the file system structure i
+
+ The promise will be rejected if the type of `fileUrlOrPath` is not `string` or `URL`.
+
+-Setting `options.ignorePath` (`string | string[]`) and `options.withNodeModules` (`boolean`) influence the value of `ignored` (`false` by default).
++Setting `options.ignorePath` (`string | URL | (string | URL)[]`) and `options.withNodeModules` (`boolean`) influence the value of `ignored` (`false` by default).
+
+ If the given `fileUrlOrPath` is ignored, the `inferredParser` is always `null`.
+
+diff --git a/docs/plans/prettier-15364-plan.md b/docs/plans/prettier-15364-plan.md
+new file mode 100644
+index 000000000..d69294c03
+--- /dev/null
++++ b/docs/plans/prettier-15364-plan.md
+@@ -0,0 +1,12 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 getFileInfo reports a file as ignored when ignorePath is a URL, a file URL string or an absolute path, alone or in an array (tests/integration/__tests__/file-info.js) [AC-1]
++- [ ] 1.2 A URL ignorePath under resolveConfig matches relative to the ignore file's folder and still infers the parser from the config (tests/integration/__tests__/file-info.js) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Read an ignore file given as a URL or a file URL string (src/utils/read-file.js)
++- [ ] 2.2 Resolve the ignored path against the folder of an ignore file given in any form, and fail with a TypeError on an ignore file that is neither a string nor a URL (src/utils/ignore.js)
++- [ ] 2.3 Types, API docs and changelog (src/index.d.ts, docs/api.md, changelog_unreleased/api/15332.md)
+diff --git a/src/index.d.ts b/src/index.d.ts
+index 1cc63f693..3cdf428cf 100644
+--- a/src/index.d.ts
++++ b/src/index.d.ts
+@@ -787,7 +787,7 @@ export interface SupportInfo {
+ }
+
+ export interface FileInfoOptions {
+-  ignorePath?: string | string[] | undefined;
++  ignorePath?: string | URL | (string | URL)[] | undefined;
+   withNodeModules?: boolean | undefined;
+   plugins?: string[] | undefined;
+   resolveConfig?: boolean | undefined;
+diff --git a/src/utils/ignore.js b/src/utils/ignore.js
+index ac08366fd..6ba7e5567 100644
+--- a/src/utils/ignore.js
++++ b/src/utils/ignore.js
+@@ -1,6 +1,6 @@
+ import path from "node:path";
+ import url from "node:url";
+-import { isUrl } from "url-or-path";
++import { isUrl, toPath } from "url-or-path";
+ import ignoreModule from "ignore";
+ import readFile from "../utils/read-file.js";
+
+@@ -12,15 +12,35 @@ const slash =
+     : (filePath) => filePath;
+
+ /**
+- * @param {string?} ignoreFilePath
+- * @param {boolean?} withNodeModules
++ * @param {string | URL} file
++ * @param {string | URL | undefined} ignoreFile
++ * @returns {string}
++ */
++function getRelativePath(file, ignoreFile) {
++  const ignoreFilePath = toPath(ignoreFile);
++  const filePath = isUrl(file)
++    ? url.fileURLToPath(file)
++    : // @ts-expect-error -- URLs handled by `isUrl`
++      path.resolve(file);
++
++  return path.relative(
++    // If there's an ignore-path set, the filename must be relative to the
++    // ignore path, not the current working directory.
++    ignoreFilePath ? path.dirname(ignoreFilePath) : process.cwd(),
++    filePath,
++  );
++}
++
++/**
++ * @param {string | URL | undefined} ignoreFile
++ * @param {boolean} [withNodeModules]
+  * @returns {Promise<(file: string | URL) => boolean>}
+  */
+-async function createSingleIsIgnoredFunction(ignoreFilePath, withNodeModules) {
++async function createSingleIsIgnoredFunction(ignoreFile, withNodeModules) {
+   let content = "";
+
+-  if (ignoreFilePath) {
+-    content += (await readFile(ignoreFilePath)) ?? "";
++  if (ignoreFile) {
++    content += (await readFile(ignoreFile)) ?? "";
+   }
+
+   if (!withNodeModules) {
+@@ -33,37 +53,32 @@ async function createSingleIsIgnoredFunction(ignoreFilePath, withNodeModules) {
+
+   const ignore = createIgnore({ allowRelativePaths: true }).add(content);
+
+-  return (file) => {
+-    const filePath = isUrl(file)
+-      ? url.fileURLToPath(file)
+-      : // @ts-expect-error -- URLs handled by `isUrl`
+-        path.resolve(file);
+-
+-    // If there's an ignore-path set, the filename must be relative to the
+-    // ignore path, not the current working directory.
+-    const relativePath = ignoreFilePath
+-      ? path.relative(path.dirname(ignoreFilePath), filePath)
+-      : path.relative(process.cwd(), filePath);
+-
+-    return ignore.ignores(slash(relativePath));
+-  };
++  return (file) => ignore.ignores(slash(getRelativePath(file, ignoreFile)));
+ }
+
+ /**
+- * @param {string[]} ignoreFilePaths
++ * @param {(string | URL)[]} ignoreFiles
+  * @param {boolean?} withNodeModules
+  * @returns {Promise<(file: string | URL) => boolean>}
+  */
+-async function createIsIgnoredFunction(ignoreFilePaths, withNodeModules) {
++async function createIsIgnoredFunction(ignoreFiles, withNodeModules) {
++  for (const ignoreFile of ignoreFiles) {
++    if (typeof ignoreFile !== "string" && !(ignoreFile instanceof URL)) {
++      throw new TypeError(
++        `expect \`ignorePath\` to be a string or URL, got \`${typeof ignoreFile}\``,
++      );
++    }
++  }
++
+   // If `ignoreFilePaths` is empty, we still want `withNodeModules` to work
+-  if (ignoreFilePaths.length === 0 && !withNodeModules) {
+-    ignoreFilePaths = [undefined];
++  if (ignoreFiles.length === 0 && !withNodeModules) {
++    ignoreFiles = [undefined];
+   }
+
+   const isIgnoredFunctions = (
+     await Promise.all(
+-      ignoreFilePaths.map((ignoreFilePath) =>
+-        createSingleIsIgnoredFunction(ignoreFilePath, withNodeModules),
++      ignoreFiles.map((ignoreFile) =>
++        createSingleIsIgnoredFunction(ignoreFile, withNodeModules),
+       ),
+     )
+   ).filter(Boolean);
+@@ -77,8 +92,8 @@ async function createIsIgnoredFunction(ignoreFilePaths, withNodeModules) {
+  * @returns {Promise<boolean>}
+  */
+ async function isIgnored(file, options) {
+-  const { ignorePath, withNodeModules } = options;
+-  const isIgnored = await createIsIgnoredFunction(ignorePath, withNodeModules);
++  const { ignorePath: ignoreFiles, withNodeModules } = options;
++  const isIgnored = await createIsIgnoredFunction(ignoreFiles, withNodeModules);
+   return isIgnored(file);
+ }
+
+diff --git a/src/utils/read-file.js b/src/utils/read-file.js
+index 387694b00..fdb061370 100644
+--- a/src/utils/read-file.js
++++ b/src/utils/read-file.js
+@@ -1,18 +1,23 @@
+ import fs from "node:fs/promises";
++import { isUrlString } from "url-or-path";
+
+ /**
+- * @param {string} filename
++ * @param {string | URL} file
+  * @returns {Promise<undefined | string>}
+  */
+-async function readFile(filename) {
++async function readFile(file) {
++  if (isUrlString(file)) {
++    file = new URL(file);
++  }
++
+   try {
+-    return await fs.readFile(filename, "utf8");
++    return await fs.readFile(file, "utf8");
+   } catch (/** @type {any} */ error) {
+     if (error.code === "ENOENT") {
+       return;
+     }
+
+-    throw new Error(`Unable to read '${filename}': ${error.message}`);
++    throw new Error(`Unable to read '${file}': ${error.message}`);
+   }
+ }
+
+diff --git a/tests/integration/__tests__/file-info.js b/tests/integration/__tests__/file-info.js
+index 786846053..bc3d561c9 100644
+--- a/tests/integration/__tests__/file-info.js
++++ b/tests/integration/__tests__/file-info.js
+@@ -359,15 +359,15 @@ test("API getFileInfo with hand-picked plugins", async () => {
+ });
+
+ test("API getFileInfo with ignorePath and resolveConfig should infer parser with correct filepath", async () => {
+-  const dir = path.join(__dirname, "../cli/ignore-and-config/");
+-  const filePath = path.join(dir, "config-dir/foo");
+-  const ignorePath = path.join(dir, "ignore-path-dir/.prettierignore");
++  const directory = new URL("../cli/ignore-and-config/", import.meta.url);
++  const file = new URL("./config-dir/foo", directory);
++  const ignorePath = new URL("./ignore-path-dir/.prettierignore", directory);
+   const options = {
+     resolveConfig: true,
+     ignorePath,
+   };
+
+-  await expect(prettier.getFileInfo(filePath, options)).resolves.toEqual({
++  await expect(prettier.getFileInfo(file, options)).resolves.toEqual({
+     ignored: false,
+     inferredParser: "parser-for-config-dir",
+   });
+@@ -388,3 +388,40 @@ test("API getFileInfo accepts path or URL", async () => {
+   expect(resultByPath).toEqual(expectedResult);
+   expect(resultByRelativePath).toEqual(expectedResult);
+ });
++
++test("API getFileInfo accepts path or URL as ignorePath", async () => {
++  const file = new URL(
++    "../cli/ignore-path/file-info-test/ignored-by-customignore.js",
++    import.meta.url,
++  );
++  const ignoreFileUrl = new URL(
++    "../cli/ignore-path/file-info-test/.customignore",
++    import.meta.url,
++  );
++  const expectedResult = { ignored: true, inferredParser: null };
++
++  const resultByUrl = await prettier.getFileInfo(file, {
++    ignorePath: ignoreFileUrl,
++  });
++  const resultByUrlArray = await prettier.getFileInfo(file, {
++    ignorePath: [ignoreFileUrl],
++  });
++  const resultByUrlHref = await prettier.getFileInfo(file, {
++    ignorePath: ignoreFileUrl.href,
++  });
++  const resultByUrlHrefArray = await prettier.getFileInfo(file, {
++    ignorePath: [ignoreFileUrl.href],
++  });
++  const resultByPath = await prettier.getFileInfo(file, {
++    ignorePath: url.fileURLToPath(ignoreFileUrl),
++  });
++  const resultByPathArray = await prettier.getFileInfo(file, {
++    ignorePath: [url.fileURLToPath(ignoreFileUrl)],
++  });
++  expect(resultByUrl).toEqual(expectedResult);
++  expect(resultByUrlArray).toEqual(expectedResult);
++  expect(resultByUrlHref).toEqual(expectedResult);
++  expect(resultByUrlHrefArray).toEqual(expectedResult);
++  expect(resultByPath).toEqual(expectedResult);
++  expect(resultByPathArray).toEqual(expectedResult);
++});

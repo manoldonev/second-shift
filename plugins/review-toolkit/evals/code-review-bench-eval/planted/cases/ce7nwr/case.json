@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vuejs/core.git",
+  "instance": "vuejs__core-8381",
+  "license": "MIT",
+  "base": "020851e57d9a9f727c6ea07e9c1575430af02b73",
+  "base_branch": "main",
+  "overlay": "vuejs__core",
+  "issue": 8378,
+  "pr": 8381,
+  "commit": "fix(compiler-core): records loop variables",
+  "truth": {
+    "class": "P4",
+    "pattern": "rejects-held-input",
+    "description": "isReferenced now answers no for the target of a for...of loop, and isReferencedIdentifier passes that answer on for a ForOfStatement parent, so the reactivity transform walk in reactivityTransform.ts no longer rewrites a $ref binding it holds when that binding is a bare loop target, and let last = $ref(null) followed by for (last of items) {} compiles to a loop that overwrites the ref variable instead of setting last.value.",
+    "locations": [
+      {"file": "packages/compiler-core/src/babelUtils.ts", "start": 351, "end": 354, "side": "head"},
+      {"file": "packages/reactivity-transform/src/reactivityTransform.ts", "start": 685, "end": 692, "side": "head"},
+      {"file": "packages/compiler-core/src/babelUtils.ts", "start": 122, "end": 124, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/compiler-core/src/babelUtils.ts", "start": 89, "end": 92, "side": "head",
+     "why": "walkIdentifiers always passes its own knownIds to walkForOfStatement, so the fresh default map is never used and every loop variable lands in the caller's scope count."}
+  ]
+}

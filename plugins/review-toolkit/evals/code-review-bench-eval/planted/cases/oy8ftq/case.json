@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vitejs/vite.git",
+  "instance": "vitejs__vite-pr18488",
+  "license": "MIT",
+  "base": "d9513104e21175e1d23e0f614df55cd53291ab4e",
+  "base_branch": "main",
+  "overlay": "vitejs__vite",
+  "issue": 4863,
+  "pr": 18488,
+  "commit": "feat(lib)!: use package name for css output file name",
+  "truth": {
+    "class": "P4",
+    "pattern": "dead-guard",
+    "description": "buildHtmlPlugin now reads cssBundleNameCache with this.environment.config, but cssPostPlugin stores the bundle name under the top-level config and PartialEnvironment builds environment.config as a new Proxy that is never a key of that cache, so cssBundleName is always undefined and an app built with build.cssCodeSplit false no longer gets its stylesheet link injected into index.html.",
+    "locations": [
+      {"file": "packages/vite/src/node/plugins/html.ts", "start": 911, "end": 916, "side": "head"},
+      {"file": "packages/vite/src/node/baseEnvironment.ts", "start": 66, "end": 71, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/css.ts", "start": 479, "end": 482, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/vite/src/node/plugins/css.ts", "start": 1870, "end": 1872, "side": "head",
+     "why": "Lightning CSS reads this filename only to label its warnings and errors, so the default name is harmless when the bundle is named after the package."}
+  ]
+}

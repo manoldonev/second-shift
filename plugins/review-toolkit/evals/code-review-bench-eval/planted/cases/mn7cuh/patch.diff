@@ -1,0 +1,566 @@
+diff --git a/changelog_unreleased/javascript/15209.md b/changelog_unreleased/javascript/15209.md
+new file mode 100644
+index 000000000..c533b1dfa
+--- /dev/null
++++ b/changelog_unreleased/javascript/15209.md
+@@ -0,0 +1,21 @@
++#### Avoid introducing linebreaks in template interpolations (#15209 by @bakkot)
++
++In a template string like
++
++<!-- prettier-ignore -->
++```js
++`this is a long message which contains an interpolation: ${format(data)} <- like this`;
++```
++
++avoid adding a linebreak when formatting the expression unless one is already present or it's unavoidable due to e.g. a nested function. Previously a linebreak could be introduced whenever some interpolation in the template was sufficiently "not simple":
++
++<!-- prettier-ignore -->
++```js
++`this is a long message which contains an interpolation: ${format(
++  data,
++)} <- like this`;
++```
++
++Now it will instead be left alone.
++
++If a linebreak is already present within the `${...}`, format as normal.
+diff --git a/docs/plans/prettier-3368-plan.md b/docs/plans/prettier-3368-plan.md
+new file mode 100644
+index 000000000..44c6c210f
+--- /dev/null
++++ b/docs/plans/prettier-3368-plan.md
+@@ -0,0 +1,12 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A long template literal whose interpolation has no line break in the source keeps `${format(data)}` on one line past the print width (tests/format/js/strings/template-literals.js) [AC-1]
++- [ ] 1.2 An interpolation that already spans lines in the source is still broken as before, and the existing template literal snapshots move to the one-line form where their interpolations had no line break (tests/format/js/strings/__snapshots__/jsfmt.spec.js.snap, tests/format/js/template-literals/__snapshots__/jsfmt.spec.js.snap) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Print an interpolation without a line break in its source on one line, unless printing it at unlimited width still breaks (src/language-js/print/template-literal.js, src/language-js/print/estree.js)
++- [ ] 2.2 Explain the heuristic in the rationale (docs/rationale.md)
++- [ ] 2.3 Changelog entry (changelog_unreleased/javascript/15209.md)
+diff --git a/docs/rationale.md b/docs/rationale.md
+index 569f0de6c..0abe6ed85 100644
+--- a/docs/rationale.md
++++ b/docs/rationale.md
+@@ -143,6 +143,21 @@ One final thing: TC39 has [not yet decided if decorators come before or after `e
+ export @decorator class Foo {}
+ ```
+
++### Template literals
++
++Template literals can contain interpolations. Deciding whether it's appropriate to insert a linebreak within an interpolation unfortunately depends on the semantic content of the template - for example, introducing a linebreak in the middle of a natural-language sentence is usually undesirable. Since Prettier doesn't have enough information to make this decision itself, it uses a heuristic similar to that used for objects: it will only split an interpolation expression across multiple lines if there was already a linebreak within that interpolation.
++
++This means that a literal like the following will not be broken onto multiple lines, even if it exceeds the print width:
++
++<!-- prettier-ignore -->
++```js
++`this is a long message which contains an interpolation: ${format(data)} <- like this`;
++```
++
++If you want Prettier to split up an interpolation, you'll need to ensure there's a linebreak somewhere within the `${...}`. Otherwise it will keep everything on a single line, no matter how long it is.
++
++The team would prefer not to depend on the original formatting in this way, but it's the best heuristic we have at the moment.
++
+ ### Semicolons
+
+ This is about using the [noSemi](options.md#semicolons) option.
+diff --git a/src/language-js/print/estree.js b/src/language-js/print/estree.js
+index 5c51d7a2e..bac1e5eca 100644
+--- a/src/language-js/print/estree.js
++++ b/src/language-js/print/estree.js
+@@ -622,7 +622,9 @@ function printEstree(path, options, print, args) {
+     case "TemplateElement":
+       return replaceEndOfLine(node.value.raw);
+     case "TemplateLiteral":
+-      return printTemplateLiteral(path, print, options);
++      return printTemplateLiteral(path, print, options, {
++        keepSourceLineBreaks: true,
++      });
+     case "TaggedTemplateExpression":
+       return printTaggedTemplateLiteral(print);
+     case "PrivateIdentifier":
+diff --git a/src/language-js/print/template-literal.js b/src/language-js/print/template-literal.js
+index f6b666a77..c5797553a 100644
+--- a/src/language-js/print/template-literal.js
++++ b/src/language-js/print/template-literal.js
+@@ -20,8 +20,15 @@ import {
+   isMemberExpression,
+   isBinaryCastExpression,
+ } from "../utils/index.js";
++import hasNewlineInRange from "../../utils/has-newline-in-range.js";
++import { locStart, locEnd } from "../loc.js";
+
+-function printTemplateLiteral(path, print, options) {
++function printTemplateLiteral(
++  path,
++  print,
++  options,
++  { keepSourceLineBreaks = false } = {},
++) {
+   const { node } = path;
+   const isTemplateLiteral = node.type === "TemplateLiteral";
+
+@@ -81,19 +88,16 @@ function printTemplateLiteral(path, print, options) {
+     let expressionDoc = expressionDocs[index];
+
+     if (!isSimple) {
+-      const expression = node[expressionsKey][index];
+-      // Breaks at the template element boundaries (${ and }) are preferred to breaking
+-      // in the middle of a MemberExpression
+-      if (
+-        hasComment(expression) ||
+-        isMemberExpression(expression) ||
+-        expression.type === "ConditionalExpression" ||
+-        expression.type === "SequenceExpression" ||
+-        isBinaryCastExpression(expression) ||
+-        isBinaryish(expression)
+-      ) {
+-        expressionDoc = [indent([softline, expressionDoc]), softline];
+-      }
++      expressionDoc = printInterpolation(
++        {
++          expression: node[expressionsKey][index],
++          quasi,
++          nextQuasi: node.quasis[index + 1],
++        },
++        expressionDoc,
++        options,
++        { keepSourceLineBreaks },
++      );
+     }
+
+     const aligned =
+@@ -109,6 +113,55 @@ function printTemplateLiteral(path, print, options) {
+   return parts;
+ }
+
++function printInterpolation(
++  { expression, quasi, nextQuasi },
++  expressionDoc,
++  options,
++  { keepSourceLineBreaks = false } = {},
++) {
++  let interpolationHasNewline = true;
++
++  if (keepSourceLineBreaks) {
++    interpolationHasNewline = hasNewlineInRange(
++      options.originalText,
++      locEnd(quasi),
++      locStart(nextQuasi),
++    );
++
++    if (!interpolationHasNewline) {
++      // Never add a newline to an interpolation which didn't already have one...
++      const renderedExpression = printDocToString(expressionDoc, {
++        ...options,
++        printWidth: Number.POSITIVE_INFINITY,
++      }).formatted;
++
++      // ... unless one will be introduced anyway, e.g. by a nested function.
++      // This case is rare, so we can pay the cost of re-rendering.
++      if (renderedExpression.includes("\n")) {
++        interpolationHasNewline = true;
++      } else {
++        expressionDoc = renderedExpression;
++      }
++    }
++  }
++
++  // Breaks at the template element boundaries (${ and }) are preferred to breaking
++  // in the middle of a MemberExpression
++  if (
++    interpolationHasNewline &&
++    (hasComment(expression) ||
++      isMemberExpression(expression) ||
++      expression.type === "ConditionalExpression" ||
++      expression.type === "SequenceExpression" ||
++      isBinaryCastExpression(expression) ||
++      isBinaryish(expression))
++  ) {
++    return [indent([softline, expressionDoc]), softline];
++  }
++
++  return expressionDoc;
++}
++
+ function printTaggedTemplateLiteral(print) {
+   const quasiDoc = print("quasi");
+   return label(quasiDoc.label && { tagged: true, ...quasiDoc.label }, [
+diff --git a/tests/format/js/strings/__snapshots__/jsfmt.spec.js.snap b/tests/format/js/strings/__snapshots__/jsfmt.spec.js.snap
+index c3a825e87..c5982dad0 100644
+--- a/tests/format/js/strings/__snapshots__/jsfmt.spec.js.snap
++++ b/tests/format/js/strings/__snapshots__/jsfmt.spec.js.snap
+@@ -405,11 +405,19 @@ const Bar = styled.div\`
+   color: \${props => (props.highlight.length > 0 ? palette(['text', 'dark', 'tertiary'])(props) : palette(['text', 'dark', 'primary'])(props))} !important;
+ \`
+
++// https://github.com/prettier/prettier/issues/3368
++let message = \`this is a long message which contains an interpolation: \${format(data)} <- like this\`;
++
++let otherMessage = \`this template contains two interpolations: \${this(one)}, which should be kept on its line,
++and this other one: \${
++  this(long.placeholder.text.goes.here.so.we.get.a.linebreak)
++}
++which already had a linebreak so can be broken up
++\`;
++
+ =====================================output=====================================
+ foo(
+-  \`a long string \${
+-    1 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3
+-  } with expr\`,
++  \`a long string \${1 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3} with expr\`,
+ );
+
+ const x = \`a long string \${
+@@ -463,9 +471,7 @@ foo(
+ );
+
+ pipe.write(
+-  \`\\n  \${chalk.dim(
+-    \`\\u203A and \${more} more \${more} more \${more} more \${more}\`,
+-  )}\`,
++  \`\\n  \${chalk.dim(\`\\u203A and \${more} more \${more} more \${more} more \${more}\`)}\`,
+ );
+
+ // https://github.com/prettier/prettier/issues/1662#issue-230406820
+@@ -521,6 +527,16 @@ const Bar = styled.div\`
+       : palette(["text", "dark", "primary"])(props)} !important;
+ \`;
+
++// https://github.com/prettier/prettier/issues/3368
++let message = \`this is a long message which contains an interpolation: \${format(data)} <- like this\`;
++
++let otherMessage = \`this template contains two interpolations: \${this(one)}, which should be kept on its line,
++and this other one: \${this(
++  long.placeholder.text.goes.here.so.we.get.a.linebreak,
++)}
++which already had a linebreak so can be broken up
++\`;
++
+ ================================================================================
+ `;
+
+@@ -589,11 +605,19 @@ const Bar = styled.div\`
+   color: \${props => (props.highlight.length > 0 ? palette(['text', 'dark', 'tertiary'])(props) : palette(['text', 'dark', 'primary'])(props))} !important;
+ \`
+
++// https://github.com/prettier/prettier/issues/3368
++let message = \`this is a long message which contains an interpolation: \${format(data)} <- like this\`;
++
++let otherMessage = \`this template contains two interpolations: \${this(one)}, which should be kept on its line,
++and this other one: \${
++  this(long.placeholder.text.goes.here.so.we.get.a.linebreak)
++}
++which already had a linebreak so can be broken up
++\`;
++
+ =====================================output=====================================
+ foo(
+-  \`a long string \${
+-    1 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3
+-  } with expr\`
++  \`a long string \${1 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3 + 2 + 3} with expr\`
+ );
+
+ const x = \`a long string \${
+@@ -647,9 +671,7 @@ foo(
+ );
+
+ pipe.write(
+-  \`\\n  \${chalk.dim(
+-    \`\\u203A and \${more} more \${more} more \${more} more \${more}\`
+-  )}\`
++  \`\\n  \${chalk.dim(\`\\u203A and \${more} more \${more} more \${more} more \${more}\`)}\`
+ );
+
+ // https://github.com/prettier/prettier/issues/1662#issue-230406820
+@@ -705,5 +727,15 @@ const Bar = styled.div\`
+       : palette(["text", "dark", "primary"])(props)} !important;
+ \`;
+
++// https://github.com/prettier/prettier/issues/3368
++let message = \`this is a long message which contains an interpolation: \${format(data)} <- like this\`;
++
++let otherMessage = \`this template contains two interpolations: \${this(one)}, which should be kept on its line,
++and this other one: \${this(
++  long.placeholder.text.goes.here.so.we.get.a.linebreak
++)}
++which already had a linebreak so can be broken up
++\`;
++
+ ================================================================================
+ `;
+diff --git a/tests/format/js/strings/template-literals.js b/tests/format/js/strings/template-literals.js
+index 424ab7ac7..fc6bca5d9 100644
+--- a/tests/format/js/strings/template-literals.js
++++ b/tests/format/js/strings/template-literals.js
+@@ -55,3 +55,13 @@ const makeBody = (store, assets, html) =>
+ const Bar = styled.div`
+   color: ${props => (props.highlight.length > 0 ? palette(['text', 'dark', 'tertiary'])(props) : palette(['text', 'dark', 'primary'])(props))} !important;
+ `
++
++// https://github.com/prettier/prettier/issues/3368
++let message = `this is a long message which contains an interpolation: ${format(data)} <- like this`;
++
++let otherMessage = `this template contains two interpolations: ${this(one)}, which should be kept on its line,
++and this other one: ${
++  this(long.placeholder.text.goes.here.so.we.get.a.linebreak)
++}
++which already had a linebreak so can be broken up
++`;
+diff --git a/tests/format/js/template-literals/__snapshots__/jsfmt.spec.js.snap b/tests/format/js/template-literals/__snapshots__/jsfmt.spec.js.snap
+index 83d6a442a..b635df2fd 100644
+--- a/tests/format/js/template-literals/__snapshots__/jsfmt.spec.js.snap
++++ b/tests/format/js/template-literals/__snapshots__/jsfmt.spec.js.snap
+@@ -167,9 +167,7 @@ throw new Error(\`pretty-format: Option "theme" has a key "\${key}" whose value
+ =====================================output=====================================
+ const long1 = \`long \${
+   a.b //comment
+-} long longlong \${a.b.c.d.e} long longlong \${a.b.c.d.e} long longlong \${
+-  a.b.c.d.e
+-} long long\`;
++} long longlong \${a.b.c.d.e} long longlong \${a.b.c.d.e} long longlong \${a.b.c.d.e} long long\`;
+ const long2 = \`long \${a.b.c.d.e} long longlong \${loooooooooooooooooong} long longlong \${loooooooooooooooooong} long longlong \${loooooooooooooooooong} long long\`;
+
+ const long3 = \`long long long long long long long long long long long \${a.b.c.d.e} long long long long long long long long long long long long long\`;
+@@ -178,9 +176,7 @@ const description = \`The value of the \${cssName} css of the \${this._name} ele
+
+ const foo = \`such a long template string \${foo.bar.baz} that prettier will want to wrap it\`;
+
+-const shouldWrapForNow = \`such a long template string \${
+-  foo().bar.baz
+-} that prettier will want to wrap it\`;
++const shouldWrapForNow = \`such a long template string \${foo().bar.baz} that prettier will want to wrap it\`;
+
+ const shouldNotWrap = \`simple expressions should not break \${this} \${variable} \${a.b.c} \${this.b.c} \${a[b].c} \${a.b[c]} \${a.b["c"]} \${a?.b?.c}\`;
+
+@@ -199,9 +195,9 @@ function testing() {
+   // faking some tabs since I can't paste my real code in
+   if (true) {
+     if (false) {
+-      return \`\${
+-        process.env.OPENID_URL
+-      }/something/something/something?\${Object.keys(p)
++      return \`\${process.env.OPENID_URL}/something/something/something?\${Object.keys(
++        p,
++      )
+         .map((k) => \`\${encodeURIComponent(k)}=\${encodeURIComponent(p[k])}\`)
+         .join("&")}\`;
+     }
+@@ -385,30 +381,22 @@ printWidth: 80
+           )}
+   \`,
+   \`
+-# blabla \${a} \${chalk.green.underline(
+-    "https://www.example.com/drupedalKangarooTransformer",
+-  )}
++# blabla \${a} \${chalk.green.underline("https://www.example.com/drupedalKangarooTransformer")}
+
+     2. Go to "\${chalk.green.underline(
+       "https://www.example.com/drupedalKangarooTransformer",
+     )}"
+
+-# blabla \${a} \${chalk.green.underline(
+-    "https://www.example.com/drupedalKangarooTransformer",
+-  )}
++# blabla \${a} \${chalk.green.underline("https://www.example.com/drupedalKangarooTransformer")}
+ \`,
+   \`
+-  # blabla \${a} \${chalk.green.underline(
+-    "https://www.example.com/drupedalKangarooTransformer",
+-  )}
++  # blabla \${a} \${chalk.green.underline("https://www.example.com/drupedalKangarooTransformer")}
+
+       2. Go to "\${chalk.green.underline(
+         "https://www.example.com/drupedalKangarooTransformer",
+       )}"
+
+-  # blabla \${a} \${chalk.green.underline(
+-    "https://www.example.com/drupedalKangarooTransformer",
+-  )}
++  # blabla \${a} \${chalk.green.underline("https://www.example.com/drupedalKangarooTransformer")}
+   \`,
+ ];
+
+@@ -451,9 +439,7 @@ printWidth: 80
+ \`111111111 222222222 333333333 444444444 555555555 666666666 777777777 \${(1, 2)}\`;
+
+ =====================================output=====================================
+-\`111111111 222222222 333333333 444444444 555555555 666666666 777777777 \${
+-  (1, 2)
+-}\`;
++\`111111111 222222222 333333333 444444444 555555555 666666666 777777777 \${(1, 2)}\`;
+
+ ================================================================================
+ `;
+diff --git a/tests/format/jsx/text-wrap/__snapshots__/jsfmt.spec.js.snap b/tests/format/jsx/text-wrap/__snapshots__/jsfmt.spec.js.snap
+index e4e7acc49..beb5c870f 100644
+--- a/tests/format/jsx/text-wrap/__snapshots__/jsfmt.spec.js.snap
++++ b/tests/format/jsx/text-wrap/__snapshots__/jsfmt.spec.js.snap
+@@ -645,9 +645,7 @@ this_really_should_split_across_lines = (
+ unstable_before = (
+   <div className="yourScore">
+     Your score:{" "}
+-    <span className="score">{\`\${mini.crosstable.users[sessionUserId]} - \${
+-      mini.crosstable.users[user.id]
+-    }\`}</span>
++    <span className="score">{\`\${mini.crosstable.users[sessionUserId]} - \${mini.crosstable.users[user.id]}\`}</span>
+   </div>
+ );
+
+diff --git a/tests/format/typescript/satisfies-operators/__snapshots__/jsfmt.spec.js.snap b/tests/format/typescript/satisfies-operators/__snapshots__/jsfmt.spec.js.snap
+index 17e5bc52c..0c3db9cd4 100644
+--- a/tests/format/typescript/satisfies-operators/__snapshots__/jsfmt.spec.js.snap
++++ b/tests/format/typescript/satisfies-operators/__snapshots__/jsfmt.spec.js.snap
+@@ -1026,19 +1026,10 @@ const b = \`\${(veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + veryVe
+
+ =====================================output=====================================
+ const a = \`\${(foo + bar) satisfies baz}\`
+-const b = \`\${
+-  (veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + bar) satisfies baz
+-}\`
+-const b = \`\${
+-  (foo + veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) satisfies baz
+-}\`
+-const b = \`\${
+-  (foo + bar) satisfies veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz
+-}\`
+-const b = \`\${
+-  (veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo +
+-    veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) satisfies veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz
+-}\`
++const b = \`\${(veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + bar) satisfies baz}\`
++const b = \`\${(foo + veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) satisfies baz}\`
++const b = \`\${(foo + bar) satisfies veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz}\`
++const b = \`\${(veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) satisfies veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz}\`
+
+ ================================================================================
+ `;
+@@ -1057,19 +1048,10 @@ const b = \`\${(veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + veryVe
+
+ =====================================output=====================================
+ const a = \`\${(foo + bar) satisfies baz}\`;
+-const b = \`\${
+-  (veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + bar) satisfies baz
+-}\`;
+-const b = \`\${
+-  (foo + veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) satisfies baz
+-}\`;
+-const b = \`\${
+-  (foo + bar) satisfies veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz
+-}\`;
+-const b = \`\${
+-  (veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo +
+-    veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) satisfies veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz
+-}\`;
++const b = \`\${(veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + bar) satisfies baz}\`;
++const b = \`\${(foo + veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) satisfies baz}\`;
++const b = \`\${(foo + bar) satisfies veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz}\`;
++const b = \`\${(veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) satisfies veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz}\`;
+
+ ================================================================================
+ `;
+diff --git a/tests/format/typescript/template-literals/__snapshots__/jsfmt.spec.js.snap b/tests/format/typescript/template-literals/__snapshots__/jsfmt.spec.js.snap
+index f56f6190c..bdca348b2 100644
+--- a/tests/format/typescript/template-literals/__snapshots__/jsfmt.spec.js.snap
++++ b/tests/format/typescript/template-literals/__snapshots__/jsfmt.spec.js.snap
+@@ -14,19 +14,10 @@ const b = \`\${(veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + veryVe
+
+ =====================================output=====================================
+ const a = \`\${(foo + bar) as baz}\`;
+-const b = \`\${
+-  (veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + bar) as baz
+-}\`;
+-const b = \`\${
+-  (foo + veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) as baz
+-}\`;
+-const b = \`\${
+-  (foo + bar) as veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz
+-}\`;
+-const b = \`\${
+-  (veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo +
+-    veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) as veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz
+-}\`;
++const b = \`\${(veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + bar) as baz}\`;
++const b = \`\${(foo + veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) as baz}\`;
++const b = \`\${(foo + bar) as veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz}\`;
++const b = \`\${(veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongFoo + veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBar) as veryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryVeryLongBaz}\`;
+
+ ================================================================================
+ `;
+diff --git a/tests/format/vue/vue/__snapshots__/jsfmt.spec.js.snap b/tests/format/vue/vue/__snapshots__/jsfmt.spec.js.snap
+index eb24b739a..47a9e2d76 100644
+--- a/tests/format/vue/vue/__snapshots__/jsfmt.spec.js.snap
++++ b/tests/format/vue/vue/__snapshots__/jsfmt.spec.js.snap
+@@ -1772,9 +1772,7 @@ semi: false
+       \`\${first} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\` +
+       \`\${second} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\`
+     "
+-    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${
+-      foo + bar
+-    } template literal value\`"
++    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${foo + bar} template literal value\`"
+     :src="'loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog literal string value'"
+     :add="
+       'first loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog' +
+@@ -1818,9 +1816,7 @@ trailingComma: "es5"
+       \`\${first} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\` +
+       \`\${second} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\`
+     "
+-    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${
+-      foo + bar
+-    } template literal value\`"
++    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${foo + bar} template literal value\`"
+     :src="'loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog literal string value'"
+     :add="
+       'first loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog' +
+@@ -1864,9 +1860,7 @@ trailingComma: "none"
+       \`\${first} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\` +
+       \`\${second} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\`
+     "
+-    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${
+-      foo + bar
+-    } template literal value\`"
++    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${foo + bar} template literal value\`"
+     :src="'loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog literal string value'"
+     :add="
+       'first loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog' +
+@@ -1911,9 +1905,7 @@ semi: false
+       \`\${first} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\` +
+       \`\${second} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\`
+     "
+-    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${
+-      foo + bar
+-    } template literal value\`"
++    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${foo + bar} template literal value\`"
+     :src="'loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog literal string value'"
+     :add="
+       'first loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog' +
+@@ -1959,9 +1951,7 @@ trailingComma: "es5"
+       \`\${first} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\` +
+       \`\${second} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\`
+     "
+-    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${
+-      foo + bar
+-    } template literal value\`"
++    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${foo + bar} template literal value\`"
+     :src="'loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog literal string value'"
+     :add="
+       'first loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog' +
+@@ -2007,9 +1997,7 @@ trailingComma: "none"
+       \`\${first} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\` +
+       \`\${second} loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${template} \${literal}\`
+     "
+-    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${
+-      foo + bar
+-    } template literal value\`"
++    :baz="\`loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog \${foo + bar} template literal value\`"
+     :src="'loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog literal string value'"
+     :add="
+       'first loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog' +

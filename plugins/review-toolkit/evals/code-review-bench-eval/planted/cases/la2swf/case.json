@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vuejs/core.git",
+  "instance": "vuejs__core-10101",
+  "license": "MIT",
+  "base": "ffd0473e0f56de0f0d16b05b85d6b6f2e46bf10e",
+  "base_branch": "main",
+  "overlay": "vuejs__core",
+  "issue": 10082,
+  "pr": 10101,
+  "commit": "fix(reactivity): fix dirtyLevel checks for recursive effects",
+  "truth": {
+    "class": "P4",
+    "pattern": "dead-guard",
+    "description": "triggerEffects now skips an outdated dep entry only when effect.allowRecurse is set, but toggleRecurse turns allowRecurse off for exactly the pre-render phase in which updateComponentPreRender writes a child's new props, so a child that receives new props is left Dirty with a pending schedule and re-renders on its next computed trigger even when that computed's value did not change.",
+    "locations": [
+      {"file": "packages/reactivity/src/effect.ts", "start": 294, "end": 297, "side": "head"},
+      {"file": "packages/runtime-core/src/renderer.ts", "start": 1485, "end": 1490, "side": "head"},
+      {"file": "packages/runtime-core/src/componentProps.ts", "start": 282, "end": 284, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/reactivity/src/effect.ts", "start": 81, "end": 82, "side": "head",
+     "why": "postCleanupEffect cuts deps down to _depsLength when each run ends, so outside a run the loop over the first _depsLength entries still visits every dep the effect holds."}
+  ]
+}

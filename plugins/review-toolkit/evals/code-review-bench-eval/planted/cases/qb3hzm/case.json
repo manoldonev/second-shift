@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vitejs/vite.git",
+  "instance": "vitejs__vite-pr13662",
+  "license": "MIT",
+  "base": "6f1c55e7d694dd26f9eca30239faeb5a59c41486",
+  "base_branch": "main",
+  "overlay": "vitejs__vite",
+  "issue": 10068,
+  "pr": 13662,
+  "commit": "fix(sourcemap): preserve original sourcesContent",
+  "truth": {
+    "class": "P4",
+    "pattern": "omitted-option",
+    "description": "injectSourcesContent now keeps the sourcesContent a map already carries, but the maps it is handed come from TransformContext._getCombinedSourcemap in pluginContainer.ts, which merges the incoming map with each plugin map through combineSourcemaps without passing excludeContent as false, so once any plugin returns a map (vite:css under css.devSourcemap, or a user plugin on a JS module) the carried content is stripped before the fill runs and a dependency whose sources are not on disk still loses it and still prints the missing source files warning.",
+    "locations": [
+      {"file": "packages/vite/src/node/server/sourcemap.ts", "start": 45, "end": 51, "side": "head"},
+      {"file": "packages/vite/src/node/server/pluginContainer.ts", "start": 567, "end": 573, "side": "head"},
+      {"file": "packages/vite/src/node/utils.ts", "start": 748, "end": 752, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "packages/vite/src/node/server/sourcemap.ts", "start": 36, "end": 37, "side": "head",
+     "why": "Reusing the map's own sourcesContent array keeps every entry it already carries, and the filled array is assigned back to map.sourcesContent, so the caller sees one consistent array."}
+  ]
+}

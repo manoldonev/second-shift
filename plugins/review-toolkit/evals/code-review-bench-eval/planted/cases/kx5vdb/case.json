@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/prettier/prettier.git",
+  "instance": "prettier__prettier-pr13772",
+  "license": "MIT",
+  "base": "bf6cf1c96c9f5ae48b6b5eb94367af5ef32f35de",
+  "base_branch": "main",
+  "overlay": "prettier__prettier",
+  "issue": 13772,
+  "pr": 13772,
+  "commit": "fix(javascript): read the source type from the .cjs and .mjs file extension",
+  "truth": {
+    "class": "P4",
+    "pattern": "rejects-held-input",
+    "description": "babel now parses any options.filepath ending in .cjs as a script that rejects import and export, but textToDoc in multiparser.js spreads the parent file's options into every embedded format, so a markdown template literal in a .cjs file hands that path on to its js code blocks through the markdown embed, and a code block with an import statement no longer parses and is left unformatted.",
+    "locations": [
+      {"file": "src/language-js/parse/babel.js", "start": 110, "end": 116, "side": "head"},
+      {"file": "src/main/multiparser.js", "start": 112, "end": 122, "side": "head"},
+      {"file": "src/language-markdown/embed.js", "start": 19, "end": 27, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "src/language-js/parse/acorn.js", "start": 13, "end": 15, "side": "head",
+     "why": "parseWithOptions now passes sourceType and sets allowImportExportEverywhere on every attempt, so the defaults commented out of parseOptions are never needed."}
+  ]
+}

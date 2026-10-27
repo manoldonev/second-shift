@@ -773,6 +773,15 @@ cases break an AC only where an unchanged caller meets the new code, so the chan
 pass, and four more leave the AC unmet at a site two calls from the diff, in a file the patch does
 not touch. A P1 truth names the AC it leaves unmet; a broken caller outside every AC is P4.
 
+Beside those 43 sit 32 **pilot** P4 candidates, eight per pattern, listed in `PILOT` in
+`planted.py`. Some come from merged upstream pull requests outside Multi-SWE-bench; such a case's
+`instance` is `<owner>__<repo>-pr<N>`, and `check` accepts no other form. `check` applies every case
+rule to a pilot case and also requires a truth range outside every hunk, where the broken caller
+sits. A pilot case is left out of the class counts, the pattern counts, the 40% cap and a normal
+`run`. `planted.py run --pilot` reviews only the pilot cases, with the plain arm only, and writes no
+changelog row. `planted.py cases <results.json>` prints right, wrong and noise per case, run and arm,
+and the right rate over the `--case` ids it is given, with no model.
+
 Four P1 cases are **runner cases**: their fix is complete, and the test their plan tags for one AC
 never exercises the change. Such a case names the overlay `anuraghazra__github-readme-stats-jest`,
 whose `testRunners` entry runs jest with format `jest-json`, and `expect_stop:

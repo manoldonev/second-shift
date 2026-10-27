@@ -15,7 +15,9 @@ Subcommands, model-free unless named:
   score     score review records with a canned judge; score-selftest.sh drives it
   verify    build every case, check a runner case's expected stop, and print each ground-truth range at
             the head (network; npm for a runner case)
-  run       the operator's recipe: the judge's calibration, the reviews, the judge, the report (billed)
+  run       the operator's recipe: the judge's calibration, the reviews, the judge, the report (billed); with
+            --pilot, the plain arm on the pilot cases only, and no changelog row
+  cases     right, wrong and noise per case, run and arm from a results file, and the right rate over a set of ids
 """
 from __future__ import annotations
 
@@ -57,6 +59,11 @@ PATTERNS = ("rejects-held-input", "dead-guard", "two-hop-caller", "omitted-optio
 FROZEN = frozenset("""
     a7t4yp b6r1vy c8w4tf e4u9ob f1h8ku f6t2gy g7s3hq h4n8qe h9x3cd j3q6mr j7m5ux k5e2hw k8w3dq m2g6wc n3f6wu
     n4d9sw o6z3fl q4m8zt r2n5ax r8b3kz s9b2ze t5j8ke u1c9nb v6d1ij w2k7np x5l9dn y2h6cv y8k1rv z8c2lm
+""".split())
+# P4 candidates that only a plain pilot reviews: checked like every case, but outside the counts, the cap and a normal run
+PILOT = frozenset("""
+    ba4kxe ce7nwr dh2qyu fm8tzo gj3wvs hq6lna jt9rme kx5vdb la2swf mn7cuh nw4ejk oy8ftq qb3hzm rc6giv sd9kwn tf2mxa
+    ug5nrb vh8qsc wk3tyd xm6uze yn9vaf zq4wbg ar7xch bs2yei cu5zfj dv8agk ew3bhl fx6cim gy9djn hz4eko ib7flq jc2gmr
 """.split())
 ARMS = ("plain", "lane")
 SENDBACK_SCORES = ("violated", "undeterminable")
@@ -324,6 +331,10 @@ def check_case(case: dict, root: Path) -> list[str]:
             bad(f"{k} is not a number")
     if p:
         return p
+    if case["instance"] not in (f"{upstream_key(case)}-{case['pr']}", f"{upstream_key(case)}-pr{case['pr']}"):
+        bad(f"instance {case['instance']!r} is neither {upstream_key(case)}-{case['pr']} nor {upstream_key(case)}-pr{case['pr']}")
+    if cid in PILOT and (case.get("truth") or {}).get("class") != "P4":
+        bad("a pilot case is not P4")
     ov = root / "overlays" / case["overlay"]
     if not (ov / "review-context.md").is_file() or not (ov / "review-context.md").read_text().strip():
         bad(f"overlay {case['overlay']} has no review-context.md")
@@ -391,7 +402,7 @@ def check_case(case: dict, root: Path) -> list[str]:
         locs = truth.get("locations") or []
         if not locs:
             bad("truth has no locations")
-        hit = False
+        hit = outside = False
         for loc in locs:
             if loc.get("side") not in ("head", "base") or not loc.get("file"):
                 bad(f"truth location {loc} is not {{file, side: head|base}} with an optional start <= end")
@@ -402,9 +413,12 @@ def check_case(case: dict, root: Path) -> list[str]:
                 bad(f"truth location {loc} is not {{file, side: head|base}} with an optional start <= end")
                 continue
             lines = {n for s, n in touched.get(loc["file"], []) if s == loc["side"]}
-            hit = hit or any(loc["start"] <= n <= loc["end"] for n in lines)
+            inside = any(loc["start"] <= n <= loc["end"] for n in lines)
+            hit, outside = hit or inside, outside or not inside
         if locs and not hit:
             bad("no ranged truth location falls inside a hunk of the patch")
+        if cid in PILOT and locs and not outside:
+            bad("no ranged truth location falls outside every hunk of the patch, where the broken caller sits")
         if cls == "P2":
             if truth.get("row") not in rows:
                 bad(f"truth.row {truth.get('row')!r} is not a D-n row of the record")
@@ -431,18 +445,27 @@ def check_case(case: dict, root: Path) -> list[str]:
     return p
 
 
-def check_corpus(root: Path) -> tuple[list[str], dict[str, int], dict[str, int]]:
-    cases = load_cases(root)
+def check_corpus(root: Path) -> tuple[list[str], dict[str, int], dict[str, int], dict[str, int]]:
+    """The problems, then the scored corpus's class and P4 pattern counts, then the pilot cases' pattern counts."""
+    everything = load_cases(root)
     problems: list[str] = []
     counts = {c: 0 for c in (*CLASSES, CONTROL)}
     patterns = {p: 0 for p in PATTERNS}
-    for case in cases:
+    pilot = {p: 0 for p in PATTERNS}
+    for cid in sorted(PILOT - {c["id"] for c in everything}):
+        problems.append(f"corpus: PILOT names {cid}, which has no case")
+    for case in everything:
         problems += check_case(case, root)
         truth = case.get("truth") or {}
+        if case["id"] in PILOT:
+            if truth.get("pattern") in PATTERNS:
+                pilot[truth["pattern"]] += 1
+            continue
         if truth.get("class") in counts:
             counts[truth["class"]] += 1
         if truth.get("class") == "P4" and truth.get("pattern") in PATTERNS:
             patterns[truth["pattern"]] += 1
+    cases = [c for c in everything if c["id"] not in PILOT]
     for c in CLASSES:
         if counts[c] < MIN_PER_CLASS:
             problems.append(f"corpus: class {c} has {counts[c]} cases, fewer than {MIN_PER_CLASS}")
@@ -457,10 +480,10 @@ def check_corpus(root: Path) -> tuple[list[str], dict[str, int], dict[str, int]]
                             f"more than {MAX_UPSTREAM_SHARE:.0%}")
     notice = root / "NOTICE"
     text = notice.read_text() if notice.is_file() else ""
-    for url in sorted({c.get("upstream", "") for c in cases}):
+    for url in sorted({c.get("upstream", "") for c in everything}):
         if url and url.removesuffix(".git") not in text:
             problems.append(f"corpus: NOTICE does not name {url.removesuffix('.git')}")
-    return problems, counts, patterns
+    return problems, counts, patterns, pilot
 
 
 # --- building a case -------------------------------------------------------------------------
@@ -915,6 +938,27 @@ def report(cases: dict[str, dict], arms: dict, g: dict | None) -> str:
     return "\n".join(out)
 
 
+def case_report(records: list[dict], ids: list[str]) -> str:
+    """Per arm, never pooled: each case's right, wrong and noise per run, then the right rate over the given ids,
+    or over every case the file holds. A record with no score, as tally counts it, leaves the denominator."""
+    out = ["arm    case    run  right wrong noise"]
+    for arm in sorted({r["arm"] for r in records}):
+        rs = sorted((r for r in records if r["arm"] == arm), key=lambda r: (r["case"], r["run"]))
+        for r in rs:
+            s = r.get("score")
+            out.append(f"{arm:<6} {r['case']:<7} {r['run']:>3}  " + (f"{s['right']:>5} {s['wrong']:>5} {s['noise']:>5}" if s
+                                                                     else f"unscored ({r.get('status')})"))
+        want = set(ids) or {r["case"] for r in rs}
+        picked = [r for r in rs if r["case"] in want]
+        scored = [r for r in picked if r.get("score")]
+        right = sum(r["score"]["right"] for r in scored)
+        rate = f"{right / len(scored):.0%}" if scored else "none scored"
+        absent = sorted(want - {r["case"] for r in rs})
+        out.append(f"{arm}: right {right} of {len(scored)} scored case-runs ({rate}) over {len(want)} cases; "
+                   f"{len(picked) - len(scored)} unscored" + (f"; no record for {', '.join(absent)}" if absent else ""))
+    return "\n".join(out)
+
+
 # --- the sessions ----------------------------------------------------------------------------
 
 def session_args(arm: str, r: dict, sid: str, model: str) -> list[str]:
@@ -1002,11 +1046,36 @@ async def review_one(case: dict, arm: str, run_no: int, work: Path, clones: Path
 
 # --- the operator's recipe -------------------------------------------------------------------
 
+def select_cases(cases: list[dict], ids: list[str], pilot: bool, pilot_ids: frozenset = PILOT) -> list[dict]:
+    """The cases a run reviews: the pilot cases under --pilot, every other case without it, then --case."""
+    wrong = sorted(i for i in set(ids) if (i in pilot_ids) != pilot)
+    if wrong:
+        raise ValueError(f"--case {', '.join(wrong)}: " + ("not a pilot case, and --pilot reviews only pilot cases" if pilot
+                                                          else "a pilot case, which only --pilot reviews"))
+    return [c for c in cases if (c["id"] in pilot_ids) == pilot and (not ids or c["id"] in ids)]
+
+
+def run_arms(arms: list[str], pilot: bool) -> list[str]:
+    if not pilot:
+        return arms
+    if "lane" in arms:
+        raise ValueError("--pilot reviews with the plain arm only; drop --arm lane")
+    return ["plain"]
+
+
+def writes_row(no_record: bool, pilot: bool) -> bool:
+    return not (no_record or pilot)
+
+
 async def run_recipe(args, bench) -> None:
     root = Path(args.root)
-    problems, _, _ = check_corpus(root)
+    problems = check_corpus(root)[0]
     if problems:
         sys.exit("[planted] the corpus does not pass its check:\n  " + "\n  ".join(problems))
+    try:
+        cases = select_cases(load_cases(root), args.case, args.pilot)
+    except ValueError as e:
+        sys.exit(f"[planted] {e}")
     cache = Path(args.cache_dir).expanduser()
     started = dt.datetime.now(dt.timezone.utc)
     stamp = started.strftime("%Y%m%dT%H%M%SZ")
@@ -1021,15 +1090,16 @@ async def run_recipe(args, bench) -> None:
     if cal["agreement"] < args.min_agreement:
         sys.exit(f"[planted] judge agreement below {args.min_agreement:.0%}; no arm is reported")
     judge_fams = {bench.family(j) for j in cal["judge_resolved"]}
-    cases = load_cases(root)
-    if args.case:
-        cases = [c for c in cases if c["id"] in args.case]
     sha = git(["rev-parse", "--short=7", "HEAD"], cwd=HERE)
     records: list[dict] = []
     if args.rescore:
         prior = json.loads(Path(args.rescore).read_text())
         sha = prior.get("sha") or args.sha or sys.exit(f"[planted] --rescore: {args.rescore} names no sha; pass --sha <the reviewed commit>")
-        records = [r for r in prior["records"] if r["arm"] in (args.arm or ARMS) and (not args.case or r["case"] in args.case)]
+        held = {c["id"] for c in cases}
+        records = [r for r in prior["records"] if r["arm"] in args.arm and r["case"] in held]
+        left = sum(1 for r in prior["records"] if r["arm"] in args.arm and r["case"] not in held)
+        if left:
+            print(f"[planted] --rescore: {left} record(s) name a case outside this run's cases and are left out", flush=True)
         ids = {r["case"] for r in records}
         cases = [c for c in cases if c["id"] in ids]
         for arm in sorted({r["arm"] for r in records}):
@@ -1058,8 +1128,9 @@ async def run_recipe(args, bench) -> None:
     try:
         await score_records(by_id, records, judge)
     except JudgeFailed as e:
+        again = "--pilot --arm plain" if args.pilot else "--arm plain --arm lane"
         sys.exit(f"[planted] a judge call failed ({e}); no row is written. The reviews are kept: "
-                 f"re-judge them with `planted.py run --rescore {results} --arm plain --arm lane`")
+                 f"re-judge them with `planted.py run --rescore {results} {again}`")
     arms = tally(by_id, records)
     g = gate(arms)
     print("\n" + report(by_id, arms, g), flush=True)
@@ -1079,7 +1150,7 @@ async def run_recipe(args, bench) -> None:
         segs += [f"calib={cal['agreement']:.0%}", f"wall={max(r['wall_s'] for r in runs.values())}s",
                  f"cost=${sum(r['cost_usd'] for r in runs.values()):.2f}", f"note=\"{args.note}\""]
         line = bench.kit.changelog_row(started, segs)
-        if not args.no_record:
+        if writes_row(args.no_record, args.pilot):
             bench.kit.append_changelog(root / "changelog.md", line)
         print(line.strip())
     if g:
@@ -1087,9 +1158,11 @@ async def run_recipe(args, bench) -> None:
             "mode=planted", f"gate={'pass' if g['pass'] else 'fail'}", f"lane_worst={g['lane_worst']}", f"plain_best={g['plain_best']}",
             f"lane_worst_p1={g['lane_worst_p1']}", f"plain_best_p1={g['plain_best_p1']}",
             f"runs=lane {g['runs']['lane']}, plain {g['runs']['plain']}", f"note=\"{args.note}\""])
-        if not args.no_record:
+        if writes_row(args.no_record, args.pilot):
             bench.kit.append_changelog(root / "changelog.md", line)
         print(line.strip())
+    if args.pilot:
+        print(f"\n[planted] a pilot run writes no changelog row; read it per case with `planted.py cases {out}`")
     print(f"\n[planted] wrote {out}")
 
 
@@ -1102,7 +1175,7 @@ def write_results(cache: Path, stamp: str, doc: dict) -> Path:
 # --- the subcommands -------------------------------------------------------------------------
 
 def cmd_check(args) -> int:
-    problems, counts, patterns = check_corpus(Path(args.root))
+    problems, counts, patterns, pilot = check_corpus(Path(args.root))
     for p in problems:
         print(f"check: {p}")
     if problems:
@@ -1111,6 +1184,7 @@ def cmd_check(args) -> int:
         print(f"check: the runner cases' plan tags were not read: {PLAN_COVERAGE} is absent", file=sys.stderr)
     print("check: ok (" + ", ".join(f"{c} {n}" for c, n in counts.items()) + "; P4 patterns: "
           + ", ".join(f"{p} {n}" for p, n in patterns.items()) + ")")
+    print(f"check: pilot {sum(pilot.values())} P4 (" + ", ".join(f"{p} {n}" for p, n in pilot.items()) + ")")
     return 0
 
 
@@ -1164,6 +1238,11 @@ def cmd_score(args) -> int:
     print(json.dumps({"records": [{k: r.get(k) for k in ("arm", "case", "run", "status", "problems", "findings", "score")} for r in records],
                       "arms": arms, "gate": g, "judge_calls": calls}, indent=1))
     print(report(cases, arms, g), file=sys.stderr)
+    return 0
+
+
+def cmd_cases(args) -> int:
+    print(case_report(json.loads(Path(args.results).read_text()).get("records") or [], args.case))
     return 0
 
 
@@ -1272,10 +1351,16 @@ def main() -> int:
     s.add_argument("--note", default="baseline")
     s.add_argument("--rescore", help="a planted-results-*.json: re-judge its stored reviews; no review is spawned")
     s.add_argument("--sha", help="with --rescore, the reviewed commit when the results file names none")
+    s.add_argument("--pilot", action="store_true", help="review only the pilot cases, with the plain arm; no changelog row")
     s.add_argument("--cache-dir", default=cache_default)
+    s = sub.add_parser("cases")
+    s.add_argument("results", help="a planted-results-*.json")
+    s.add_argument("--case", action="append", default=[], help="a case id the right rate covers; repeatable; default every case")
     args = ap.parse_args()
     if args.cmd == "check":
         return cmd_check(args)
+    if args.cmd == "cases":
+        return cmd_cases(args)
     if args.cmd == "render":
         return cmd_render(args)
     if args.cmd == "review":
@@ -1289,6 +1374,10 @@ def main() -> int:
     for m, name in ((args.reviewer_model, "REVIEWER_MODEL"), (args.judge_model, "JUDGE_MODEL")):
         if not m or not m.strip():
             sys.exit(f"[planted] {name} is empty")
+    try:
+        args.arm = run_arms(args.arm, args.pilot)
+    except ValueError as e:
+        sys.exit(f"[planted] {e}")
     if not args.arm:
         sys.exit("[planted] name at least one --arm")
     bench = load_bench()

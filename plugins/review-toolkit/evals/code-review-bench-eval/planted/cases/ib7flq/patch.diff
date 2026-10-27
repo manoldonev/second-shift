@@ -1,0 +1,150 @@
+diff --git a/changelog_unreleased/markdown/15286.md b/changelog_unreleased/markdown/15286.md
+new file mode 100644
+index 000000000..b1181238a
+--- /dev/null
++++ b/changelog_unreleased/markdown/15286.md
+@@ -0,0 +1,31 @@
++#### Do not print trailing commas in arrow function type parameter lists in `ts` code blocks (#15286 by @sosukesuzuki)
++
++<!-- prettier-ignore -->
++````md
++<!-- Input -->
++```ts
++const foo = <T,>() => {}
++```
++
++```tsx
++const foo = <T,>() => {}
++```
++
++<!-- Prettier stable -->
++```ts
++const foo = <T,>() => {};
++```
++
++```tsx
++const foo = <T,>() => {};
++```
++
++<!-- Prettier main -->
++```ts
++const foo = <T>() => {};
++```
++
++```tsx
++const foo = <T,>() => {};
++```
++````
+diff --git a/docs/plans/prettier-15282-plan.md b/docs/plans/prettier-15282-plan.md
+new file mode 100644
+index 000000000..1d5626480
+--- /dev/null
++++ b/docs/plans/prettier-15282-plan.md
+@@ -0,0 +1,11 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 A `ts` and a `typescript` code block in Markdown print `<T>(value: T) => {}` without the trailing comma after the lone type parameter (tests/format/markdown/code/ts-trailing-comma.md) [AC-1]
++- [ ] 1.2 A `tsx` code block in the same file keeps `<T,>(value: T) => {}`, and the existing `tsx-trailing-comma.md` and `typescript/tsx/comma` snapshots stay unchanged (tests/format/markdown/code/__snapshots__/jsfmt.spec.js.snap) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Decide whether the code may be tsx before forcing the comma: for code embedded in another file, by the file path the embedding printer gives it (src/language-js/print/type-parameters.js)
++- [ ] 2.2 Changelog entry (changelog_unreleased/markdown/15286.md)
+diff --git a/src/language-js/print/type-parameters.js b/src/language-js/print/type-parameters.js
+index 688b6ec55..8106f3dcf 100644
+--- a/src/language-js/print/type-parameters.js
++++ b/src/language-js/print/type-parameters.js
+@@ -28,7 +28,7 @@ import { printTypeScriptMappedTypeModifier } from "./mapped-type.js";
+
+ const getTypeParametersGroupId = createGroupIdMapper("typeParameters");
+
+-// Keep comma if the file extension not `.ts` and
++// Keep comma if the code may be tsx and
+ // has one type parameter that isn't extend with any types.
+ // Because, otherwise formatted result will be invalid as tsx.
+ function shouldForceTrailingComma(path, options, paramsKey) {
+@@ -38,10 +38,18 @@ function shouldForceTrailingComma(path, options, paramsKey) {
+     node.type.startsWith("TS") &&
+     !node[paramsKey][0].constraint &&
+     path.parent.type === "ArrowFunctionExpression" &&
+-    !(options.filepath && /\.ts$/.test(options.filepath))
++    mayBeTsx(options)
+   );
+ }
+
++function mayBeTsx({ filepath, parentParser }) {
++  if (parentParser) {
++    return Boolean(filepath) && /\.tsx$/.test(filepath);
++  }
++
++  return !(filepath && /\.ts$/.test(filepath));
++}
++
+ function printTypeParameters(path, options, print, paramsKey) {
+   const { node } = path;
+
+diff --git a/tests/format/markdown/code/__snapshots__/jsfmt.spec.js.snap b/tests/format/markdown/code/__snapshots__/jsfmt.spec.js.snap
+index 74bd74591..9fc8e52ee 100644
+--- a/tests/format/markdown/code/__snapshots__/jsfmt.spec.js.snap
++++ b/tests/format/markdown/code/__snapshots__/jsfmt.spec.js.snap
+@@ -291,6 +291,41 @@ hello world
+ ================================================================================
+ `;
+
++exports[`ts-trailing-comma.md - {"proseWrap":"always"} format 1`] = `
++====================================options=====================================
++parsers: ["markdown"]
++printWidth: 80
++proseWrap: "always"
++                                                                                | printWidth
++=====================================input======================================
++\`\`\`ts
++const test = <T,>(value: T) => {};
++\`\`\`
++
++\`\`\`typescript
++const test = <T,>(value: T) => {};
++\`\`\`
++
++\`\`\`tsx
++const test = <T,>(value: T) => {};
++\`\`\`
++
++=====================================output=====================================
++\`\`\`ts
++const test = <T>(value: T) => {};
++\`\`\`
++
++\`\`\`typescript
++const test = <T>(value: T) => {};
++\`\`\`
++
++\`\`\`tsx
++const test = <T,>(value: T) => {};
++\`\`\`
++
++================================================================================
++`;
++
+ exports[`tsx-trailing-comma.md - {"proseWrap":"always"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["markdown"]
+diff --git a/tests/format/markdown/code/ts-trailing-comma.md b/tests/format/markdown/code/ts-trailing-comma.md
+new file mode 100644
+index 000000000..768fe4c6c
+--- /dev/null
++++ b/tests/format/markdown/code/ts-trailing-comma.md
+@@ -0,0 +1,11 @@
++```ts
++const test = <T,>(value: T) => {};
++```
++
++```typescript
++const test = <T,>(value: T) => {};
++```
++
++```tsx
++const test = <T,>(value: T) => {};
++```

@@ -1,0 +1,1150 @@
+diff --git a/changelog_unreleased/json/15831.md b/changelog_unreleased/json/15831.md
+new file mode 100644
+index 000000000..a52ecdbab
+--- /dev/null
++++ b/changelog_unreleased/json/15831.md
+@@ -0,0 +1,9 @@
++#### [Highlight] New `jsonc` parser added (#15831 by @fisker)
++
++Previously, we infer the parser of `.jsonc` files to be `json`, but if we want keep the trailing comma, we'll have to use a hacky workaround config `{parser: "json5", quoteProps: "preserve", singleQuote: false}`.
++
++The new added `jsonc` parser:
++
++- Always quote the object keys.
++- Wrap strings with double quotes.
++- Of course, respect the [`trailingComma`](https://prettier.io/docs/en/options#trailing-commas) option.
+diff --git a/docs/options.md b/docs/options.md
+index c79643c81..0e911d293 100644
+--- a/docs/options.md
++++ b/docs/options.md
+@@ -115,8 +115,6 @@ Note that Prettier never unquotes numeric property names in Angular expressions,
+ [quote-props-flow]: https://flow.org/try/#0PQKgBAAgZgNg9gdzCYAoVBjOA7AzgFzAA8wBeMAb1TDAAYAuMARlQF8g
+ [quote-props-vue]: https://github.com/prettier/prettier/issues/10127
+ 
+-If this option is set to `preserve`, `singleQuote` to `false` (default value), and `parser` to `json5`, double quotes are always used for strings. This effectively allows using the `json5` parser for “JSON with comments and trailing commas”.
+-
+ ## JSX Quotes
+ 
+ Use single quotes instead of double quotes in JSX.
+@@ -282,6 +280,7 @@ Valid options:
+ - `"less"` (via [postcss-less](https://github.com/shellscape/postcss-less)) _First available in v1.7.1_
+ - `"json"` (via [@babel/parser parseExpression](https://babeljs.io/docs/en/next/babel-parser.html#babelparserparseexpressioncode-options)) _First available in v1.5.0_
+ - `"json5"` (same parser as `"json"`, but outputs as [json5](https://json5.org/)) _First available in v1.13.0_
++- `"jsonc"` (same parser as `"json"`, but outputs as "JSON with Comments") _First available in v3.2.0_
+ - `"json-stringify"` (same parser as `"json"`, but outputs like `JSON.stringify`) _First available in v1.13.0_
+ - `"graphql"` (via [graphql/language](https://github.com/graphql/graphql-js/tree/master/src/language)) _First available in v1.5.0_
+ - `"markdown"` (via [remark-parse](https://github.com/wooorm/remark/tree/main/packages/remark-parse)) _First available in v1.8.0_
+diff --git a/docs/plans/prettier-15553-plan.md b/docs/plans/prettier-15553-plan.md
+new file mode 100644
+index 000000000..838e6c8ab
+--- /dev/null
++++ b/docs/plans/prettier-15553-plan.md
+@@ -0,0 +1,15 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 jsonc prints trailing commas as the trailingComma option says, for none, es5 and all (tests/format/json/jsonc/trialing-comma/jsfmt.spec.js) [AC-1]
++- [ ] 1.2 jsonc keeps every object key quoted under each quoteProps value (tests/format/json/jsonc/quote-props/jsfmt.spec.js) [AC-2]
++- [ ] 1.3 jsonc prints strings with double quotes even with singleQuote (tests/format/json/jsonc/single-quote/jsfmt.spec.js) [AC-3]
++- [ ] 1.4 A JSON with Comments file such as .swcrc is inferred as jsonc and gets trailing commas (tests/integration/__tests__/with-parser-inference.js) [AC-4]
++
++## 2. Fix
++
++- [ ] 2.1 Add the jsonc parser beside json and json5 and list it in the parser option (src/language-json/parser-json.js, src/main/core-options.evaluate.js, src/plugins/builtin-plugins-proxy.js)
++- [ ] 2.2 Infer jsonc for the JSON with Comments language (src/language-json/languages.evaluate.js)
++- [ ] 2.3 Treat jsonc like json for quoted keys, double-quoted strings, comment attachment and range formatting (src/language-js/print/property.js, src/language-js/utils/index.js, src/utils/print-string.js, src/main/comments/attach.js, src/main/range-util.js)
++- [ ] 2.4 Document the parser and add the changelog entry (docs/options.md, changelog_unreleased/json/15831.md)
+diff --git a/src/index.d.ts b/src/index.d.ts
+index a2d0cdff5..00bdb913a 100644
+--- a/src/index.d.ts
++++ b/src/index.d.ts
+@@ -291,6 +291,7 @@ export type BuiltInParserName =
+   | "json-stringify"
+   | "json"
+   | "json5"
++  | "jsonc"
+   | "less"
+   | "lwc"
+   | "markdown"
+diff --git a/src/language-js/print/property.js b/src/language-js/print/property.js
+index 7a3504807..8afc5c5ff 100644
+--- a/src/language-js/print/property.js
++++ b/src/language-js/print/property.js
+@@ -47,6 +47,7 @@ function printPropertyKey(path, options, print) {
+         // mentioned in `isStringPropSafeToUnquote`).
+         !(options.parser === "typescript" || options.parser === "babel-ts"))) &&
+     (options.parser === "json" ||
++      options.parser === "jsonc" ||
+       (options.quoteProps === "consistent" && needsQuoteProps.get(parent)))
+   ) {
+     // a -> "a"
+diff --git a/src/language-js/utils/index.js b/src/language-js/utils/index.js
+index 020f18d58..dda719735 100644
+--- a/src/language-js/utils/index.js
++++ b/src/language-js/utils/index.js
+@@ -642,6 +642,7 @@ function hasLeadingOwnLineComment(text, node) {
+ function isStringPropSafeToUnquote(node, options) {
+   return (
+     options.parser !== "json" &&
++    options.parser !== "jsonc" &&
+     isStringLiteral(node.key) &&
+     rawText(node.key).slice(1, -1) === node.key.value &&
+     ((isEs5IdentifierName(node.key.value) &&
+diff --git a/src/language-json/languages.evaluate.js b/src/language-json/languages.evaluate.js
+index 0ecc91965..eade08a15 100644
+--- a/src/language-json/languages.evaluate.js
++++ b/src/language-json/languages.evaluate.js
+@@ -15,10 +15,9 @@ const languages = [
+     vscodeLanguageIds: ["json"],
+     extensions: data.extensions.filter((extension) => extension !== ".jsonl"),
+   })),
+-  createLanguage(linguistLanguages["JSON with Comments"], (data) => ({
+-    parsers: ["json"],
++  createLanguage(linguistLanguages["JSON with Comments"], () => ({
++    parsers: ["jsonc"],
+     vscodeLanguageIds: ["jsonc"],
+-    filenames: [...data.filenames, ".eslintrc"],
+   })),
+   createLanguage(linguistLanguages.JSON5, () => ({
+     parsers: ["json5"],
+diff --git a/src/language-json/parser-json.js b/src/language-json/parser-json.js
+index 26692bfc3..595cdc205 100644
+--- a/src/language-json/parser-json.js
++++ b/src/language-json/parser-json.js
+@@ -152,6 +152,7 @@ const jsonParsers = {
+     },
+   }),
+   json5: createParser(parseJson),
++  jsonc: createParser(parseJson),
+   "json-stringify": createParser({
+     parse: createJsonParse({ allowComments: false }),
+     astFormat: "estree-json",
+diff --git a/src/main/comments/attach.js b/src/main/comments/attach.js
+index 0b3468c6e..62f4c405a 100644
+--- a/src/main/comments/attach.js
++++ b/src/main/comments/attach.js
+@@ -184,6 +184,7 @@ function attachComments(ast, options) {
+     if (
+       options.parser === "json" ||
+       options.parser === "json5" ||
++      options.parser === "jsonc" ||
+       options.parser === "__js_expression" ||
+       options.parser === "__ts_expression" ||
+       options.parser === "__vue_expression" ||
+diff --git a/src/main/core-options.evaluate.js b/src/main/core-options.evaluate.js
+index efb0b3579..a2add7167 100644
+--- a/src/main/core-options.evaluate.js
++++ b/src/main/core-options.evaluate.js
+@@ -120,6 +120,7 @@ const options = {
+       { value: "scss", description: "SCSS" },
+       { value: "json", description: "JSON" },
+       { value: "json5", description: "JSON5" },
++      { value: "jsonc", description: "JSON with Comments" },
+       { value: "json-stringify", description: "JSON.stringify" },
+       { value: "graphql", description: "GraphQL" },
+       { value: "markdown", description: "Markdown" },
+diff --git a/src/main/range-util.js b/src/main/range-util.js
+index 56b593014..7420b4913 100644
+--- a/src/main/range-util.js
++++ b/src/main/range-util.js
+@@ -3,7 +3,10 @@ import assert from "node:assert";
+ import { getSortedChildNodes } from "./comments/attach.js";
+ 
+ const isJsonParser = ({ parser }) =>
+-  parser === "json" || parser === "json5" || parser === "json-stringify";
++  parser === "json" ||
++  parser === "json5" ||
++  parser === "jsonc" ||
++  parser === "json-stringify";
+ 
+ function findCommonAncestor(startNodeAndParents, endNodeAndParents) {
+   const startNodeAndAncestors = [
+@@ -180,6 +183,7 @@ function isSourceElement(opts, node, parentNode) {
+       return isJsSourceElement(node.type, parentNode?.type);
+     case "json":
+     case "json5":
++    case "jsonc":
+     case "json-stringify":
+       return jsonSourceElements.has(node.type);
+     case "graphql":
+diff --git a/src/plugins/builtin-plugins-proxy.js b/src/plugins/builtin-plugins-proxy.js
+index 2bbd30c82..75d30e5b8 100644
+--- a/src/plugins/builtin-plugins-proxy.js
++++ b/src/plugins/builtin-plugins-proxy.js
+@@ -93,6 +93,7 @@ export const { parsers, printers } = createParsersAndPrinters([
+       "__babel_estree",
+       "json",
+       "json5",
++      "jsonc",
+       "json-stringify",
+     ],
+   },
+diff --git a/src/utils/print-string.js b/src/utils/print-string.js
+index 310698be4..8f4cf6efa 100644
+--- a/src/utils/print-string.js
++++ b/src/utils/print-string.js
+@@ -11,6 +11,13 @@ function printString(raw, options) {
+   /** @type {Quote} */
+   const enclosingQuote =
+     options.parser === "json" ||
++    options.parser === "jsonc" ||
++    // This was added before we have the `jsonc` parser
++    // If `{quoteProps: "preserve"}` and `{singleQuote: false}` (default value),
++    // and `{parser: "json5"}`, double quotes are always used for strings.
++    // This effectively allows using the `json5` parser for “JSON with comments and trailing commas”.
++    // See https://github.com/prettier/prettier/pull/10323
++    // See https://github.com/prettier/prettier/pull/15831#discussion_r1431010636
+     (options.parser === "json5" &&
+       options.quoteProps === "preserve" &&
+       !options.singleQuote)
+diff --git a/tests/config/utils/check-parsers.js b/tests/config/utils/check-parsers.js
+index 8fa94e73e..bf8665a44 100644
+--- a/tests/config/utils/check-parsers.js
++++ b/tests/config/utils/check-parsers.js
+@@ -72,9 +72,9 @@ const categoryParsers = new Map([
+   [
+     "json",
+     {
+-      parsers: ["json", "json5", "json-stringify"],
+-      verifyParsers: ["json", "json5", "json-stringify"],
+-      extensions: [".json"],
++      parsers: ["json", "json5", "jsonc", "json-stringify"],
++      verifyParsers: ["json", "json5", "jsonc", "json-stringify"],
++      extensions: [".json", ".json5", ".jsonc"],
+     },
+   ],
+   [
+diff --git a/tests/format/json/jsonc/quote-props/__snapshots__/jsfmt.spec.js.snap b/tests/format/json/jsonc/quote-props/__snapshots__/jsfmt.spec.js.snap
+new file mode 100644
+index 000000000..13707c16f
+--- /dev/null
++++ b/tests/format/json/jsonc/quote-props/__snapshots__/jsfmt.spec.js.snap
+@@ -0,0 +1,76 @@
++// Jest Snapshot v1, https://goo.gl/fbAQLP
++
++exports[`test.jsonc - {"quoteProps":"as-needed"} format 1`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++quoteProps: "as-needed"
++                                                                                | printWidth
++=====================================input======================================
++[
++  "Object keys should always quoted!",
++  {"key":""},
++  {"key":"","key-can-not-unquote":""},
++  {key:""},
++]
++
++=====================================output=====================================
++[
++  "Object keys should always quoted!",
++  { "key": "" },
++  { "key": "", "key-can-not-unquote": "" },
++  { "key": "" },
++]
++
++================================================================================
++`;
++
++exports[`test.jsonc - {"quoteProps":"consistent"} format 1`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++quoteProps: "consistent"
++                                                                                | printWidth
++=====================================input======================================
++[
++  "Object keys should always quoted!",
++  {"key":""},
++  {"key":"","key-can-not-unquote":""},
++  {key:""},
++]
++
++=====================================output=====================================
++[
++  "Object keys should always quoted!",
++  { "key": "" },
++  { "key": "", "key-can-not-unquote": "" },
++  { "key": "" },
++]
++
++================================================================================
++`;
++
++exports[`test.jsonc - {"quoteProps":"preserve"} format 1`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++quoteProps: "preserve"
++                                                                                | printWidth
++=====================================input======================================
++[
++  "Object keys should always quoted!",
++  {"key":""},
++  {"key":"","key-can-not-unquote":""},
++  {key:""},
++]
++
++=====================================output=====================================
++[
++  "Object keys should always quoted!",
++  { "key": "" },
++  { "key": "", "key-can-not-unquote": "" },
++  { "key": "" },
++]
++
++================================================================================
++`;
+diff --git a/tests/format/json/jsonc/quote-props/jsfmt.spec.js b/tests/format/json/jsonc/quote-props/jsfmt.spec.js
+new file mode 100644
+index 000000000..af447f4ac
+--- /dev/null
++++ b/tests/format/json/jsonc/quote-props/jsfmt.spec.js
+@@ -0,0 +1,3 @@
++run_spec(import.meta, ["jsonc"], { quoteProps: "as-needed" });
++run_spec(import.meta, ["jsonc"], { quoteProps: "consistent" });
++run_spec(import.meta, ["jsonc"], { quoteProps: "preserve" });
+diff --git a/tests/format/json/jsonc/quote-props/test.jsonc b/tests/format/json/jsonc/quote-props/test.jsonc
+new file mode 100644
+index 000000000..d295207ad
+--- /dev/null
++++ b/tests/format/json/jsonc/quote-props/test.jsonc
+@@ -0,0 +1,6 @@
++[
++  "Object keys should always quoted!",
++  {"key":""},
++  {"key":"","key-can-not-unquote":""},
++  {key:""},
++]
+diff --git a/tests/format/json/jsonc/single-quote/__snapshots__/jsfmt.spec.js.snap b/tests/format/json/jsonc/single-quote/__snapshots__/jsfmt.spec.js.snap
+new file mode 100644
+index 000000000..f470d0124
+--- /dev/null
++++ b/tests/format/json/jsonc/single-quote/__snapshots__/jsfmt.spec.js.snap
+@@ -0,0 +1,51 @@
++// Jest Snapshot v1, https://goo.gl/fbAQLP
++
++exports[`test.jsonc - {"singleQuote":false} format 1`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++singleQuote: false
++                                                                                | printWidth
++=====================================input======================================
++[
++  "Should always use double quote",
++  'Even it is single quoted originally',
++  'Or contains double quotes """""""""""',
++  {"object-key-should-also-double-quoted":""},
++]
++
++=====================================output=====================================
++[
++  "Should always use double quote",
++  "Even it is single quoted originally",
++  "Or contains double quotes \\"\\"\\"\\"\\"\\"\\"\\"\\"\\"\\"",
++  { "object-key-should-also-double-quoted": "" },
++]
++
++================================================================================
++`;
++
++exports[`test.jsonc - {"singleQuote":true} format 1`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++singleQuote: true
++                                                                                | printWidth
++=====================================input======================================
++[
++  "Should always use double quote",
++  'Even it is single quoted originally',
++  'Or contains double quotes """""""""""',
++  {"object-key-should-also-double-quoted":""},
++]
++
++=====================================output=====================================
++[
++  "Should always use double quote",
++  "Even it is single quoted originally",
++  "Or contains double quotes \\"\\"\\"\\"\\"\\"\\"\\"\\"\\"\\"",
++  { "object-key-should-also-double-quoted": "" },
++]
++
++================================================================================
++`;
+diff --git a/tests/format/json/jsonc/single-quote/jsfmt.spec.js b/tests/format/json/jsonc/single-quote/jsfmt.spec.js
+new file mode 100644
+index 000000000..e03db11ac
+--- /dev/null
++++ b/tests/format/json/jsonc/single-quote/jsfmt.spec.js
+@@ -0,0 +1,2 @@
++run_spec(import.meta, ["jsonc"], { singleQuote: true });
++run_spec(import.meta, ["jsonc"], { singleQuote: false });
+diff --git a/tests/format/json/jsonc/single-quote/test.jsonc b/tests/format/json/jsonc/single-quote/test.jsonc
+new file mode 100644
+index 000000000..5a25b2d8a
+--- /dev/null
++++ b/tests/format/json/jsonc/single-quote/test.jsonc
+@@ -0,0 +1,6 @@
++[
++  "Should always use double quote",
++  'Even it is single quoted originally',
++  'Or contains double quotes """""""""""',
++  {"object-key-should-also-double-quoted":""},
++]
+diff --git a/tests/format/json/jsonc/trialing-comma/__snapshots__/jsfmt.spec.js.snap b/tests/format/json/jsonc/trialing-comma/__snapshots__/jsfmt.spec.js.snap
+new file mode 100644
+index 000000000..277e4b107
+--- /dev/null
++++ b/tests/format/json/jsonc/trialing-comma/__snapshots__/jsfmt.spec.js.snap
+@@ -0,0 +1,139 @@
++// Jest Snapshot v1, https://goo.gl/fbAQLP
++
++exports[`test.jsonc - {"trailingComma":"all"} format 1`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "all"
++                                                                                | printWidth
++=====================================input======================================
++[
++  ["omit-if-short"],
++  ["long","long","long","long","long","long","enough","to","break","into","multiple","lines"],
++  {"short":"object"},
++  {"long":"","enough":"","to":"","break":"","into":"","multiple":"","lines":""}
++]
++
++=====================================output=====================================
++[
++  ["omit-if-short"],
++  [
++    "long",
++    "long",
++    "long",
++    "long",
++    "long",
++    "long",
++    "enough",
++    "to",
++    "break",
++    "into",
++    "multiple",
++    "lines",
++  ],
++  { "short": "object" },
++  {
++    "long": "",
++    "enough": "",
++    "to": "",
++    "break": "",
++    "into": "",
++    "multiple": "",
++    "lines": "",
++  },
++]
++
++================================================================================
++`;
++
++exports[`test.jsonc - {"trailingComma":"es5"} format 1`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "es5"
++                                                                                | printWidth
++=====================================input======================================
++[
++  ["omit-if-short"],
++  ["long","long","long","long","long","long","enough","to","break","into","multiple","lines"],
++  {"short":"object"},
++  {"long":"","enough":"","to":"","break":"","into":"","multiple":"","lines":""}
++]
++
++=====================================output=====================================
++[
++  ["omit-if-short"],
++  [
++    "long",
++    "long",
++    "long",
++    "long",
++    "long",
++    "long",
++    "enough",
++    "to",
++    "break",
++    "into",
++    "multiple",
++    "lines",
++  ],
++  { "short": "object" },
++  {
++    "long": "",
++    "enough": "",
++    "to": "",
++    "break": "",
++    "into": "",
++    "multiple": "",
++    "lines": "",
++  },
++]
++
++================================================================================
++`;
++
++exports[`test.jsonc - {"trailingComma":"none"} format 1`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "none"
++                                                                                | printWidth
++=====================================input======================================
++[
++  ["omit-if-short"],
++  ["long","long","long","long","long","long","enough","to","break","into","multiple","lines"],
++  {"short":"object"},
++  {"long":"","enough":"","to":"","break":"","into":"","multiple":"","lines":""}
++]
++
++=====================================output=====================================
++[
++  ["omit-if-short"],
++  [
++    "long",
++    "long",
++    "long",
++    "long",
++    "long",
++    "long",
++    "enough",
++    "to",
++    "break",
++    "into",
++    "multiple",
++    "lines"
++  ],
++  { "short": "object" },
++  {
++    "long": "",
++    "enough": "",
++    "to": "",
++    "break": "",
++    "into": "",
++    "multiple": "",
++    "lines": ""
++  }
++]
++
++================================================================================
++`;
+diff --git a/tests/format/json/jsonc/trialing-comma/jsfmt.spec.js b/tests/format/json/jsonc/trialing-comma/jsfmt.spec.js
+new file mode 100644
+index 000000000..ee3b05357
+--- /dev/null
++++ b/tests/format/json/jsonc/trialing-comma/jsfmt.spec.js
+@@ -0,0 +1,3 @@
++run_spec(import.meta, ["jsonc"], { trailingComma: "none" });
++run_spec(import.meta, ["jsonc"], { trailingComma: "es5" });
++run_spec(import.meta, ["jsonc"], { trailingComma: "all" });
+diff --git a/tests/format/json/jsonc/trialing-comma/test.jsonc b/tests/format/json/jsonc/trialing-comma/test.jsonc
+new file mode 100644
+index 000000000..32c381f62
+--- /dev/null
++++ b/tests/format/json/jsonc/trialing-comma/test.jsonc
+@@ -0,0 +1,6 @@
++[
++  ["omit-if-short"],
++  ["long","long","long","long","long","long","enough","to","break","into","multiple","lines"],
++  {"short":"object"},
++  {"long":"","enough":"","to":"","break":"","into":"","multiple":"","lines":""}
++]
+diff --git a/tests/format/json/range/jsonc/__snapshots__/jsfmt.spec.js.snap b/tests/format/json/range/jsonc/__snapshots__/jsfmt.spec.js.snap
+new file mode 100644
+index 000000000..14b8fb571
+--- /dev/null
++++ b/tests/format/json/range/jsonc/__snapshots__/jsfmt.spec.js.snap
+@@ -0,0 +1,28 @@
++// Jest Snapshot v1, https://goo.gl/fbAQLP
++
++exports[`inside-array.jsonc format 1`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++rangeEnd: 30
++rangeStart: 11
++     |                                                                                | printWidth
++=====================================input======================================
++  1 | {
++  2 | a: [
++  3 | 1,
++> 4 |  2,  3,4,5,6,      7,
++    |  ^^^^^^^^^^^^^^^^^^^
++  5 | 8
++  6 | ],
++  7 | b: [1, 2,      3, 4]
++  8 | }
++  9 |
++=====================================output=====================================
++{
++a: [1, 2, 3, 4, 5, 6, 7, 8],
++b: [1, 2,      3, 4]
++}
++
++================================================================================
++`;
+diff --git a/tests/format/json/range/jsonc/inside-array.jsonc b/tests/format/json/range/jsonc/inside-array.jsonc
+new file mode 100644
+index 000000000..2f740ea15
+--- /dev/null
++++ b/tests/format/json/range/jsonc/inside-array.jsonc
+@@ -0,0 +1,8 @@
++{
++a: [
++1,
++ <<<PRETTIER_RANGE_START>>>2,  3,4,5,6,      7<<<PRETTIER_RANGE_END>>>,
++8
++],
++b: [1, 2,      3, 4]
++}
+diff --git a/tests/format/json/range/jsonc/jsfmt.spec.js b/tests/format/json/range/jsonc/jsfmt.spec.js
+new file mode 100644
+index 000000000..96a857a61
+--- /dev/null
++++ b/tests/format/json/range/jsonc/jsfmt.spec.js
+@@ -0,0 +1 @@
++run_spec(import.meta, ["jsonc"]);
+diff --git a/tests/format/json/with-comment/__snapshots__/jsfmt.spec.js.snap b/tests/format/json/with-comment/__snapshots__/jsfmt.spec.js.snap
+index 9bd1856ba..6904af079 100644
+--- a/tests/format/json/with-comment/__snapshots__/jsfmt.spec.js.snap
++++ b/tests/format/json/with-comment/__snapshots__/jsfmt.spec.js.snap
+@@ -30,6 +30,21 @@ trailingComma: "all"
+ ================================================================================
+ `;
+ 
++exports[`block-comment.json - {"trailingComma":"all"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "all"
++                                                                                | printWidth
++=====================================input======================================
++{/*comment*/"K":"V"}
++
++=====================================output=====================================
++{ /*comment*/ "K": "V" }
++
++================================================================================
++`;
++
+ exports[`block-comment.json - {"trailingComma":"es5"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -60,6 +75,21 @@ trailingComma: "es5"
+ ================================================================================
+ `;
+ 
++exports[`block-comment.json - {"trailingComma":"es5"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "es5"
++                                                                                | printWidth
++=====================================input======================================
++{/*comment*/"K":"V"}
++
++=====================================output=====================================
++{ /*comment*/ "K": "V" }
++
++================================================================================
++`;
++
+ exports[`bottom-block-comment.json - {"trailingComma":"all"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -90,6 +120,21 @@ trailingComma: "all"
+ ================================================================================
+ `;
+ 
++exports[`bottom-block-comment.json - {"trailingComma":"all"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "all"
++                                                                                | printWidth
++=====================================input======================================
++1 /* block-comment */
++
++=====================================output=====================================
++1 /* block-comment */
++
++================================================================================
++`;
++
+ exports[`bottom-block-comment.json - {"trailingComma":"es5"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -120,6 +165,21 @@ trailingComma: "es5"
+ ================================================================================
+ `;
+ 
++exports[`bottom-block-comment.json - {"trailingComma":"es5"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "es5"
++                                                                                | printWidth
++=====================================input======================================
++1 /* block-comment */
++
++=====================================output=====================================
++1 /* block-comment */
++
++================================================================================
++`;
++
+ exports[`bottom-line-comment.json - {"trailingComma":"all"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -150,6 +210,21 @@ trailingComma: "all"
+ ================================================================================
+ `;
+ 
++exports[`bottom-line-comment.json - {"trailingComma":"all"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "all"
++                                                                                | printWidth
++=====================================input======================================
++1 // line-comment
++
++=====================================output=====================================
++1 // line-comment
++
++================================================================================
++`;
++
+ exports[`bottom-line-comment.json - {"trailingComma":"es5"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -180,6 +255,21 @@ trailingComma: "es5"
+ ================================================================================
+ `;
+ 
++exports[`bottom-line-comment.json - {"trailingComma":"es5"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "es5"
++                                                                                | printWidth
++=====================================input======================================
++1 // line-comment
++
++=====================================output=====================================
++1 // line-comment
++
++================================================================================
++`;
++
+ exports[`line-comment.json - {"trailingComma":"all"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -222,6 +312,27 @@ trailingComma: "all"
+ ================================================================================
+ `;
+ 
++exports[`line-comment.json - {"trailingComma":"all"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "all"
++                                                                                | printWidth
++=====================================input======================================
++{
++  //comment
++  "K":"V"
++}
++
++=====================================output=====================================
++{
++  //comment
++  "K": "V",
++}
++
++================================================================================
++`;
++
+ exports[`line-comment.json - {"trailingComma":"es5"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -264,6 +375,27 @@ trailingComma: "es5"
+ ================================================================================
+ `;
+ 
++exports[`line-comment.json - {"trailingComma":"es5"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "es5"
++                                                                                | printWidth
++=====================================input======================================
++{
++  //comment
++  "K":"V"
++}
++
++=====================================output=====================================
++{
++  //comment
++  "K": "V",
++}
++
++================================================================================
++`;
++
+ exports[`top-block-comment.json - {"trailingComma":"all"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -302,6 +434,25 @@ trailingComma: "all"
+ ================================================================================
+ `;
+ 
++exports[`top-block-comment.json - {"trailingComma":"all"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "all"
++                                                                                | printWidth
++=====================================input======================================
++/* comment */{
++  "foo": "bar"
++}
++
++=====================================output=====================================
++/* comment */ {
++  "foo": "bar",
++}
++
++================================================================================
++`;
++
+ exports[`top-block-comment.json - {"trailingComma":"es5"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -340,6 +491,25 @@ trailingComma: "es5"
+ ================================================================================
+ `;
+ 
++exports[`top-block-comment.json - {"trailingComma":"es5"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "es5"
++                                                                                | printWidth
++=====================================input======================================
++/* comment */{
++  "foo": "bar"
++}
++
++=====================================output=====================================
++/* comment */ {
++  "foo": "bar",
++}
++
++================================================================================
++`;
++
+ exports[`top-line-comment.json - {"trailingComma":"all"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -386,6 +556,29 @@ trailingComma: "all"
+ ================================================================================
+ `;
+ 
++exports[`top-line-comment.json - {"trailingComma":"all"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "all"
++                                                                                | printWidth
++=====================================input======================================
++// comment 1
++// comment 2
++{
++  "foo": "bar"
++}
++
++=====================================output=====================================
++// comment 1
++// comment 2
++{
++  "foo": "bar",
++}
++
++================================================================================
++`;
++
+ exports[`top-line-comment.json - {"trailingComma":"es5"} format 1`] = `
+ ====================================options=====================================
+ parsers: ["json"]
+@@ -431,3 +624,26 @@ trailingComma: "es5"
+ 
+ ================================================================================
+ `;
++
++exports[`top-line-comment.json - {"trailingComma":"es5"} format 3`] = `
++====================================options=====================================
++parsers: ["jsonc"]
++printWidth: 80
++trailingComma: "es5"
++                                                                                | printWidth
++=====================================input======================================
++// comment 1
++// comment 2
++{
++  "foo": "bar"
++}
++
++=====================================output=====================================
++// comment 1
++// comment 2
++{
++  "foo": "bar",
++}
++
++================================================================================
++`;
+diff --git a/tests/format/json/with-comment/jsfmt.spec.js b/tests/format/json/with-comment/jsfmt.spec.js
+index 6bfa8957e..b2c0da3b3 100644
+--- a/tests/format/json/with-comment/jsfmt.spec.js
++++ b/tests/format/json/with-comment/jsfmt.spec.js
+@@ -2,3 +2,5 @@ run_spec(import.meta, ["json"], { trailingComma: "es5" });
+ run_spec(import.meta, ["json"], { trailingComma: "all" });
+ run_spec(import.meta, ["json5"], { trailingComma: "es5" });
+ run_spec(import.meta, ["json5"], { trailingComma: "all" });
++run_spec(import.meta, ["jsonc"], { trailingComma: "es5" });
++run_spec(import.meta, ["jsonc"], { trailingComma: "all" });
+diff --git a/tests/format/markdown/multiparser-json/__snapshots__/jsfmt.spec.js.snap b/tests/format/markdown/multiparser-json/__snapshots__/jsfmt.spec.js.snap
+index c6ab38824..4943e1b4c 100644
+--- a/tests/format/markdown/multiparser-json/__snapshots__/jsfmt.spec.js.snap
++++ b/tests/format/markdown/multiparser-json/__snapshots__/jsfmt.spec.js.snap
+@@ -39,7 +39,7 @@ trailingComma: "all"
+ \`\`\`jsonc
+ // comment
+ {
+-  "foo": "bar"
++  "foo": "bar",
+ }
+ \`\`\`
+ 
+diff --git a/tests/integration/__tests__/__snapshots__/early-exit.js.snap b/tests/integration/__tests__/__snapshots__/early-exit.js.snap
+index 25bc0e206..822cdb984 100644
+--- a/tests/integration/__tests__/__snapshots__/early-exit.js.snap
++++ b/tests/integration/__tests__/__snapshots__/early-exit.js.snap
+@@ -60,7 +60,7 @@ Format options:
+                            Defaults to css.
+   --jsx-single-quote       Use single quotes in JSX.
+                            Defaults to false.
+-  --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
++  --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|jsonc|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
+                            Which parser to use.
+   --print-width <int>      The line length where Prettier will try wrap.
+                            Defaults to 80.
+@@ -155,7 +155,7 @@ exports[`show version with --version (write) 1`] = `[]`;
+ exports[`show warning with --help not-found (typo) (stderr) 1`] = `"[warn] Unknown flag "parserr", did you mean "parser"?"`;
+ 
+ exports[`show warning with --help not-found (typo) (stdout) 1`] = `
+-"--parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
++"--parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|jsonc|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
+ 
+   Which parser to use.
+ 
+@@ -174,6 +174,7 @@ Valid options:
+   scss             SCSS
+   json             JSON
+   json5            JSON5
++  jsonc            JSON with Comments
+   json-stringify   JSON.stringify
+   graphql          GraphQL
+   markdown         Markdown
+@@ -224,7 +225,7 @@ Format options:
+                            Defaults to css.
+   --jsx-single-quote       Use single quotes in JSX.
+                            Defaults to false.
+-  --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
++  --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|jsonc|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
+                            Which parser to use.
+   --print-width <int>      The line length where Prettier will try wrap.
+                            Defaults to 80.
+diff --git a/tests/integration/__tests__/__snapshots__/help-options.js.snap b/tests/integration/__tests__/__snapshots__/help-options.js.snap
+index 554a07d2c..fbb7d4189 100644
+--- a/tests/integration/__tests__/__snapshots__/help-options.js.snap
++++ b/tests/integration/__tests__/__snapshots__/help-options.js.snap
+@@ -404,7 +404,7 @@ exports[`show detailed usage with --help no-semi (write) 1`] = `[]`;
+ exports[`show detailed usage with --help parser (stderr) 1`] = `""`;
+ 
+ exports[`show detailed usage with --help parser (stdout) 1`] = `
+-"--parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
++"--parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|jsonc|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
+ 
+   Which parser to use.
+ 
+@@ -423,6 +423,7 @@ Valid options:
+   scss             SCSS
+   json             JSON
+   json5            JSON5
++  jsonc            JSON with Comments
+   json-stringify   JSON.stringify
+   graphql          GraphQL
+   markdown         Markdown
+diff --git a/tests/integration/__tests__/__snapshots__/plugin-options-string.js.snap b/tests/integration/__tests__/__snapshots__/plugin-options-string.js.snap
+index 149499c4b..95919cddf 100644
+--- a/tests/integration/__tests__/__snapshots__/plugin-options-string.js.snap
++++ b/tests/integration/__tests__/__snapshots__/plugin-options-string.js.snap
+@@ -30,8 +30,8 @@ exports[`show external options with \`--help\` 1`] = `
+                              Defaults to css.
+     --jsx-single-quote       Use single quotes in JSX.
+                              Defaults to false.
+--   --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
+-+   --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc|foo-parser>
++-   --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|jsonc|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
+++   --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|jsonc|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc|foo-parser>
+                              Which parser to use.
+     --print-width <int>      The line length where Prettier will try wrap.
+                              Defaults to 80.
+diff --git a/tests/integration/__tests__/__snapshots__/plugin-options.js.snap b/tests/integration/__tests__/__snapshots__/plugin-options.js.snap
+index d4f522b35..baa1f447c 100644
+--- a/tests/integration/__tests__/__snapshots__/plugin-options.js.snap
++++ b/tests/integration/__tests__/__snapshots__/plugin-options.js.snap
+@@ -3,7 +3,7 @@
+ exports[`include plugin's parsers to the values of the \`parser\` option\` (stderr) 1`] = `""`;
+ 
+ exports[`include plugin's parsers to the values of the \`parser\` option\` (stdout) 1`] = `
+-"--parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc|foo-parser>
++"--parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|jsonc|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc|foo-parser>
+ 
+   Which parser to use.
+ 
+@@ -22,6 +22,7 @@ Valid options:
+   scss             SCSS
+   json             JSON
+   json5            JSON5
++  jsonc            JSON with Comments
+   json-stringify   JSON.stringify
+   graphql          GraphQL
+   markdown         Markdown
+@@ -72,8 +73,8 @@ exports[`show external options with \`--help\` 1`] = `
+                              Defaults to css.
+     --jsx-single-quote       Use single quotes in JSX.
+                              Defaults to false.
+--   --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
+-+   --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc|foo-parser>
++-   --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|jsonc|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc>
+++   --parser <flow|babel|babel-flow|babel-ts|typescript|acorn|espree|meriyah|css|less|scss|json|json5|jsonc|json-stringify|graphql|markdown|mdx|vue|yaml|glimmer|html|angular|lwc|foo-parser>
+                              Which parser to use.
+     --print-width <int>      The line length where Prettier will try wrap.
+                              Defaults to 80.
+diff --git a/tests/integration/__tests__/__snapshots__/schema.js.snap b/tests/integration/__tests__/__snapshots__/schema.js.snap
+index a9a3e05a7..cb5d0bd91 100644
+--- a/tests/integration/__tests__/__snapshots__/schema.js.snap
++++ b/tests/integration/__tests__/__snapshots__/schema.js.snap
+@@ -212,6 +212,12 @@ exports[`schema 1`] = `
+                 "json5",
+               ],
+             },
++            {
++              "description": "JSON with Comments",
++              "enum": [
++                "jsonc",
++              ],
++            },
+             {
+               "description": "JSON.stringify",
+               "enum": [
+diff --git a/tests/integration/__tests__/__snapshots__/support-info.js.snap b/tests/integration/__tests__/__snapshots__/support-info.js.snap
+index a74818f21..b1803945b 100644
+--- a/tests/integration/__tests__/__snapshots__/support-info.js.snap
++++ b/tests/integration/__tests__/__snapshots__/support-info.js.snap
+@@ -26,7 +26,7 @@ exports[`API getSupportInfo() 1`] = `
+       "json",
+     ],
+     "JSON with Comments": [
+-      "json",
++      "jsonc",
+     ],
+     "JSON.stringify": [
+       "json-stringify",
+@@ -170,6 +170,7 @@ exports[`API getSupportInfo() 1`] = `
+         "scss",
+         "json",
+         "json5",
++        "jsonc",
+         "json-stringify",
+         "graphql",
+         "markdown",
+@@ -533,13 +534,12 @@ exports[`CLI --support-info (stdout) 1`] = `
+         "jsconfig.json",
+         "language-configuration.json",
+         "tsconfig.json",
+-        "tslint.json",
+-        ".eslintrc"
++        "tslint.json"
+       ],
+       "group": "JSON",
+       "linguistLanguageId": 423,
+       "name": "JSON with Comments",
+-      "parsers": ["json"],
++      "parsers": ["jsonc"],
+       "tmScope": "source.js",
+       "type": "data",
+       "vscodeLanguageIds": ["jsonc"]
+@@ -926,6 +926,7 @@ exports[`CLI --support-info (stdout) 1`] = `
+         { "description": "SCSS", "value": "scss" },
+         { "description": "JSON", "value": "json" },
+         { "description": "JSON5", "value": "json5" },
++        { "description": "JSON with Comments", "value": "jsonc" },
+         { "description": "JSON.stringify", "value": "json-stringify" },
+         { "description": "GraphQL", "value": "graphql" },
+         { "description": "Markdown", "value": "markdown" },
+diff --git a/tests/integration/__tests__/with-parser-inference.js b/tests/integration/__tests__/with-parser-inference.js
+index 3c99d1f44..42d1649fa 100644
+--- a/tests/integration/__tests__/with-parser-inference.js
++++ b/tests/integration/__tests__/with-parser-inference.js
+@@ -66,8 +66,8 @@ describe("infers parser from filename", () => {
+         {
+           "jsc": {
+             // Requires v1.2.50 or upper and requires target to be es2016 or upper.
+-            "keepClassNames": false
+-          }
++            "keepClassNames": false,
++          },
+         }
+       ` + "\n",
+     );
+diff --git a/tests/unit/builtin-plugins.js b/tests/unit/builtin-plugins.js
+index 7fe8fe8c8..dfe3ad5ed 100644
+--- a/tests/unit/builtin-plugins.js
++++ b/tests/unit/builtin-plugins.js
+@@ -33,6 +33,7 @@ test("builtin parsers", async () => {
+       "json",
+       "json-stringify",
+       "json5",
++      "jsonc",
+       "less",
+       "lwc",
+       "markdown",
+diff --git a/website/playground/codeSamples.mjs b/website/playground/codeSamples.mjs
+index 3038fbca3..e194b4581 100644
+--- a/website/playground/codeSamples.mjs
++++ b/website/playground/codeSamples.mjs
+@@ -116,6 +116,7 @@ export default function getCodeSamples(parser) {
+       ].join("\n");
+     case "json":
+     case "json5":
++    case "jsonc":
+     case "json-stringify":
+       // Excerpted & adapted from Wikipedia, under the Creative Commons Attribution-ShareAlike License
+       // https://en.wikipedia.org/wiki/JSON#Example

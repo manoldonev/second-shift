@@ -1,0 +1,309 @@
+diff --git a/changelog_unreleased/cli/14332.md b/changelog_unreleased/cli/14332.md
+new file mode 100644
+index 000000000..bad23293b
+--- /dev/null
++++ b/changelog_unreleased/cli/14332.md
+@@ -0,0 +1,7 @@
++#### Accept multiple `--ignore-path` (#14332 by @fisker)
++
++You can now pass multiple `--ignore-path`.
++
++```console
++prettier . --ignore-path=.prettier-ignore --ignore-path=.eslintignore
++```
+diff --git a/docs/api.md b/docs/api.md
+index 3eb85a535..20a6549b8 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -90,7 +90,7 @@ When Prettier loads configuration files and plugins, the file system structure i
+ 
+ The promise will be rejected if the type of `filePath` is not `string`.
+ 
+-Setting `options.ignorePath` (`string`) and `options.withNodeModules` (`boolean`) influence the value of `ignored` (`false` by default).
++Setting `options.ignorePath` (`string | string[]`) and `options.withNodeModules` (`boolean`) influence the value of `ignored` (`false` by default).
+ 
+ If the given `filePath` is ignored, the `inferredParser` is always `null`.
+ 
+diff --git a/docs/cli.md b/docs/cli.md
+index cfeb493eb..52615324c 100644
+--- a/docs/cli.md
++++ b/docs/cli.md
+@@ -112,7 +112,8 @@ If you don’t have a configuration file, or want to ignore it if it does exist,
+ 
+ ## `--ignore-path`
+ 
+-Path to a file containing patterns that describe files to ignore. By default, Prettier looks for `./.prettierignore`.
++Path to a file containing patterns that describe files to ignore. By default, Prettier looks for `./.prettierignore`.\
++Multiple values are accepted.
+ 
+ ## `--list-different`
+ 
+diff --git a/docs/plans/prettier-8048-plan.md b/docs/plans/prettier-8048-plan.md
+new file mode 100644
+index 000000000..92975435c
+--- /dev/null
++++ b/docs/plans/prettier-8048-plan.md
+@@ -0,0 +1,13 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 Several --ignore-path values are all applied, and a missing ignore file is skipped (tests/integration/__tests__/ignore-path.js) [AC-1]
++- [ ] 1.2 The --help output names the option as accepting several values with the default [.prettierignore] (tests/integration/__tests__/__snapshots__/help-options.js.snap) [AC-2]
++
++## 2. Fix
++
++- [ ] 2.1 Make --ignore-path an array option with the default [".prettierignore"] (src/cli/cli-options.evaluate.js)
++- [ ] 2.2 Build one matcher per ignore file and treat a path as ignored when any matcher ignores it (src/utils/ignore.js)
++- [ ] 2.3 Accept a single ignorePath or a list in getFileInfo (src/common/get-file-info.js, src/index.d.ts)
++- [ ] 2.4 Docs and changelog (docs/cli.md, docs/api.md, changelog_unreleased/cli/14332.md)
+diff --git a/src/cli/cli-options.evaluate.js b/src/cli/cli-options.evaluate.js
+index 1b5eb5726..9973cceea 100644
+--- a/src/cli/cli-options.evaluate.js
++++ b/src/cli/cli-options.evaluate.js
+@@ -193,9 +193,13 @@ const options = {
+     type: "flag",
+   },
+   ignorePath: {
++    array: true,
+     category: optionCategories.CATEGORY_CONFIG,
+-    default: ".prettierignore",
+-    description: "Path to a file with patterns describing files to ignore.",
++    default: [{ value: [".prettierignore"] }],
++    description: outdent`
++      Path to a file with patterns describing files to ignore.
++      Multiple values are accepted.
++    `,
+     type: "path",
+   },
+   ignoreUnknown: {
+diff --git a/src/common/get-file-info.js b/src/common/get-file-info.js
+index a099c7697..faaed1ac8 100644
+--- a/src/common/get-file-info.js
++++ b/src/common/get-file-info.js
+@@ -23,7 +23,13 @@ async function getFileInfo(filePath, options) {
+     );
+   }
+ 
+-  const ignored = await isIgnored(filePath, options);
++  let { ignorePath, withNodeModules } = options;
++  // In API we allow single `ignorePath`
++  if (!Array.isArray(ignorePath)) {
++    ignorePath = [ignorePath];
++  }
++
++  const ignored = await isIgnored(filePath, { ignorePath, withNodeModules });
+ 
+   let inferredParser;
+   if (!ignored) {
+diff --git a/src/index.d.ts b/src/index.d.ts
+index 365dd6d76..058839972 100644
+--- a/src/index.d.ts
++++ b/src/index.d.ts
+@@ -785,7 +785,7 @@ export interface SupportInfo {
+ }
+ 
+ export interface FileInfoOptions {
+-  ignorePath?: string | undefined;
++  ignorePath?: string | string[] | undefined;
+   withNodeModules?: boolean | undefined;
+   plugins?: string[] | undefined;
+   resolveConfig?: boolean | undefined;
+diff --git a/src/utils/ignore.js b/src/utils/ignore.js
+index c9243e42f..b1a939b1c 100644
+--- a/src/utils/ignore.js
++++ b/src/utils/ignore.js
+@@ -13,7 +13,7 @@ const slash =
+  * @param {boolean?} withNodeModules
+  * @returns {Promise<(string) => boolean>}
+  */
+-async function createIsIgnoredFunction(ignoreFilePath, withNodeModules) {
++async function createSingleIsIgnoredFunction(ignoreFilePath, withNodeModules) {
+   let content = "";
+ 
+   if (ignoreFilePath) {
+@@ -25,27 +25,49 @@ async function createIsIgnoredFunction(ignoreFilePath, withNodeModules) {
+   }
+ 
+   if (!content) {
+-    return () => false;
++    return;
+   }
+ 
+   const ignore = createIgnore({ allowRelativePaths: true }).add(content);
+ 
++  // If there's an ignore-path set, the filename must be relative to the
++  // ignore path, not the current working directory.
++  const baseDirectory = ignoreFilePath
++    ? path.dirname(path.resolve(ignoreFilePath))
++    : process.cwd();
++
+   return (filepath) => {
+-    filepath = path.resolve(filepath);
++    const absolutePath = path.resolve(baseDirectory, filepath);
++    return ignore.ignores(slash(path.relative(baseDirectory, absolutePath)));
++  };
++}
++
++/**
++ * @param {string[]} ignoreFilePaths
++ * @param {boolean?} withNodeModules
++ * @returns {Promise<(string) => boolean>}
++ */
++async function createIsIgnoredFunction(ignoreFilePaths, withNodeModules) {
++  // If `ignoreFilePaths` is empty, we still want `withNodeModules` to work
++  if (ignoreFilePaths.length === 0 && !withNodeModules) {
++    ignoreFilePaths = [undefined];
++  }
+ 
+-    // If there's an ignore-path set, the filename must be relative to the
+-    // ignore path, not the current working directory.
+-    const relativePath = ignoreFilePath
+-      ? path.relative(path.dirname(ignoreFilePath), filepath)
+-      : path.relative(process.cwd(), filepath);
++  const isIgnoredFunctions = (
++    await Promise.all(
++      ignoreFilePaths.map((ignoreFilePath) =>
++        createSingleIsIgnoredFunction(ignoreFilePath, withNodeModules)
++      )
++    )
++  ).filter(Boolean);
+ 
+-    return ignore.ignores(slash(relativePath));
+-  };
++  return (filepath) =>
++    isIgnoredFunctions.some((isIgnored) => isIgnored(filepath));
+ }
+ 
+ /**
+- * @param {string} filepath
+- * @param {{ignorePath?: string, withNodeModules?: boolean}} options
++ * @param {string[]} filepath
++ * @param {{ignorePath: string[], withNodeModules?: boolean}} options
+  * @returns {Promise<boolean>}
+  */
+ async function isIgnored(filepath, options) {
+diff --git a/tests/integration/__tests__/__snapshots__/early-exit.js.snap b/tests/integration/__tests__/__snapshots__/early-exit.js.snap
+index 90ca01970..c1e40c9d3 100644
+--- a/tests/integration/__tests__/__snapshots__/early-exit.js.snap
++++ b/tests/integration/__tests__/__snapshots__/early-exit.js.snap
+@@ -111,7 +111,8 @@ Config options:
+   --find-config-path <path>
+                            Find and print the path to a configuration file for the given input file.
+   --ignore-path <path>     Path to a file with patterns describing files to ignore.
+-                           Defaults to .prettierignore.
++                           Multiple values are accepted.
++                           Defaults to [.prettierignore].
+   --plugin <path>          Add a plugin. Multiple plugins can be passed as separate \`--plugin\`s.
+                            Defaults to [].
+   --plugin-search-dir <path>
+@@ -281,7 +282,8 @@ Config options:
+   --find-config-path <path>
+                            Find and print the path to a configuration file for the given input file.
+   --ignore-path <path>     Path to a file with patterns describing files to ignore.
+-                           Defaults to .prettierignore.
++                           Multiple values are accepted.
++                           Defaults to [.prettierignore].
+   --plugin <path>          Add a plugin. Multiple plugins can be passed as separate \`--plugin\`s.
+                            Defaults to [].
+   --plugin-search-dir <path>
+diff --git a/tests/integration/__tests__/__snapshots__/help-options.js.snap b/tests/integration/__tests__/__snapshots__/help-options.js.snap
+index 035cd0d47..da6c6ef12 100644
+--- a/tests/integration/__tests__/__snapshots__/help-options.js.snap
++++ b/tests/integration/__tests__/__snapshots__/help-options.js.snap
+@@ -249,8 +249,9 @@ exports[`show detailed usage with --help ignore-path (stdout) 1`] = `
+ "--ignore-path <path>
+ 
+   Path to a file with patterns describing files to ignore.
++  Multiple values are accepted.
+ 
+-Default: .prettierignore"
++Default: [.prettierignore]"
+ `;
+ 
+ exports[`show detailed usage with --help ignore-path (write) 1`] = `[]`;
+diff --git a/tests/integration/__tests__/__snapshots__/ignore-path.js.snap b/tests/integration/__tests__/__snapshots__/ignore-path.js.snap
+index 58e0e8c87..e79829cec 100644
+--- a/tests/integration/__tests__/__snapshots__/ignore-path.js.snap
++++ b/tests/integration/__tests__/__snapshots__/ignore-path.js.snap
+@@ -1,25 +1,9 @@
+ // Jest Snapshot v1, https://goo.gl/fbAQLP
+ 
+-exports[`ignore file when using --debug-check (stderr) 1`] = `""`;
+-
+ exports[`ignore file when using --debug-check (stdout) 1`] = `"other-regular-modules.js"`;
+ 
+-exports[`ignore file when using --debug-check (write) 1`] = `[]`;
+-
+-exports[`ignore path (stderr) 1`] = `""`;
+-
+ exports[`ignore path (stdout) 1`] = `"regular-module.js"`;
+ 
+-exports[`ignore path (write) 1`] = `[]`;
+-
+-exports[`outputs files as-is if no --write (stderr) 1`] = `""`;
+-
+ exports[`outputs files as-is if no --write (stdout) 1`] = `"'use strict';"`;
+ 
+-exports[`outputs files as-is if no --write (write) 1`] = `[]`;
+-
+-exports[`support .prettierignore (stderr) 1`] = `""`;
+-
+ exports[`support .prettierignore (stdout) 1`] = `"other-regular-modules.js"`;
+-
+-exports[`support .prettierignore (write) 1`] = `[]`;
+diff --git a/tests/integration/__tests__/ignore-path.js b/tests/integration/__tests__/ignore-path.js
+index c74b7d009..c1cab33a1 100644
+--- a/tests/integration/__tests__/ignore-path.js
++++ b/tests/integration/__tests__/ignore-path.js
+@@ -17,18 +17,24 @@ describe("ignore path", () => {
+     "-l",
+   ]).test({
+     status: 1,
++    stderr: "",
++    write: [],
+   });
+ });
+ 
+ describe("support .prettierignore", () => {
+   runPrettier("cli/ignore-path", ["**/*.js", "-l"]).test({
+     status: 1,
++    stderr: "",
++    write: [],
+   });
+ });
+ 
+ describe("ignore file when using --debug-check", () => {
+   runPrettier("cli/ignore-path", ["**/*.js", "--debug-check"]).test({
+     status: 0,
++    stderr: "",
++    write: [],
+   });
+ });
+ 
+@@ -37,5 +43,25 @@ describe("outputs files as-is if no --write", () => {
+     ignoreLineEndings: true,
+   }).test({
+     status: 0,
++    stderr: "",
++    write: [],
++  });
++});
++
++describe("multiple `--ignore-path`", () => {
++  runPrettier("cli/ignore-path", [
++    "**/*.js",
++    "--debug-check",
++    "--ignore-path",
++    ".gitignore",
++    "--ignore-path",
++    ".prettierignore",
++    "--ignore-path",
++    ".non-exists-ignore-file",
++  ]).test({
++    status: 0,
++    stdout: "",
++    stderr: "",
++    write: [],
+   });
+ });

@@ -1,0 +1,207 @@
+diff --git a/docs/plans/vite-10068-plan.md b/docs/plans/vite-10068-plan.md
+new file mode 100644
+index 000000000..07a74963c
+--- /dev/null
++++ b/docs/plans/vite-10068-plan.md
+@@ -0,0 +1,11 @@
++# Plan
++
++## 1. Tests
++
++- [ ] 1.1 Check that injectSourcesContent keeps the sourcesContent entries a map already carries, even for sources that are not on disk, and prints no warning (packages/vite/src/node/server/__tests__/sourcemap.spec.ts) [AC-1]
++- [ ] 1.2 Check that a null entry is still read from the source file, that sourceRoot is honoured, and that a source neither carried nor on disk still warns once (packages/vite/src/node/server/__tests__/sourcemap.spec.ts) [AC-2]
++
++## 2. Sourcemap content
++
++- [ ] 2.1 Fill only the missing sourcesContent entries from disk (packages/vite/src/node/server/sourcemap.ts)
++- [ ] 2.2 Always run the content injection for served JS, HTML proxy modules and CSS, instead of skipping maps that already carry some content (packages/vite/src/node/server/transformRequest.ts, packages/vite/src/node/server/middlewares/indexHtml.ts, packages/vite/src/node/plugins/css.ts)
+diff --git a/packages/vite/src/node/plugins/css.ts b/packages/vite/src/node/plugins/css.ts
+index c13683c43..8d6bb2112 100644
+--- a/packages/vite/src/node/plugins/css.ts
++++ b/packages/vite/src/node/plugins/css.ts
+@@ -439,7 +439,7 @@ export function cssPostPlugin(config: ResolvedConfig): Plugin {
+         const getContentWithSourcemap = async (content: string) => {
+           if (config.css?.devSourcemap) {
+             const sourcemap = this.getCombinedSourcemap()
+-            if (sourcemap.mappings && !sourcemap.sourcesContent) {
++            if (sourcemap.mappings) {
+               await injectSourcesContent(sourcemap, cleanUrl(id), config.logger)
+             }
+             return getCodeWithSourcemap('css', content, sourcemap)
+diff --git a/packages/vite/src/node/server/__tests__/fixtures/sourcemap/lib/index.js b/packages/vite/src/node/server/__tests__/fixtures/sourcemap/lib/index.js
+new file mode 100644
+index 000000000..fb82f1933
+--- /dev/null
++++ b/packages/vite/src/node/server/__tests__/fixtures/sourcemap/lib/index.js
+@@ -0,0 +1,2 @@
++export const present = 'on disk'
++export const shipped = 'only in the map'
+diff --git a/packages/vite/src/node/server/__tests__/fixtures/sourcemap/src/present.ts b/packages/vite/src/node/server/__tests__/fixtures/sourcemap/src/present.ts
+new file mode 100644
+index 000000000..b0acfb52a
+--- /dev/null
++++ b/packages/vite/src/node/server/__tests__/fixtures/sourcemap/src/present.ts
+@@ -0,0 +1 @@
++export const present: string = 'on disk'
+diff --git a/packages/vite/src/node/server/__tests__/sourcemap.spec.ts b/packages/vite/src/node/server/__tests__/sourcemap.spec.ts
+new file mode 100644
+index 000000000..f04b6a272
+--- /dev/null
++++ b/packages/vite/src/node/server/__tests__/sourcemap.spec.ts
+@@ -0,0 +1,89 @@
++import { dirname, resolve } from 'node:path'
++import { fileURLToPath } from 'node:url'
++import { describe, expect, test, vi } from 'vitest'
++import type { Logger } from '../../logger'
++import { injectSourcesContent } from '../sourcemap'
++
++const __dirname = dirname(fileURLToPath(import.meta.url))
++const file = resolve(__dirname, 'fixtures/sourcemap/lib/index.js')
++const presentContent = "export const present: string = 'on disk'\n"
++
++function createLogger() {
++  const warnOnce = vi.fn()
++  const logger = { warnOnce } as unknown as Logger
++  return { logger, warnOnce }
++}
++
++describe('injectSourcesContent', () => {
++  test('keeps content the map already carries for a source that is not on disk', async () => {
++    const { logger, warnOnce } = createLogger()
++    const map = {
++      sources: ['../src/missing.ts'],
++      sourcesContent: ["export const shipped = 'only in the map'\n"],
++    }
++    await injectSourcesContent(map, file, logger)
++    expect(map.sourcesContent).toEqual([
++      "export const shipped = 'only in the map'\n",
++    ])
++    expect(warnOnce).not.toHaveBeenCalled()
++  })
++
++  test('fills a null entry from the source file and keeps the others', async () => {
++    const { logger, warnOnce } = createLogger()
++    const map = {
++      sources: ['../src/present.ts', '../src/missing.ts'],
++      sourcesContent: [null, "export const shipped = 'only in the map'\n"],
++    }
++    await injectSourcesContent(map, file, logger)
++    expect(map.sourcesContent).toEqual([
++      presentContent,
++      "export const shipped = 'only in the map'\n",
++    ])
++    expect(warnOnce).not.toHaveBeenCalled()
++  })
++
++  test('reads every source when the map carries no content', async () => {
++    const { logger, warnOnce } = createLogger()
++    const map: { sources: string[]; sourcesContent?: (string | null)[] } = {
++      sources: ['../src/present.ts'],
++    }
++    await injectSourcesContent(map, file, logger)
++    expect(map.sourcesContent).toEqual([presentContent])
++    expect(warnOnce).not.toHaveBeenCalled()
++  })
++
++  test('resolves sources against sourceRoot', async () => {
++    const { logger } = createLogger()
++    const map = {
++      sources: ['present.ts'],
++      sourceRoot: '../src',
++      sourcesContent: [null],
++    }
++    await injectSourcesContent(map, file, logger)
++    expect(map.sourcesContent).toEqual([presentContent])
++  })
++
++  test('warns once for a source that is neither carried nor on disk', async () => {
++    const { logger, warnOnce } = createLogger()
++    const map = {
++      sources: ['../src/present.ts', '../src/missing.ts'],
++      sourcesContent: [null, null],
++    }
++    await injectSourcesContent(map, file, logger)
++    expect(map.sourcesContent).toEqual([presentContent, null])
++    expect(warnOnce).toHaveBeenCalledTimes(1)
++    expect(warnOnce).toHaveBeenCalledWith(
++      `Sourcemap for "${file}" points to missing source files`,
++    )
++  })
++
++  test('leaves virtual sources empty without a warning', async () => {
++    const { logger, warnOnce } = createLogger()
++    const map = {
++      sources: ['\0virtual-module', 'virtual:entry'],
++    } as { sources: string[]; sourcesContent?: (string | null)[] }
++    await injectSourcesContent(map, file, logger)
++    expect(map.sourcesContent).toEqual([null, null])
++    expect(warnOnce).not.toHaveBeenCalled()
++  })
++})
+diff --git a/packages/vite/src/node/server/middlewares/indexHtml.ts b/packages/vite/src/node/server/middlewares/indexHtml.ts
+index 3948f997a..838d5a1bf 100644
+--- a/packages/vite/src/node/server/middlewares/indexHtml.ts
++++ b/packages/vite/src/node/server/middlewares/indexHtml.ts
+@@ -283,7 +283,7 @@ const devHtmlHook: IndexHtmlTransformHook = async (
+       let content = ''
+       if (result) {
+         if (result.map) {
+-          if (result.map.mappings && !result.map.sourcesContent) {
++          if (result.map.mappings) {
+             await injectSourcesContent(
+               result.map,
+               proxyModulePath,
+diff --git a/packages/vite/src/node/server/sourcemap.ts b/packages/vite/src/node/server/sourcemap.ts
+index a2e8c5554..c8f2c8d88 100644
+--- a/packages/vite/src/node/server/sourcemap.ts
++++ b/packages/vite/src/node/server/sourcemap.ts
+@@ -33,22 +33,29 @@ export async function injectSourcesContent(
+   } catch {}
+
+   const missingSources: string[] = []
+-  map.sourcesContent = await Promise.all(
+-    map.sources.map((sourcePath) => {
++  const sourcesContent = map.sourcesContent || []
++  await Promise.all(
++    map.sources.map(async (sourcePath, index) => {
++      let content = null
+       if (sourcePath && !virtualSourceRE.test(sourcePath)) {
+         sourcePath = decodeURI(sourcePath)
+         if (sourceRoot) {
+           sourcePath = path.resolve(sourceRoot, sourcePath)
+         }
+-        return fsp.readFile(sourcePath, 'utf-8').catch(() => {
+-          missingSources.push(sourcePath)
+-          return null
+-        })
++        // inject content from source file when sourcesContent is null
++        content =
++          sourcesContent[index] ??
++          (await fsp.readFile(sourcePath, 'utf-8').catch(() => {
++            missingSources.push(sourcePath)
++            return null
++          }))
+       }
+-      return null
++      sourcesContent[index] = content
+     }),
+   )
+
++  map.sourcesContent = sourcesContent
++
+   // Use this command…
+   //    DEBUG="vite:sourcemap" vite build
+   // …to log the missing sources.
+diff --git a/packages/vite/src/node/server/transformRequest.ts b/packages/vite/src/node/server/transformRequest.ts
+index 92f9abbc0..2c9c58c47 100644
+--- a/packages/vite/src/node/server/transformRequest.ts
++++ b/packages/vite/src/node/server/transformRequest.ts
+@@ -285,7 +285,7 @@ async function loadAndTransform(
+
+   if (map && mod.file) {
+     map = (typeof map === 'string' ? JSON.parse(map) : map) as SourceMap
+-    if (map.mappings && !map.sourcesContent) {
++    if (map.mappings) {
+       await injectSourcesContent(map, mod.file, logger)
+     }
+

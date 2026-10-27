@@ -1,0 +1,25 @@
+{
+  "upstream": "https://github.com/vitejs/vite.git",
+  "instance": "vitejs__vite-pr12202",
+  "license": "MIT",
+  "base": "108aadf72865a3b95c8f013eb7721769d035a16c",
+  "base_branch": "main",
+  "overlay": "vitejs__vite",
+  "issue": 3105,
+  "pr": 12202,
+  "commit": "feat(html): support env replacement",
+  "truth": {
+    "class": "P4",
+    "pattern": "rejects-held-input",
+    "description": "htmlEnvHook now runs JSON.parse on every string value of an import.meta.env key in the resolved config.define, but @vitejs/plugin-legacy puts the bare identifier __VITE_IS_LEGACY__ there for import.meta.env.LEGACY in every client build, so buildHtmlPlugin throws a JSON SyntaxError while the config resolves and every vite build that uses plugin-legacy fails.",
+    "locations": [
+      {"file": "packages/vite/src/node/plugins/html.ts", "start": 955, "end": 959, "side": "head"},
+      {"file": "packages/plugin-legacy/src/index.ts", "start": 197, "end": 203, "side": "head"},
+      {"file": "packages/vite/src/node/plugins/html.ts", "start": 288, "end": 290, "side": "head"}
+    ]
+  },
+  "distractions": [
+    {"file": "playground/html/__tests__/html.spec.ts", "start": 274, "end": 276, "side": "head",
+     "why": "The class attribute env-%VITE_FOO% is replaced along with the text, so the paragraph carries the env-bar class and the selector finds it."}
+  ]
+}
