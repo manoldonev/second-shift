@@ -282,6 +282,132 @@ drive "$S"
   && grep -qxF '2 more command(s) did not run: at most 8 run per review.' "$S/intent.prompt" \
   && ok "at most 8 probes run, and the rest are recorded as dropped and told to intent" || bad "many: $(grep -c '^probe ' "$S/order") $(field "$S/rec.json" dropped)"
 
+echo "== the verdict rule =="
+rule() { # rule <case dir> <dir>: verdict_rule on <dir>'s verdict.md, candidates.json and probes.json, into amended.md and log.json
+  python3 -c '
+import json, pathlib, sys
+sys.path.insert(0, sys.argv[1]); import planted
+d = pathlib.Path(sys.argv[4])
+text, log = planted.verdict_rule((d / "verdict.md").read_text(), planted.load_case(pathlib.Path(sys.argv[3])), pathlib.Path(sys.argv[2]),
+                                 json.loads((d / "candidates.json").read_text()), json.loads((d / "probes.json").read_text()), None)
+(d / "amended.md").write_text(text)
+(d / "log.json").write_text(json.dumps(log))' "$HERE" "$R" "$1" "$2" > "$2/rule.log" 2>&1
+}
+CAND='[{"id": "C1", "site": "src/sum.sh:1", "input": "sum 2 3 from src/cli.sh:3, which expects -1"}]'
+differs() { printf '[{"candidate": "C1", "cmd": ". src/sum.sh; sum 2 3", "verdict": "%s", "reason": "", "before": {"rc": 0, "out": "-1\\n", "err": ""}, "after": {"rc": 0, "out": "%s\\n", "err": ""}}]\n' "$1" "$2"; }
+case_rule() { # case_rule <name> <verdict> [probe verdict] [candidates]: a scenario dir with the rule run on <verdict>
+  S="$(scenario "rule-$1")"
+  printf '%s\n' "$2" > "$S/verdict.md"; printf '%s\n' "${4:-$CAND}" > "$S/candidates.json"
+  differs "${3:-DIFFERS}" 5 > "$S/probes.json"
+  rule "$C" "$S"
+}
+unchanged() { cmp -s "$1/verdict.md" "$1/amended.md"; }
+H1='- [blocker] H1 src/sum.sh:1 — sum 2 3 from src/cli.sh:3, which expects -1 Proven: `. src/sum.sh; sum 2 3` — before: exit code 0, stdout "-1"; after: exit code 0, stdout "5".'
+
+case_rule differs-approve 'verdict: approve
+## Findings
+None.'
+[ "$(cat "$S/amended.md")" = "$(printf 'verdict: needs-work\n## Findings\n%s\n' "$H1")" ] \
+  && ok "an unquoted DIFFERS candidate under an approve becomes an H1 blocker at its site with hunt's text and the probe's evidence, and the verdict needs-work" \
+  || bad "differs-approve: $(cat "$S/amended.md" "$S/rule.log")"
+[ "$(field "$S/log.json" added 0 site)" = src/sum.sh:1 ] && [ "$(field "$S/log.json" verdict)" = needs-work ] \
+  && ok "the rule's log names the added blocker's site and the new verdict" || bad "log: $(cat "$S/log.json")"
+out="$(python3 -c '
+import sys; sys.path.insert(0, sys.argv[1]); import planted
+v = planted.collect("plain", open(sys.argv[2]).read(), None, None)
+print(v["status"], v["verdict"], [(f["severity"], f["id"], f["path"], f["line"]) for f in v["findings"]])' "$HERE" "$S/amended.md" 2>&1)"
+[ "$out" = "ok needs-work [('blocker', 'H1', 'src/sum.sh', 1)]" ] && ok "the amended verdict meets plain's contract and parses its H1 blocker" || bad "collect: $out"
+
+case_rule blocker-there 'verdict: needs-work
+## Findings
+- [blocker] B1 src/sum.sh:3 — sum now adds, and src/cli.sh:3 reads the old sign.'
+unchanged "$S" && ok "a blocker of intent's own within 3 lines of the site covers the candidate, with no duplicate" || bad "blocker-there: $(cat "$S/amended.md")"
+
+case_rule quote-ticket 'verdict: approve
+## Findings
+- [note] N1 src/sum.sh:1 — the sign changes as the ticket asks: "AC-1: `sum 2 3` prints 5."'
+unchanged "$S" && ok "a note with a 20-character quote from the ticket stays as intent filed it" || bad "quote-ticket: $(cat "$S/amended.md")"
+case_rule quote-record-curly 'verdict: approve
+## Findings
+- [note] N1 src/sum.sh:2 — the record settles it: “It adds  its {two}
+  arguments.”'
+unchanged "$S" && ok "a curly quote of the record, split over two lines with doubled spaces, grounds the note" || bad "quote-record-curly: $(cat "$S/amended.md")"
+case_rule quote-short 'verdict: approve
+## Findings
+- [note] N1 src/sum.sh:1 — the ticket asks for "sum 2 3" to change.'
+[ "$(cat "$S/amended.md")" = "$(printf 'verdict: needs-work\n## Findings\n- [blocker] N1 src/sum.sh:1 — the ticket asks for "sum 2 3" to change.\n')" ] \
+  && ok "a quote under 20 characters does not ground the note: it becomes a blocker in place" || bad "quote-short: $(cat "$S/amended.md")"
+case_rule quote-absent 'verdict: approve
+## Findings
+- [note] N1 src/sum.sh:1 — the ticket says "sum now multiplies its two arguments".'
+[ "$(head -n 1 "$S/amended.md")" = "verdict: needs-work" ] && grep -qxF -- '- [blocker] N1 src/sum.sh:1 — the ticket says "sum now multiplies its two arguments".' "$S/amended.md" \
+  && ! grep -q 'H1' "$S/amended.md" && ok "a quote found in neither file does not ground the note" || bad "quote-absent: $(cat "$S/amended.md")"
+case_rule note-far 'verdict: approve
+## Findings
+- [note] N1 src/sum.sh:5 — "AC-1: `sum 2 3` prints 5."'
+grep -qxF -- '- [note] N1 src/sum.sh:5 — "AC-1: `sum 2 3` prints 5."' "$S/amended.md" && grep -qxF -- "$H1" "$S/amended.md" \
+  && ok "a finding 4 lines from the site covers nothing, and the blocker is added beside it" || bad "note-far: $(cat "$S/amended.md")"
+
+case_rule unproven 'verdict: approve
+## Findings
+None.' UNPROVEN
+unchanged "$S" && ok "an UNPROVEN probe adds no blocker" || bad "unproven: $(cat "$S/amended.md")"
+case_rule same 'verdict: approve
+## Findings
+None.' SAME
+unchanged "$S" && ok "a SAME probe adds no blocker" || bad "same: $(cat "$S/amended.md")"
+
+X="$T/rulecase/xr4m2p"; mkdir -p "$X"
+cp "$C/case.json" "$C/ticket.md" "$C/record.md" "$X/"
+cat > "$X/patch.diff" <<'EOF'
+--- a/test/sum.test.js
++++ b/test/sum.test.js
+@@ -1,4 +1,3 @@
+ const sum = require("../src/sum");
+-expect(sum(2, 3)).toBe(-1);
+-  expect(sum(1, 1)).toBe(2);
++expect(sum(1, 1)).toBe(2);
+ module.exports = {};
+--- a/test/__snapshots__/sum.test.js.snap
++++ b/test/__snapshots__/sum.test.js.snap
+@@ -1,1 +0,0 @@
+-exports[`sum`] = `expect(-1)`;
+--- a/src/sum.js
++++ b/src/sum.js
+@@ -1,1 +1,1 @@
+-module.exports = (a, b) => { assert(a); return a - b; };
++module.exports = (a, b) => a + b;
+EOF
+S="$(scenario rule-removed)"
+printf 'verdict: approve\n## Findings\nNone.\n' > "$S/verdict.md"; echo '[]' > "$S/candidates.json"; echo '[]' > "$S/probes.json"
+rule "$X" "$S"
+[ "$(cat "$S/amended.md")" = "$(printf 'verdict: needs-work\n## Findings\n%s\n' '- [blocker] H1 test/sum.test.js:2 — The change removes the test expectation `expect(sum(2, 3)).toBe(-1);`, and no line of the ticket or the record asks for its removal.')" ] \
+  && ok "a removed expectation read from the diff becomes a blocker at its base-side line; a re-added one, a .snap and a non-test file do not" \
+  || bad "removed: $(cat "$S/amended.md" "$S/rule.log")"
+printf 'verdict: approve\n## Findings\n- [note] N1 test/sum.test.js:2 — the record drops it: "It adds its {two} arguments."\n' > "$S/verdict.md"
+rule "$X" "$S"
+unchanged "$S" && ok "a grounded note at the removed expectation's line keeps it as filed" || bad "removed grounded: $(cat "$S/amended.md")"
+
+S="$(scenario rule-run)"
+printf '```candidates\n%s\n```\n' "$CAND" > "$S/hunt.out"
+printf '```probes\n[{"candidate": "C1", "cmd": ". src/sum.sh; sum 2 3"}]\n```\n' > "$S/prove.out"
+printf 'verdict: approve\n## Findings\nNone.\n' > "$S/intent.verdict"
+differs DIFFERS 5 | python3 -c 'import json, sys; p = json.load(sys.stdin)[0]; print(json.dumps({p["cmd"]: p}))' > "$S/probe-results.json"
+drive "$S"
+out="$(python3 -c '
+import json, sys
+r = json.load(open(sys.argv[1]))
+print(r["status"], r["verdict"], [f["id"] for f in r["findings"] if f["severity"] == "blocker"], r["intent_verdict"] == open(sys.argv[2]).read(), r["text"].splitlines()[2] == sys.argv[3])' "$S/rec.json" "$S/intent.verdict" "$H1" 2>&1)"
+[ "$out" = "ok needs-work ['H1'] True True" ] && ok "a case-run applies the rule before collect, and its record keeps intent's verdict and the amended text" || bad "rule-run: $out $(tail -n 3 "$S/drive.log")"
+S="$(scenario rule-cap)"
+printf '```candidates\n%s\n```\n' "$CAND" > "$S/hunt.out"
+printf '```probes\n[{"candidate": "C1", "cmd": ". src/sum.sh; sum 2 3"}]\n```\n' > "$S/prove.out"
+printf 'verdict: approve\n## Findings\nNone.\n' > "$S/intent.verdict"; echo 0.8 > "$S/intent.cost"
+differs DIFFERS 5 | python3 -c 'import json, sys; p = json.load(sys.stdin)[0]; print(json.dumps({p["cmd"]: p}))' > "$S/probe-results.json"
+drive "$S" 1.5
+[ "$(field "$S/rec.json" status)" = 'intent: over the cost cap ($1.80 of $1.50)' ] && [ "$(field "$S/rec.json" verdict)" = approve ] && [ "$(field "$S/rec.json" rule)" = None ] \
+  && ok "a case-run that intent's cost stops gets no rule" || bad "rule-cap: $(field "$S/rec.json" status) $(field "$S/rec.json" verdict)"
+
 echo "== run's refusals =="
 mkdir -p "$T/cli"
 cli() { FAKE_DIR="$T/cli" PATH="$T/fakebin:$PATH" HUNT_MODEL="${HM-claude-alpha-x}" PROVE_MODEL="${PM-claude-beta-x}" INTENT_MODEL="${IM-claude-alpha-x}" JUDGE_MODEL=claude-gamma-x \

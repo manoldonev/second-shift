@@ -43,6 +43,15 @@ Each command then ran in a checkout without the change (`before`) and in one wit
 A DIFFERS result shows that the change changes a behavior, not that the change is wrong. The ticket
 and the record say which changes are intended. A SAME or UNPROVEN result proves nothing either way.
 
+After you write your verdict, one rule amends it. Each candidate with a DIFFERS result, and each test
+expectation that the diff removes, becomes a `[blocker]` at its `path:line`, unless one of your
+findings in the same file within 3 lines of that site covers it. A finding covers it when it is a
+`[blocker]`, or when it quotes the line of the ticket or the record that asks for the change: a span
+of at least 20 characters in double quotes, copied word for word. A `[note]` there without such a
+quote becomes a `[blocker]`. A `verdict: approve` that gains a `[blocker]` becomes
+`verdict: needs-work`. So for each proven difference and each removed expectation, either file the
+`[blocker]` yourself or quote the line that asks for the change.
+
 Rules (breaking one voids the run):
 - No network: no `gh`, no `git fetch`/`git pull`, no `curl`/`wget`, no web search or fetch. Do not
   look the change up anywhere.

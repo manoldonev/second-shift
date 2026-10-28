@@ -30,6 +30,11 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-12 | Several probes for one candidate | Parked under OR-1 (owner: the build, by its default) | deferred | open |
 | D-13 | Where the rule runs and what the record keeps | Parked under OR-2 (owner: the build, by its default) | deferred | open |
 | D-14 | The quote check's details | Parked under OR-3 (owner: the build, by its default) | deferred | open |
+| D-15 | What a test path and a re-add are | A test path has a `test`, `tests`, `__tests__`, `spec` or `specs` directory, or a file name that ends in `test` or `spec` after a `.`, `_` or `-`, before its extension, or matches an overlay `when` glob. A `-` line is re-added when any `+` line of the patch, in any file, holds the same text with its ends trimmed. Added in build: D-3 names the path words but not their exact form, and a moved or re-indented expectation is not a removal. | user-delegated | open |
+| D-16 | A proven difference with no site | A `DIFFERS` candidate whose `site` holds no `path:line`, and a `DIFFERS` probe for an id hunt never named, add no blocker. The rule's log lists them under `unsited`. Added in build: D-2 matches by site, so a sitless candidate has nowhere to go and no finding can ground it. | user-delegated | open |
+| D-17 | One blocker per site, and its evidence | An `Hn` blocker the rule adds covers a later item within 3 lines of it. The first unquoted note in range is the one upgraded. The evidence is the first `DIFFERS` probe: each side's exit code and its normalized stdout, else stderr, cut at 200 characters. Added in build: D-2 and D-5 leave these open, and two candidates at one site would otherwise add two noise blockers. | user-delegated | open |
+| D-18 | A verdict the rule cannot amend | A verdict with no verdict line or no `## Findings` section is left as intent wrote it, and the log names why. Added in build: plain's contract already makes it unscorable, and an amendment would hide that. | user-delegated | open |
+| D-19 | Where the `mn7cuh` note goes | `compare --pm1` prints a line that `mn7cuh` stays in the bug cases and that a hand probe touched it. Added in build: D-9 asks the record to note it, and the PM-1 output is the record the read uses. | user-delegated | open |
 
 Options weighed:
 

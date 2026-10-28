@@ -201,6 +201,54 @@ grep -qxF "lane: right 2 of 2 scored case-runs (100%) over 3 cases; 1 unscored; 
   && grep -qxF "lane   p3case    1      1     0     0" <<<"$out" && ok "each arm is reported apart, a gate stop as a right" || bad "lane id rate: $out"
 fi
 
+echo "== compare =="
+# The corpus's own ids, so PM-1's held-out set, r2n5ax and the five controls are the real ones. Per case, the
+# runs each arm gets right (or, on a control, blocks); a run past the list is attempted and unscored.
+python3 -c '
+import json, sys
+right = {
+    "blind-prove": {"fx6cim": 3, "kx5vdb": 3, "la2swf": 3, "mn7cuh": 3, "qb3hzm": 3, "ug5nrb": 3,
+                    "q7d2hv": 3, "g8r2ub": 3, "b6r1vy": 1, "s4w9mf": 0, "d6m1zo": 0, "r2n5ax": 3,
+                    "h4n8qe": 1, "f6t2gy": 1, "k5e2hw": 0, "u1c9nb": 0, "o6z3fl": 0},
+    "plain": {"fx6cim": 1, "kx5vdb": 1, "la2swf": 1, "mn7cuh": 1, "qb3hzm": 1, "ug5nrb": 1, "q7d2hv": 3, "r2n5ax": 0,
+              "h4n8qe": 1, "f6t2gy": 0, "k5e2hw": 0, "u1c9nb": 0, "o6z3fl": 0},
+    "lane": {"q7d2hv": 3, "g8r2ub": 3, "b6r1vy": 2, "r2n5ax": 1}}
+controls = {"h4n8qe", "f6t2gy", "k5e2hw", "u1c9nb", "o6z3fl"}
+def rec(arm, case, run, hit):
+    if arm == "blind-prove" and case == "s4w9mf" and run == 1:
+        return {"arm": arm, "case": case, "run": run, "status": "intent: timeout"}
+    s = {"right": 0, "wrong": 0, "noise": 0, "harm": 0}
+    s["harm" if case in controls else "right"] = int(hit)
+    s["wrong"] = int(not hit and case not in controls)
+    return {"arm": arm, "case": case, "run": run, "status": "ok", "score": s}
+docs = {arm: [rec(arm, c, n, n <= k) for c, k in cs.items() for n in (1, 2, 3)] for arm, cs in right.items()}
+json.dump({"records": docs["blind-prove"]}, open(sys.argv[1], "w"))
+json.dump({"records": docs["plain"] + docs["lane"] + [{**r, "arm": "blind-prove"} for r in docs["plain"]]}, open(sys.argv[2], "w"))' "$T/cmp-arm.json" "$T/cmp-stored.json"
+cmp_() { python3 "$HERE/planted.py" compare "$T/cmp-arm.json" "$T/cmp-stored.json" "$@" 2>&1; }
+out="$(cmp_ --pm1)"; rc=$?
+[ "$rc" -eq 0 ] && grep -qxF "fx6cim    1  blind-prove     1     0     0    0" <<<"$out" && grep -qxF "fx6cim    2  plain           0     1     0    0" <<<"$out" \
+  && grep -qxF "s4w9mf    1  blind-prove unscored (intent: timeout)" <<<"$out" && grep -qxF "h4n8qe    1  plain           0     0     0    1" <<<"$out" \
+  && ok "compare prints right, wrong, noise and harm per case and run for the arm and plain" || bad "compare rows: rc=$rc $out"
+grep -qxF "totals over 16 cases, r2n5ax apart; an unscored case-run counts as not right" <<<"$out" \
+  && grep -qxF "blind-prove: right 25 of 48 case-runs, wrong 7, noise 0, harm 2" <<<"$out" && grep -qxF "plain: right 9 of 36 case-runs, wrong 12, noise 0, harm 1" <<<"$out" \
+  && grep -qxF "right, blind-prove against plain: +16" <<<"$out" \
+  && ok "the totals count every attempted case-run outside r2n5ax, an unscored one as not right, and only the first file's arm records" || bad "compare totals: $out"
+grep -qxF "lane: right 8 of 9 case-runs, wrong 1, noise 0, harm 0" <<<"$out" && grep -qxF "held-out b6r1vy d6m1zo g8r2ub q7d2hv s4w9mf: blind-prove right 7, lane right 8" <<<"$out" \
+  && ok "the lane's stored runs sit beside the arm's, and the held-out five are set against the lane" || bad "compare lane: $out"
+grep -qxF "control f6t2gy: blind-prove blocked in 1 runs, plain in 0" <<<"$out" && grep -qxF "control h4n8qe: blind-prove blocked in 1 runs, plain in 1" <<<"$out" \
+  && ok "harm is set against plain per control" || bad "compare controls: $out"
+grep -qxF "r2n5ax, apart: blind-prove right 3 of 3, plain right 0 of 3, lane right 1 of 3" <<<"$out" \
+  && ok "r2n5ax has its own line outside the totals" || bad "compare apart: $out"
+grep -qxF "PM-1 bug cases: PASS — blind-prove right 25 of 33, plain right 9 of 21, +16 over the 11 bug cases outside r2n5ax; it needs at least +6" <<<"$out" \
+  && grep -qxF "PM-1 held-out: FAIL — blind-prove right 7, lane right 8 over q7d2hv g8r2ub b6r1vy s4w9mf d6m1zo; it needs no fewer than the lane" <<<"$out" \
+  && grep -qxF "PM-1 controls: FAIL — f6t2gy: blind-prove blocked in 1 runs, plain in 0" <<<"$out" && grep -qxF "PM-1: FAIL" <<<"$out" \
+  && grep -qxF "PM-1 note: mn7cuh stays in the bug cases, and a hand probe touched it before the run" <<<"$out" \
+  && ok "--pm1 prints PASS or FAIL per criterion and the whole verdict" || bad "compare pm1: $out"
+out="$(cmp_ --case q7d2hv --case zz9zzz)"
+grep -qxF "totals over 2 cases; an unscored case-run counts as not right" <<<"$out" && grep -qxF "blind-prove: right 3 of 3 case-runs, wrong 0, noise 0, harm 0" <<<"$out" \
+  && grep -qxF "lane: no record for zz9zzz" <<<"$out" && ! grep -q '^PM-1' <<<"$out" \
+  && ok "--case narrows the totals, names an id with no record, and prints no PM-1 verdict without --pm1" || bad "compare --case: $out"
+
 echo "score-selftest: $PASS passed, $FAIL failed"
 if [ "$FAIL" -eq 0 ] && [ -z "$HAVE_LANE" ]; then
   echo "SKIP: the lane's assertions need dev-pipeline's run.sh and tools beside review-toolkit ($DP), which a checkout has and an install does not"
