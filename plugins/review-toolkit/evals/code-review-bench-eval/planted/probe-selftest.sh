@@ -158,9 +158,10 @@ mark
 pr web web222 'cat dist/out'
 store="$T/clones/acme__web.probe/$WEB/pnpm-store"
 expect="corepack before pnpm install --frozen-lockfile store=$store|corepack before pnpm run build store=$store|corepack after pnpm install --frozen-lockfile store=$store|corepack after pnpm run build store=$store|"
-[ "$(log_since | sed 's/ yarn=.*//' | tr '\n' '|')" = "$expect" ] && ! log_since | grep -q '^npm ' \
-  && ok "a pnpm base installs through corepack with a frozen lockfile, and probe.json's setup runs after each side's install" || bad "pnpm calls: $(log_since | tr '\n' '|')"
-log_since | grep -q 'prompt=0$' && ok "corepack runs with its download prompt off" || bad "prompt: $(log_since | head -n 1)"
+calls="$(log_since)"
+[ "$(log_since | sed 's/ yarn=.*//' | tr '\n' '|')" = "$expect" ] && ! grep -q '^npm ' <<<"$calls" \
+  && ok "a pnpm base installs through corepack with a frozen lockfile, and probe.json's setup runs after each side's install" || bad "pnpm calls: $(tr '\n' '|' <<<"$calls")"
+grep -q 'prompt=0$' <<<"$calls" && ok "corepack runs with its download prompt off" || bad "prompt: $(log_since | head -n 1)"
 [ "$(field "$T/web.json" verdict)" = SAME ] && [ "$(field "$T/web.json" after out)" = built ] && [ -z "$(git -C "$T/web/after" status --porcelain)" ] \
   && ok "the command sees the setup's output in both sides" || bad "web: $(head -c 600 "$T/web.json") $(tail -n 3 "$T/web.err")"
 mark
