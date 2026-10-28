@@ -4,6 +4,61 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.8.0
+
+### `dev-pipeline` 17.7.0 → 17.8.0
+
+- **feat(dev-pipeline): fold the lane PR body's pipeline sections and the verdict's rows table (#1149)** (#1149)
+  a lane PR body shows the repo's PR template first, with every
+  pipeline section and the run report in one collapsed second-shift fold
+  whose summary states the outcome. A verdict may fold its rows table under
+  a "<N> rows: <k> honored, ..." count that verdict-check.sh verifies.
+  post-review-status.sh --recheck <comment-id> re-checks an edited verdict
+  and posts error on the sha when it fails.
+  Migration: none. A body written before the change keeps its lines; the
+  next run folds only its own block. Verdicts with a bare table still pass.
+  the agent-eval-kit's run-eval.py loads under Python 3.9.
+  Migration: none.
+
+### `review-toolkit` 11.3.0 → 11.4.0
+
+- **feat(review-toolkit): the planted recipe stops on a failed judge call and re-judges stored reviews (#1132)** (#1132)
+  `planted.py run` stops without writing a row when a judge call
+  returns no verdict, instead of scoring the finding as a miss, and prints
+  the command that re-judges the kept reviews. `run --rescore <results.json>`
+  re-judges a prior run's reviews without spawning any; results files now
+  record the reviewed sha (`--sha` for older files).
+  Migration: none.
+- **feat(review-toolkit): the planted corpus gains 32 pilot-only P4 candidates, a plain pilot run and a per-case report (#1136)** (#1136)
+  the planted eval carries 32 pilot-only P4 candidates, a plain-only
+  `planted.py run --pilot` that writes no changelog row, and a model-free
+  `planted.py cases <results.json>` per-case report.
+  Migration: none.
+- **feat(review-toolkit): the planted corpus promotes six pilot candidates a plain review gets wrong (#1137)** (#1137)
+  the planted corpus scores 49 cases, with six former pilot
+  candidates that a plain review got wrong; the other 26 candidates are
+  gone, and `run --pilot` refuses to start while PILOT is empty.
+  Migration: none.
+- **chore(review-toolkit): record the planted run on the six promoted P4 cases (#1138)** (#1138)
+- **fix(review-toolkit): the planted plain arm knows the committed plan file is the build's own (#1141)** (#1141)
+  the planted recipe's plain arm no longer reads the committed task
+  plan as a stray docs page, so its verdict on a case does not turn on where
+  the harness commits that plan.
+  Migration: none.
+- **chore(review-toolkit): record the full planted row on 49 cases (#1142)** (#1142)
+- **feat(dev-pipeline): fold the lane PR body's pipeline sections and the verdict's rows table (#1149)** (#1149)
+  a lane PR body shows the repo's PR template first, with every
+  pipeline section and the run report in one collapsed second-shift fold
+  whose summary states the outcome. A verdict may fold its rows table under
+  a "<N> rows: <k> honored, ..." count that verdict-check.sh verifies.
+  post-review-status.sh --recheck <comment-id> re-checks an edited verdict
+  and posts error on the sha when it fails.
+  Migration: none. A body written before the change keeps its lines; the
+  next run folds only its own block. Verdicts with a bare table still pass.
+  the agent-eval-kit's run-eval.py loads under Python 3.9.
+  Migration: none.
+- **fix(review-toolkit): two planted truths name the mechanism the judge matches on (#1144)** (#1144)
+
 ## v17.7.0
 
 ### `dev-pipeline` 17.6.0 → 17.7.0
