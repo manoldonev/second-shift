@@ -142,12 +142,25 @@ answer with a fenced `candidates` block. Prove reads hunt's whole answer and end
 `probes` block of bash commands; it can try each one through a `probe` command bound to its
 case-run. The harness then runs at most 8 of those commands, 120 s per side, in the `before` and
 `after` checkouts built once for the case-run. Intent reads plain's checkout, the ticket, the
-record, both answers and the probe results, and writes a verdict in plain's form, which plain's
-scoring reads unchanged. `HUNT_MODEL`, `PROVE_MODEL` and `INTENT_MODEL` (or `--hunt-model` and the
+record, both answers and the probe results, and writes a verdict in plain's form. The harness then
+amends that verdict by one rule, which intent's prompt states. A candidate with a `DIFFERS` probe,
+and a test expectation that the patch removes and does not re-add, becomes an `Hn` `[blocker]` at
+its `path:line`, unless an intent finding in that file within 3 lines is a `[blocker]` or quotes
+the ticket or the record: a double-quoted span of at least 20 characters found there after
+whitespace normalization. An unquoted `[note]` there becomes the `[blocker]` instead, and an
+approve that gains one becomes needs-work. The record keeps intent's verdict as `intent_verdict`
+and the amended one as `text`, which plain's scoring reads. `HUNT_MODEL`, `PROVE_MODEL` and `INTENT_MODEL` (or `--hunt-model` and the
 rest) name the stages' models; prove must be on another family from hunt. `--max-cost` caps the
 summed cost of one case-run, `$3` by default. A failed stage, a read outside its blindness scope
 or a cost over the cap stops the case-run, and its status names the stage. Hunt and prove may not
 open the corpus, plain's checkout or the run's state dir; intent may not open the case's `case.json`.
+
+`planted.py compare <arm results> <stored results> [--case <id> …] [--pm1]` sets the arm's records
+from the first file beside plain's and the lane's from the second. It prints right, wrong, noise
+and harm per case and run, then each arm's totals out of every attempted case-run, the right delta
+against plain, the held-out cases against the lane, and harm per control against plain. `r2n5ax`
+gets its own line outside the totals. `--pm1` adds PASS or FAIL per criterion of the pre-registered
+run, over its fixed case sets.
 
 A case configures no test runner, so the lane's fails-without-the-change gate is not-applicable on
 every case; a runner added to an overlay's config makes the recipe run it on the record commit's

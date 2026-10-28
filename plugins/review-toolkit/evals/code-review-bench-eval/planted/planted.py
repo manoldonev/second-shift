@@ -20,6 +20,8 @@ Subcommands, model-free unless named:
             three sessions per case-run: hunt names candidate breaks in the neutral `after` checkout, prove turns
             them into commands, the harness runs each in `before` and `after`, and intent writes plain's verdict
   cases     right, wrong and noise per case, run and arm from a results file, and the right rate over a set of ids
+  compare   the blind-prove arm's results beside plain's and the lane's stored ones, per case and run and in total;
+            with --pm1, PM-1's PASS or FAIL per criterion
   probe     build a case's neutral before and after checkouts, install each, run one command in both and print
             DIFFERS, SAME or UNPROVEN as JSON (network for the installs; none for the command where
             sandbox-exec exists)
@@ -73,6 +75,11 @@ FROZEN = frozenset("""
 PILOT = frozenset()
 # former pilot cases now scored, which keep the pilot's truth range outside every hunk
 PROMOTED = frozenset("fx6cim kx5vdb la2swf mn7cuh qb3hzm ug5nrb".split())
+# PM-1's pre-registered sets: the held-out cases, and the one case a hand probe ran on, reported apart
+HELD_OUT = ("q7d2hv", "g8r2ub", "b6r1vy", "s4w9mf", "d6m1zo")
+APART = "r2n5ax"
+HAND_PROBED = "mn7cuh"
+PM1_LEAD = 6
 NO_PILOT = "--pilot: there are no pilot cases; PILOT is empty"
 ARMS = ("plain", "lane")
 BLIND_PROVE = "blind-prove"
@@ -99,8 +106,14 @@ RUN_NEEDS = ("plan_coverage", "fails_without_change", "review_input", "review_pr
 REVIEW_TIMEOUT_S = 3600
 REVIEW_MAX_TURNS = 300
 DISALLOWED = "AskUserQuestion,EnterWorktree,ExitWorktree"
-FINDING_RE = re.compile(r"^- \[(blocker|note)\] ([BN]\d+) ?(.*)$")
+FINDING_RE = re.compile(r"^- \[(blocker|note)\] ([BNH]\d+) ?(.*)$")
 LOC_RE = re.compile(r"([A-Za-z0-9_@./\[\]-]+\.[A-Za-z0-9]+):(\d+)(?:\s*[-–]\s*(\d+))?")
+QUOTE_RE = re.compile(r'["“”]([^"“”]*)["“”]')
+GROUND_MIN = 20
+SITE_WINDOW = 3
+EXCERPT = 200
+EXPECT_TOKENS = ("expect(", "assert", "toBe", "toEqual")
+TEST_PATH_RE = re.compile(r"(^|/)(tests?|__tests__|specs?)/|[._-](test|spec)\.[A-Za-z0-9]+$")
 BARE_PATH_RE = re.compile(r"[A-Za-z0-9_@.\[\]-]*(?:/[A-Za-z0-9_@.\[\]-]+)*/[A-Za-z0-9_@\[\]-][A-Za-z0-9_@.\[\]-]*\.[A-Za-z0-9]+")
 
 
@@ -1224,6 +1237,72 @@ def case_report(records: list[dict], ids: list[str]) -> str:
     return "\n".join(out)
 
 
+def compare_totals(records: list[dict], arm: str, ids) -> dict:
+    """An arm's counts over <ids>, out of every case-run it attempted: an unscored one counts as not right."""
+    rs = [r for r in records if r["arm"] == arm and r["case"] in ids]
+    scores = [r["score"] for r in rs if r.get("score")]
+    return {"n": len(rs), **{k: sum(s[k] for s in scores) for k in ("right", "wrong", "noise", "harm")}}
+
+
+def pm1_report(records: list[dict], cases: dict[str, dict]) -> list[str]:
+    bugs = sorted(PROMOTED | set(HELD_OUT))
+    controls = sorted(c for c, case in cases.items() if case["truth"]["class"] == CONTROL)
+    arm, plain = compare_totals(records, BLIND_PROVE, bugs), compare_totals(records, "plain", bugs)
+    lead = arm["right"] - plain["right"]
+    held = {a: compare_totals(records, a, HELD_OUT)["right"] for a in (BLIND_PROVE, "lane")}
+    worse = [(c, compare_totals(records, BLIND_PROVE, [c])["harm"], compare_totals(records, "plain", [c])["harm"]) for c in controls]
+    worse = [w for w in worse if w[1] > w[2]]
+    verdicts = [lead >= PM1_LEAD, held[BLIND_PROVE] >= held["lane"], not worse]
+    pf = ["PASS" if v else "FAIL" for v in verdicts]
+    return [
+        f"PM-1 bug cases: {pf[0]} — {BLIND_PROVE} right {arm['right']} of {arm['n']}, plain right {plain['right']} of {plain['n']}, "
+        f"{lead:+d} over the {len(bugs)} bug cases outside {APART}; it needs at least +{PM1_LEAD}",
+        f"PM-1 note: {HAND_PROBED} stays in the bug cases, and a hand probe touched it before the run",
+        f"PM-1 held-out: {pf[1]} — {BLIND_PROVE} right {held[BLIND_PROVE]}, lane right {held['lane']} over {' '.join(HELD_OUT)}; "
+        "it needs no fewer than the lane",
+        f"PM-1 controls: {pf[2]} — " + ("; ".join(f"{c}: {BLIND_PROVE} blocked in {a} runs, plain in {p}" for c, a, p in worse)
+                                         or f"no control of {len(controls)} is blocked in more runs than plain blocked it"),
+        f"PM-1: {'PASS' if all(verdicts) else 'FAIL'}"]
+
+
+def compare_report(arm_records: list[dict], stored: list[dict], cases: dict[str, dict], ids: list[str], pm1: bool) -> str:
+    """The blind-prove arm's records beside plain's and the lane's stored ones: right, wrong, noise and harm per
+    case and run, the totals over <ids> (or every case either file holds) with APART on its own line, and with
+    <pm1> PM-1's verdict per criterion over its pre-registered sets."""
+    records = [r for r in arm_records if r["arm"] == BLIND_PROVE] + [r for r in stored if r["arm"] in ARMS]
+    order = (BLIND_PROVE, *ARMS)
+    want = list(dict.fromkeys(ids)) or sorted({r["case"] for r in records})
+    out = ["case    run  arm          right wrong noise harm"]
+    for cid in want:
+        for arm in order:
+            for r in sorted((r for r in records if r["case"] == cid and r["arm"] == arm), key=lambda r: r["run"]):
+                s = r.get("score")
+                out.append(f"{cid:<7} {r['run']:>3}  {arm:<11} " + (f"{s['right']:>5} {s['wrong']:>5} {s['noise']:>5} {s['harm']:>4}" if s
+                                                                     else f"unscored ({r.get('status')})"))
+    total = [c for c in want if c != APART]
+    t = {a: compare_totals(records, a, total) for a in order}
+    out.append(f"totals over {len(total)} cases" + (f", {APART} apart" if APART in want else "") + "; an unscored case-run counts as not right")
+    out += [f"{a}: right {t[a]['right']} of {t[a]['n']} case-runs, wrong {t[a]['wrong']}, noise {t[a]['noise']}, harm {t[a]['harm']}" for a in order]
+    out.append(f"right, {BLIND_PROVE} against plain: {t[BLIND_PROVE]['right'] - t['plain']['right']:+d}")
+    held = [c for c in total if c in HELD_OUT]
+    if held:
+        out.append(f"held-out {' '.join(held)}: {BLIND_PROVE} right {compare_totals(records, BLIND_PROVE, held)['right']}, "
+                   f"lane right {compare_totals(records, 'lane', held)['right']}")
+    for c in (c for c in total if cases.get(c, {}).get("truth", {}).get("class") == CONTROL):
+        out.append(f"control {c}: {BLIND_PROVE} blocked in {compare_totals(records, BLIND_PROVE, [c])['harm']} runs, "
+                   f"plain in {compare_totals(records, 'plain', [c])['harm']}")
+    if APART in want:
+        out.append(f"{APART}, apart: " + ", ".join(f"{a} right {x['right']} of {x['n']}" for a in order
+                                                   for x in (compare_totals(records, a, [APART]),)))
+    for a in order:
+        absent = [c for c in want if not any(r["arm"] == a and r["case"] == c for r in records)]
+        if absent:
+            out.append(f"{a}: no record for {', '.join(absent)}")
+    if pm1:
+        out += pm1_report(records, cases)
+    return "\n".join(out)
+
+
 # --- the sessions ----------------------------------------------------------------------------
 
 def session_args(arm: str, r: dict, sid: str, model: str) -> list[str]:
@@ -1413,6 +1492,147 @@ async def run_stage(stage: str, case: dict, s: dict, model: str, timeout_s: int,
             "violations": viol, "dirt": dirt[:20], "resolved_model": bench.resolved_model(envelope, model) if bench else model}
 
 
+def squash(text: str) -> str:
+    return " ".join(text.split())
+
+
+def grounding_quote(text: str, sources: list[str]) -> str | None:
+    """The first double-quoted span, straight or curly, of at least GROUND_MIN characters after whitespace
+    normalization that appears verbatim in one of <sources>, which are already normalized."""
+    for m in QUOTE_RE.finditer(text):
+        q = squash(m[1])
+        if len(q) >= GROUND_MIN and any(q in s for s in sources):
+            return q
+    return None
+
+
+def site_of(site) -> tuple[str, int] | None:
+    m = LOC_RE.search(str(site or ""))
+    return (m[1].removeprefix("./"), int(m[2])) if m else None
+
+
+def overlay_test_globs(case: dict, root: Path) -> list[str]:
+    cfg = json.loads((root / "overlays" / case["overlay"] / "config.json").read_text())
+    return [g for r in overlay_runners(cfg) if isinstance(r, dict) for g in r.get("when") or [] if isinstance(g, str)]
+
+
+def is_test_file(path: str, globs: list[str]) -> bool:
+    return not path.endswith(".snap") and (TEST_PATH_RE.search(path) is not None or any(fnmatch.fnmatchcase(path, g) for g in globs))
+
+
+def removed_expectations(patch: str, globs: list[str]) -> list[dict]:
+    """Each `-` line of a test file that holds an expectation and that no `+` line of the patch re-adds, at
+    its base-side line."""
+    files = parse_patch(patch)
+    added = {t.strip() for rows in files.values() for k, _, t in rows if k == "+"}
+    return [{"path": f, "line": n, "text": t.strip()} for f, rows in files.items() if is_test_file(f, globs)
+            for k, n, t in rows if k == "-" and any(tok in t for tok in EXPECT_TOKENS) and t.strip() not in added]
+
+
+def excerpt(side: dict | None, co: Path | None) -> str:
+    if not side:
+        return "did not run"
+    rc = "timed out" if side.get("rc") is None else f"exit code {side['rc']}"
+    for k, label in (("out", "stdout"), ("err", "stderr")):
+        text = squash(normalize(side.get(k) or "", co) if co else side.get(k) or "")
+        if text:
+            return f'{rc}, {label} "{text[:EXCERPT]}"' + ("…" if len(text) > EXCERPT else "")
+    return f"{rc}, no output"
+
+
+def proof_items(candidates: list[dict], probes: list[dict], cos: dict[str, Path] | None) -> tuple[list[dict], list[str]]:
+    """One item per candidate with a DIFFERS among its probes, at its site, with hunt's text and the first
+    DIFFERS probe's evidence; and the ids of the proven candidates with no `path:line` site."""
+    items, unsited = [], []
+    named = {str(c["id"]) for c in candidates}
+    for c in candidates:
+        cid = str(c["id"])
+        p = next((p for p in probes if p["candidate"] == cid and p["verdict"] == "DIFFERS"), None)
+        if p is None:
+            continue
+        at = site_of(c.get("site"))
+        if not at:
+            unsited.append(cid)
+            continue
+        said = c.get("input") if isinstance(c.get("input"), str) and c["input"].strip() else json.dumps(c)
+        sides = "; ".join(f"{s}: {excerpt(p.get(s), (cos or {}).get(s))}" for s in PROBE_SIDES)
+        items.append({"path": at[0], "line": at[1], "source": cid, "body": f"{squash(said)} Proven: `{p['cmd']}` — {sides}."})
+    unsited += [cid for cid in dict.fromkeys(p["candidate"] for p in probes if p["verdict"] == "DIFFERS") if cid not in named]
+    return items, unsited
+
+
+def covers(f: dict, path: str, line: int) -> bool:
+    return bool(f.get("path")) and (path_matches(f["path"], path) or path_matches(path, f["path"])) \
+        and f.get("line") is not None and f["line"] - SITE_WINDOW <= line <= f["end"] + SITE_WINDOW
+
+
+def amend_verdict(text: str, items: list[dict], sources: list[str]) -> tuple[str, dict]:
+    """Intent's verdict with each item made a [blocker] unless a finding within SITE_WINDOW lines of its site
+    is a [blocker] or carries a grounding quote. An unquoted [note] there becomes the [blocker]; otherwise a
+    new Hn [blocker] is added. An approve that gains one becomes needs-work. A verdict with no verdict line or
+    no Findings section is left as written: the plain contract already makes it unscorable."""
+    v = parse_verdict(text)
+    log = {"verdict": v["verdict"], "added": [], "upgraded": [], "covered": []}
+    if not items or not v["verdict"] or not v["has_findings"]:
+        return text, {**log, "skipped": "" if not items else "no verdict line" if not v["verdict"] else "no Findings section"}
+    lines = text.replace("\r", "").split("\n")
+    at, last, nones, sec = [], 0, [], None
+    for i, line in enumerate(lines[1:], 1):
+        h = re.match(r"^## (.+?)\s*$", line)
+        if h:
+            sec = h[1].lower()
+            last = i if sec == "findings" else last
+            continue
+        if sec != "findings":
+            continue
+        if FINDING_RE.match(line):
+            at.append(i)
+        if line.strip() == "None.":
+            nones.append(i)
+        last = i if line.strip() else last
+    findings = [{**f, "at": i} for f, i in zip(v["findings"], at)]
+    n = max([int(f["id"][1:]) for f in findings if f["id"].startswith("H")] or [0])
+    new = []
+    for it in items:
+        here = [f for f in findings + new if covers(f, it["path"], it["line"])]
+        by = next((f for f in here if f["severity"] == "blocker" or grounding_quote(f["text"], sources)), None)
+        if by:
+            log["covered"].append({"source": it["source"], "by": by["id"]})
+            continue
+        note = here[0] if here else None
+        if note:
+            lines[note["at"]] = lines[note["at"]].replace("- [note]", "- [blocker]", 1)
+            note["severity"] = "blocker"
+            log["upgraded"].append({"source": it["source"], "id": note["id"]})
+            continue
+        n += 1
+        f = {"severity": "blocker", "id": f"H{n}", "path": it["path"], "line": it["line"], "end": it["line"],
+             "text": f"{it['path']}:{it['line']} — {it['body']}"}
+        new.append(f)
+        log["added"].append({"source": it["source"], "id": f["id"], "site": f"{it['path']}:{it['line']}"})
+    if new:
+        lines[last + 1:last + 1] = [f"- [blocker] {f['id']} {f['text']}" for f in new]
+        for i in sorted(nones, reverse=True):
+            del lines[i]
+    if v["verdict"] == "approve" and (new or log["upgraded"]):
+        lines[0] = "verdict: needs-work"
+        log["verdict"] = "needs-work"
+    return "\n".join(lines), log
+
+
+def verdict_rule(text: str, case: dict, root: Path, candidates: list[dict], probes: list[dict],
+                 cos: dict[str, Path] | None) -> tuple[str, dict]:
+    """The rule on intent's verdict: every proven candidate and every test expectation the case's diff
+    removes is a [blocker] at its site unless intent grounds it."""
+    items, unsited = proof_items(candidates, probes, cos)
+    for r in removed_expectations((case["dir"] / "patch.diff").read_text(), overlay_test_globs(case, root)):
+        items.append({"path": r["path"], "line": r["line"], "source": f"removed {r['path']}:{r['line']}",
+                      "body": f"The change removes the test expectation `{r['text']}`, and no line of the ticket or the record asks for its removal."})
+    sources = [squash((case["dir"] / name).read_text()) for name in ("ticket.md", "record.md")]
+    amended, log = amend_verdict(text, items, sources)
+    return amended, {**log, "unsited": unsited}
+
+
 def probe_wrapper(state: Path, binding: Path) -> Path:
     """Prove's `probe` on its PATH, bound to its case-run. The case id lives in the binding under the state
     dir, which prove may not open."""
@@ -1529,9 +1749,13 @@ async def blind_prove_one(case: dict, run_no: int, work: Path, clones: Path, roo
                                            models["intent"], timeout_s, {**os.environ}, bench, [case["dir"] / "case.json"])
         stages["intent"].pop("text", None)
         rec["checkout"] = b["checkout"]
-        if stages["intent"]["status"] != "timeout":
-            rec.update(collect("plain", out.read_text() if out.exists() else None, None, None))
         why = stopped("intent")
+        if stages["intent"]["status"] != "timeout":
+            text = out.read_text() if out.exists() else None
+            if text is not None and not why:
+                rec["intent_verdict"] = text
+                text, rec["rule"] = verdict_rule(text, case, root, rec["candidates"], rec["probes"], prober.cos)
+            rec.update(collect("plain", text, None, None))
         if why:
             return finish(why)
         return finish(rec["status"] if rec["status"] == "ok" else f"intent: {rec['status']}")
@@ -1781,6 +2005,13 @@ def cmd_cases(args) -> int:
     return 0
 
 
+def cmd_compare(args) -> int:
+    cases = {c["id"]: c for c in load_cases(Path(args.root))}
+    arm, stored = (json.loads(Path(p).read_text()).get("records") or [] for p in (args.arm_results, args.stored_results))
+    print(compare_report(arm, stored, cases, args.case, args.pm1))
+    return 0
+
+
 def cmd_probe(args) -> int:
     root = Path(args.root)
     case = find_case(root, args.case)
@@ -1924,11 +2155,18 @@ def main() -> int:
     s = sub.add_parser("cases")
     s.add_argument("results", help="a planted-results-*.json")
     s.add_argument("--case", action="append", default=[], help="a case id the right rate covers; repeatable; default every case")
+    s = sub.add_parser("compare")
+    s.add_argument("arm_results", help=f"a planted-results-*.json with the {BLIND_PROVE} arm's records")
+    s.add_argument("stored_results", help="a planted-results-*.json with plain's and the lane's records")
+    s.add_argument("--case", action="append", default=[], help="a case id the totals cover; repeatable; default every case")
+    s.add_argument("--pm1", action="store_true", help="add PM-1's PASS or FAIL per criterion, over its pre-registered cases")
     args = ap.parse_args()
     if args.cmd == "check":
         return cmd_check(args)
     if args.cmd == "cases":
         return cmd_cases(args)
+    if args.cmd == "compare":
+        return cmd_compare(args)
     if args.cmd == "render":
         return cmd_render(args)
     if args.cmd == "review":

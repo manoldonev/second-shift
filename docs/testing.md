@@ -835,8 +835,12 @@ which never compares with the known-bug changelog.
 A third arm, **blind-prove**, runs alone and never enters the gate. Three sessions review each
 case-run: hunt reads the change with no ticket and names candidate breaks, prove turns them into
 commands, the harness runs those in the case's neutral `before` and `after` checkouts, and intent
-writes plain's verdict with the ticket, the record and all of that in its prompt. Its rows carry
-`agent=blind-prove` and each stage's model.
+writes plain's verdict with the ticket, the record and all of that in its prompt. The harness then
+makes each proven difference and each removed test expectation a `[blocker]` at its site, unless
+intent's own blocker or a verbatim quote of the ticket or the record covers it, and scores the
+amended verdict. Its rows carry `agent=blind-prove` and each stage's model. `planted.py compare`
+sets its results beside plain's and the lane's stored ones, and `--pm1` prints the pre-registered
+run's verdict per criterion.
 
 **CI never runs the recipe.** CI runs only the model-free selftests beside it: the corpus's
 structure (`corpus-selftest.sh`), a local case built and rendered for both arms with no planted
