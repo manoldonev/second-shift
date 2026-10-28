@@ -10,7 +10,7 @@
   "commit": "fix: a duration takes the global locale",
   "truth": {
     "class": "P3",
-    "description": "The existing expectation that a duration with the es locale humanizes as 'en un minuto' is deleted, and no AC asks for it.",
+    "description": "The existing expectation that a duration given the es locale through its own .locale('es') humanizes as 'en un minuto' is deleted, so the per-instance locale path for es loses its test while the new test covers only the global locale, and no AC asks for that expectation to go.",
     "locations": [
       {"file": "test/plugin/duration.test.js", "start": 101, "end": 102, "side": "head"},
       {"file": "test/plugin/duration.test.js", "start": 102, "end": 102, "side": "base"}
