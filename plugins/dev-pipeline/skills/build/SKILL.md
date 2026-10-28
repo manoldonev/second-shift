@@ -52,9 +52,12 @@ This path does not do the steps that the scheduler does after its build:
    edit with the code. Never leave it in chat.
    Never amend, rebase or force-push over the `baseline:` commit: the review reads the record there.
 4. **Open the PR** after every listed check is green. Open it as a draft and leave it a draft.
-   Write the body in the order that the prompt gives: `built-by:` on line 1, then the sections the
-   prompt lists, then the record link, `Record baseline:` and `Closes`. Put each steer from step 3
-   in the `## Decisions made for you` table, with its row id and provenance.
+   Write the body in the order that the prompt gives: `built-by:` on line 1, then the repo's PR
+   template, filled, then `## Before you merge` only when it has something to say, and `Closes`.
+   Then one collapsed `<details><summary>second-shift</summary>` fold holds the review focus, the
+   decisions, the checks, the record link, `Record baseline:` and the empty
+   `<!-- pipeline-cost-block -->` marker pair. Put each steer from step 3 in the fold's
+   `## Decisions made for you` table, with its row id and provenance.
 5. **Hand off to review.** Tell the operator to run `/dev-pipeline:review <pr>` in a fresh
    session. If the herdr launcher started this session (`SS_WT` is set), print the command
    `bash "<value of SS_ADAPTER>" review <pr>`, with the path written in full. That command opens

@@ -1045,17 +1045,18 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   [ "$BOT_OK" -eq 1 ] && echo "Commit through the repo's bot identity. Never use plain git commit. Run it exactly as '$TOOLS/bot-commit.sh -C $WT -F <a message file you wrote with Write>'. Start the command with the bare path. Do not put bash before it. Run each --amend through bot-commit.sh too. A plain --amend makes you the committer and gives no warning."
   if [ "$1" -eq 1 ]; then
     echo "When the checks you ran are green, commit and push branch $BRANCH to origin. If no PR is open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME'. Leave it a draft: the scheduler marks it ready for review only when a review approves its head."
-    echo "Write the PR body for the human who reviews it. Use short sentences and the active voice. Put one fact in each sentence. Use the same word for the same thing. Do not use idioms, metaphors or abstract words. Put what the reviewer must know first. State each fact once: a later section cites the row id and does not repeat the fact. Keep the body under 500 words, not counting the Checks table. A limit never removes a record row, a deferred decision, a skipped command or a test you think is wrong. If they do not fit, shorten the wording and cut '## Changes' first. If the repo has a pull request template, keep its headings and put the sections below under them. Write the body in this order:"
+    echo "Write the PR body for the human who reviews it. Use short sentences and the active voice. Put one fact in each sentence. Use the same word for the same thing. Do not use idioms, metaphors or abstract words. Put what the reviewer must know first. State each fact once: a later section cites the row id and does not repeat the fact. Keep the body under 500 words, not counting the Checks table. A limit never removes a record row, a deferred decision, a skipped command or a test you think is wrong. If they do not fit, shorten the wording and cut the changes first. Write the body in this order:"
     echo "1. Line 1, exactly: 'built-by: second-shift run $RUN_ID'."
-    echo "2. '## What this changes': at most 80 words. Say what changes for the users of this code, and why. Do not describe the implementation here."
-    echo "3. '## Before you merge': each thing the reviewer must decide or do before the merge. For each record row with provenance deferred, name its open region. If the region's disposition is pause-and-ask, say what the build stopped on and what it asks. If it is reversible-default-and-flag, name the default you used. Include each deploy, migration or other PR that must land first. If there is nothing, write 'Nothing outside this PR.'"
-    echo "4. '## Review focus': start with 'The build suggests:', then one to three bullets. Each bullet names a file or an area where a human check adds the most, and says why in one sentence. Examples: a security boundary, an assumption that no test covers, a choice that is easy to get wrong."
-    echo "5. '## Decisions made for you': first one line that counts the record rows by provenance, in plain words. Example: 'The record has 9 rows. The requester answered 5 at intake. The codebase settles 3. The build added 1.' Then a table '| Row | Decision | Provenance |'. Give one line to each row with provenance user-delegated, and to each row you added or edited after commit $FIRST. For an edited row, give the old resolution, the new resolution and the reason. Use at most 40 words in a Decision cell. If no row qualifies, write 'No row was decided for you.'"
-    echo "6. '## Changes': the changes, grouped by area. Use at most 8 bullets, with at most 20 words in each bullet. Do not repeat a decision or a default that an earlier section states. When you cite a record row or an acceptance criterion, put its id in parentheses after the sentence that states it. Do not write a list of ids without the facts they stand for."
-    echo "7. '## Checks': a table '| Check | Result |' with each check you ran. Then a line 'Skipped:' that names each skipped command and its reason. If you skipped nothing, write 'Skipped: none.' If you think a test is wrong, name it here and give the reason."
-    echo "8. A line 'Decision record:' with a link to $RECORD_REL that opens on GitHub, then the line 'Record baseline: $FIRST'."
-    if [ "$TRACKER" = github ]; then echo "9. The line 'Closes #$ISSUE', so the ticket closes on merge."; else echo "9. The template's '### Jira Items' heading, or your own, and under it the line 'Closes [$ISSUE]'."; fi
-  else echo "Address the review below: fix each [blocker] finding, or rebut it in a PR comment. Fix each record row the review scored violated or undeterminable, or edit that row as the record rules below allow. A [note] finding requires nothing: fix one only if you choose to, and never rebut or reply to one. Then commit and push $BRANCH. If you added or edited a record row, add it to the PR body's '## Decisions made for you' table. Edit the body with 'gh pr edit <pr> --body-file <a file you wrote with Write>'."; fi
+    echo "2. The repo's pull request template, when it has one. Keep its headings and their order. Fill its sections with what changes for the users of this code and why, and with the changes. Do not add a '## What this changes' heading of your own. When the repo has no template, write '## What this changes' and then '## Changes'. What this changes has at most 80 words. It says what changes for the users of this code, and why. It does not describe the implementation. Give the changes grouped by area, in at most 8 bullets, with at most 20 words in each bullet. Do not repeat a decision or a default that another section states. When you cite a record row or an acceptance criterion, put its id in parentheses after the sentence that states it. Do not write a list of ids without the facts they stand for."
+    echo "3. '## Before you merge', only when it has something to say. Leave the section out when there is nothing. It names each thing the reviewer must decide or do before the merge. For each record row with provenance deferred, name its open region. If the region's disposition is pause-and-ask, say what the build stopped on and what it asks. If it is reversible-default-and-flag, name the default you used. Include each deploy, migration or other PR that must land first."
+    if [ "$TRACKER" = github ]; then echo "4. The line 'Closes #$ISSUE', so the ticket closes on merge. Put it where the template asks for linked issues. When it does not ask, or there is no template, put it here."; else echo "4. The template's '### Jira Items' heading, or your own here, and under it the line 'Closes [$ISSUE]'."; fi
+    echo "5. One collapsed fold that holds every pipeline section. Open it with the line '<details><summary>second-shift</summary>' and a blank line. Never write '<details open>'. Items 6 to 10 go inside the fold."
+    echo "6. '## Review focus': start with 'The build suggests:', then one to three bullets. Each bullet names a file or an area where a human check adds the most, and says why in one sentence. Examples: a security boundary, an assumption that no test covers, a choice that is easy to get wrong."
+    echo "7. '## Decisions made for you': first one line that counts the record rows by provenance, in plain words. Example: 'The record has 9 rows. The requester answered 5 at intake. The codebase settles 3. The build added 1.' Then a table '| Row | Decision | Provenance |'. Give one line to each row with provenance user-delegated, and to each row you added or edited after commit $FIRST. For an edited row, give the old resolution, the new resolution and the reason. Use at most 40 words in a Decision cell. If no row qualifies, write 'No row was decided for you.'"
+    echo "8. '## Checks': a table '| Check | Result |' with each check you ran. Then a line 'Skipped:' that names each skipped command and its reason. If you skipped nothing, write 'Skipped: none.' If you think a test is wrong, name it here and give the reason."
+    echo "9. A line 'Decision record:' with a link to $RECORD_REL that opens on GitHub, then the line 'Record baseline: $FIRST'."
+    echo "10. A blank line, the line '<!-- pipeline-cost-block -->', the line '<!-- /pipeline-cost-block -->', a blank line, and the line '</details>' that closes the fold. Write nothing between the two marker lines. The scheduler writes its run report there and its outcome into the fold's summary."
+  else echo "Address the review below: fix each [blocker] finding, or rebut it in a PR comment. Fix each record row the review scored violated or undeterminable, or edit that row as the record rules below allow. A [note] finding requires nothing: fix one only if you choose to, and never rebut or reply to one. Then commit and push $BRANCH. If you added or edited a record row, add it to the '## Decisions made for you' table inside the PR body's second-shift fold. Keep every other line of the body, the marker lines and the scheduler's lines between them included. Edit the body with 'gh pr edit <pr> --body-file <a file you wrote with Write>'."; fi
   echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record's '## Knowledge source' and '## Fan-out' sections are context, not binding. They hold evidence that intake read, not decisions. Only the D-n rows bind. The record is committed at $RECORD_REL; edit rows there. If you must change the decision of a row, edit that row in place. Write the new resolution and set the provenance to user-delegated. End the cell with one sentence that starts 'Changed in build:' and gives the reason. A material decision that no row covers gets a new row with provenance user-delegated. End its cell with one sentence that starts 'Added in build:' and gives the reason. Commit each edit with the code. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
   echo; record_at_first
   if record_has_test_intent; then # #1039 D-4 D-5 D-6 D-12: the plan is a coverage map the scheduler checks, never a tick list
@@ -1139,6 +1140,7 @@ The verdict comment has these parts, in this order and nothing else:
 - Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`, `reason: ticket-unreadable` or `reason: seat-unavailable`.
 - `## Summary`, right after line 2, or line 3 when it is present. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
 - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
+- Fold the rows table. Put the line `<details><summary><N> rows: <k> honored, <k> departed, <k> violated, <k> undeterminable</summary>` and a blank line before the table, and the line `</details>` after it. N is the number of rows in the table, and each k is the number of rows with that score. Keep the scores in that order and leave out a score with no rows. Always write `rows`. Never write `<details open>`. A verdict that folds the table has a `## Summary`, so every row that is not honored stays visible. A table without the fold also passes.
 - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. A section with no findings holds the single line `None.`.
 - After its id and one space, a finding names its file:line and its defect: `- [blocker] B1 path:line — <defect>`. Its first continuation line is `Scenario: <input or state> → <wrong outcome>`. A finding that a dispatched reviewer raised names that reviewer in brackets before its file:line: `- [blocker] B1 [Reviewer] path:line — <defect>`. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) or as a process note names its rule, and its file:line only where it has one. No finding carries a confidence number.
 - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. Nothing in it counts toward the verdict.
@@ -1477,16 +1479,22 @@ pr_mark_ready() { # approved at this head: the one flip out of draft
     DRAFT_NOTES="${DRAFT_NOTES}pr: still a draft — marking it ready failed ($(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)); mark it ready by hand"$'\n'; say "pr: could not mark #$PR ready for review"
   fi
 }
-# -- the run block (rows E14-E16, I13, I14): in the PR BODY under the old lane's marker, at every terminal once a PR exists --
-cost_block() { # <terminal slug>
-  echo '<!-- pipeline-cost-block -->'
+# -- the run block (rows E14-E16, I13, I14): in the PR BODY under the old lane's marker, at every terminal once a PR exists.
+# The build writes the marker pair inside its one pipeline fold; the block is replaced there in place, and the fold's summary
+# carries the outcome, since a status NOT posted changes what a merge proves --
+run_summary() { # <terminal slug>
+  printf 'second-shift: %s after %s round(s) · verdict %s · CI %s · $%s%s' "$1" "$ROUND" "${VERDICT:-none}" "$CI" "$(usd "$COST")" "${UNPRICED:+ + unpriced}"
+  printf '%s%s' "$STATUS_NOTES" "$DRAFT_NOTES" | awk '
+    /^status: NOT posted/ { printf " · status NOT posted" } /^verdict notice: NOT posted/ { printf " · verdict notice NOT posted" }
+    /^verdicts: earlier ones NOT all minimized/ { printf " · verdicts NOT all minimized" }
+    /^pr: NOT turned into a draft/ { printf " · NOT a draft" } /^pr: still a draft/ { printf " · still a draft" }'
+}
+run_report() { # <terminal slug>: the block's content, between its markers
   echo "## second-shift run"; echo
-  # the reader's line first; the status and draft notes stay outside the fold, since a status NOT posted changes what a merge proves
   local head="${HEAD_SHA:0:7}"
   echo "Outcome: $1 after $ROUND round(s). Verdict: ${VERDICT:-none}. Reviewed head: ${head:-none}. CI: $CI. Cost: \$$(usd "$COST")${UNPRICED:+ + unpriced}."; echo
   [ -z "$STATUS_NOTES" ] || printf '%s' "$STATUS_NOTES" | awk '{print; print ""}'   # one paragraph per bound verdict's status post
   [ -z "$DRAFT_NOTES" ] || printf '%s' "$DRAFT_NOTES" | awk '{print; print ""}'     # one paragraph per draft flip worth reporting
-  echo "<details><summary>Run details</summary>"; echo   # GitHub renders markdown inside the fold only after a blank line
   echo "| run | outcome | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- | --- |"
   echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$(usd "$COST")${UNPRICED:+ + unpriced} | $CI |"; echo
   [ -z "$RUN_NOTES" ] || printf '%s' "$RUN_NOTES" | awk '{print; print ""}'
@@ -1501,8 +1509,6 @@ cost_block() { # <terminal slug>
     dn="?"; [ -f "$df" ] && dn="$(grep -c . "$df")"
     if [ -n "$c" ]; then echo "| $n | $(jq -r '.num_turns // "?"' "$f") | \$$(usd "$c") | $dn |"; else echo "| $n | ? | unpriced (no total_cost_usd) | $dn |"; fi
   done
-  echo; echo '</details>'
-  echo '<!-- /pipeline-cost-block -->'
 }
 write_run_block() { # <terminal slug>; a body that cannot be read is never replaced blind
   local repo body
@@ -1511,10 +1517,43 @@ write_run_block() { # <terminal slug>; a body that cannot be read is never repla
   if ! body="$("$GH_READ" api "repos/$repo/pulls/$PR" --jq .body 2>/dev/null)"; then
     say "could not read PR #$PR's body; the run block is NOT written (a blind replace would erase the body)"; return 0
   fi
-  # strip an earlier block: ours ends at the closing marker, the old lane's at its `Cache-hit rate:` line. CR-stripped
-  # first: a body round-tripped through the GitHub API carries CRLF, and `$0 == m` never matches then
-  body="$(printf '%s\n' "$body" | tr -d '\r' | awk '$0 == "<!-- pipeline-cost-block -->"{skip=1} !skip{print} skip && ($0 == "<!-- /pipeline-cost-block -->" || /^Cache-hit rate: /){skip=0} END{if (skip) print "<!-- an earlier cost block had no terminator; text below it was not preserved -->"}')"
-  printf '%s\n\n%s\n' "$body" "$(cost_block "$1")" > "$STATE/pr-body.md"
+  run_report "$1" > "$STATE/run-report.md"
+  # the earlier block is replaced where it stands: ours ends at the closing marker, the old lane's at its `Cache-hit rate:`
+  # line. CR-stripped first: a body round-tripped through the GitHub API carries CRLF, and `$0 == m` never matches then.
+  # The innermost <details> still open above the marker is the build's fold: its summary is rewritten, and every other
+  # line it wrote is kept. With no such fold the block wraps itself, inside its markers, so a re-run finds it the same way.
+  # With no marker the block is appended, wrapped.
+  printf '%s\n' "$body" | tr -d '\r' | awk -v sum="$(run_summary "$1")" -v rep="$STATE/run-report.md" '
+    function report(wrap,    l) {
+      print "<!-- pipeline-cost-block -->"
+      if (wrap) { print "<details><summary>" sum "</summary>"; print "" }   # GitHub renders markdown inside a fold only after a blank line
+      while ((getline l < rep) > 0) print l
+      close(rep)
+      if (wrap) { print ""; print "</details>" }
+      print "<!-- /pipeline-cost-block -->"
+    }
+    { L[++n] = $0 }
+    END {
+      for (i = 1; i <= n; i++) if (L[i] == "<!-- pipeline-cost-block -->") { b = i; break }
+      if (!b) { for (i = 1; i <= n; i++) print L[i]; print ""; report(1); exit }
+      for (i = b + 1; i <= n; i++) if (L[i] == "<!-- /pipeline-cost-block -->" || L[i] ~ /^Cache-hit rate: /) { e = i; break }
+      d = 0
+      for (i = 1; i < b; i++) {
+        s = L[i]; o = gsub(/<details[ >]/, "&", s); c = gsub(/<\/details>/, "&", s)
+        while (o-- > 0) od[++d] = i
+        while (c-- > 0 && d > 0) d--
+      }
+      if (d > 0) {
+        f = od[d]; t = sum; gsub(/[\\&]/, "\\\\&", t)
+        if (L[f] ~ /<summary>.*<\/summary>/) sub(/<summary>.*<\/summary>/, "<summary>" t "</summary>", L[f])
+        else if (f < b - 1 && L[f + 1] ~ /^[ \t]*<summary>.*<\/summary>[ \t]*$/) L[f + 1] = "<summary>" sum "</summary>"
+        else sub(/<details[^>]*>/, "&<summary>" t "</summary>", L[f])
+      }
+      for (i = 1; i < b; i++) print L[i]
+      report(d == 0)
+      if (!e) { print "<!-- an earlier cost block had no terminator; text below it was not preserved -->"; exit }
+      for (i = e + 1; i <= n; i++) print L[i]
+    }' > "$STATE/pr-body.md"
   "$GH" api -X PATCH "repos/$repo/pulls/$PR" -F "body=@$STATE/pr-body.md" >/dev/null 2>&1 || say "could not write the run block into PR #$PR's body (it is in $STATE/pr-body.md)"
 }
 

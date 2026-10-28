@@ -15,7 +15,11 @@
 #   holds no table;
 #   `## Decision record rows`: only the `| Row | Score | Evidence |` table and blank lines. The Row
 #   cell's first token is a record `D-n` id, the Score cell's first word one of
-#   honored|violated|departed|undeterminable;
+#   honored|violated|departed|undeterminable. The table may be folded: the line
+#   `<details><summary><N> rows: <k> honored, <k> departed, <k> violated, <k> undeterminable</summary>`
+#   before it (scores in that order, zero counts left out, N and every count equal to the table's),
+#   a blank line after that, and `</details>` on its own line after the table. A folded table needs
+#   a `## Summary`, which names every row that is not honored;
 #   `## Findings`: each finding starts `- [blocker] B<n> ` or `- [note] N<n> `, continuation lines are
 #   indented two or more spaces, and a section with no findings holds the single line `None.`; the
 #   rest of a finding's line is free text;
@@ -45,7 +49,25 @@ BEGIN {
   n = split(ids, idl, " "); for (i = 1; i <= n; i++) if (idl[i] != "") rec[idl[i]] = 1
   order["## Summary"] = 1; order["## Decision record rows"] = 2; order["## Findings"] = 3; order["## Panel"] = 4; order["## Notes"] = 5
   score["honored"] = 1; score["violated"] = 1; score["departed"] = 1; score["undeterminable"] = 1
-  sec = 0; last = 0; ts = 0; infind = 0
+  sec = 0; last = 0; ts = 0; infind = 0; fd = 0; trows = 0
+  sorder[1] = "honored"; sorder[2] = "departed"; sorder[3] = "violated"; sorder[4] = "undeterminable"
+}
+function fold_summary(s,    body, list, nl, it, kw, i, j, k, p, total) {
+  body = s; sub(/^<details><summary>/, "", body); sub(/<\/summary>$/, "", body)
+  if (!match(body, /^[0-9]+ rows(: .+)?$/)) { fail("Decision record rows not in the grammar", "line " NR ": the summary is <N> rows: <k> <score>, ..."); return }
+  split(body, it, " "); total = it[1] + 0
+  list = body; if (!sub(/^[0-9]+ rows: /, "", list)) list = ""
+  nl = (list == "") ? 0 : split(list, it, ", "); p = 0
+  for (i = 1; i <= nl; i++) {
+    if (it[i] !~ /^[0-9]+ [a-z]+$/) { fail("Decision record rows not in the grammar", "line " NR ": the summary is <N> rows: <k> <score>, ..."); return }
+    split(it[i], kw, " "); k = 0
+    for (j = 1; j <= 4; j++) if (sorder[j] == kw[2]) k = j
+    if (k == 0) { fail("score not in the grammar", "rows summary: " kw[2]); return }
+    if (k <= p) { fail("Decision record rows not in the grammar", "line " NR ": the summary lists honored, departed, violated, undeterminable in that order, each once"); return }
+    if (kw[1] + 0 == 0) { fail("Decision record rows not in the grammar", "line " NR ": the summary leaves out a zero count"); return }
+    p = k; fcount[kw[2]] = kw[1] + 0
+  }
+  fnrows = total
 }
 { sub(/\r$/, "") }
 /Ready to merge\?/ { fail("Ready to merge? in the body", "line " NR) }
@@ -69,9 +91,18 @@ sec == 1 {
 }
 sec == 2 {
   if ($0 ~ /^[ \t]*$/) { if (ts == 2) ts = 3; next }
+  if (NR == fblank) fail("Decision record rows not in the grammar", "line " NR ": a blank line follows the rows summary")
+  if ($0 ~ /^<details/ && fd == 0 && ts == 0) {
+    fd = 1; fblank = NR + 1
+    if ($0 ~ /^<details><summary>.*<\/summary>$/) fold_summary($0); else fail("Decision record rows not in the grammar", "line " NR ": " cut($0))
+    next
+  }
+  if ($0 == "</details>" && fd == 1 && ts >= 2) { fd = 2; next }
+  if (fd == 2) { fail("Decision record rows not in the grammar", "line " NR ": " cut($0)); next }
   if (ts == 0) { if ($0 ~ /^\| *Row *\| *Score *\| *Evidence *\| *$/) ts = 1; else fail("Decision record rows not in the grammar", "line " NR ": " cut($0)); next }
   if (ts == 1) { if ($0 ~ /^\|( *:?-+:? *\|)( *:?-+:? *\|)( *:?-+:? *\|) *$/) ts = 2; else fail("Decision record rows not in the grammar", "line " NR ": the table has no | --- | line"); next }
   if (ts == 3 || $0 !~ /^\|/) { fail("Decision record rows not in the grammar", "line " NR ": " cut($0)); next }
+  trows++
   s = $0; gsub(/\\\|/, "\001", s); sub(/^\|/, "", s); sub(/\|[ \t]*$/, "", s)
   if (split(s, cell, "|") != 3) { fail("Decision record rows not in the grammar", "line " NR ": a row has three cells"); next }
   split(trim(cell[1]), tok, /[ \t]+/); id = tok[1]
@@ -80,6 +111,7 @@ sec == 2 {
   scored[id] = 1
   split(trim(cell[2]), w, /[ \t]+/)
   if (!(w[1] in score)) { fail("score not in the grammar", id ": " cut(trim(cell[2]))); next }
+  tcount[w[1]]++
   if (w[1] == "violated" || w[1] == "undeterminable") badrows = badrows (badrows == "" ? "" : ", ") id " " w[1]
   if (w[1] != "honored") { nn++; notable[nn] = id }
   next
@@ -96,6 +128,12 @@ END {
   if (NR < 2) fail("line 2 is not a reviewed line", "the body has fewer than two lines")
   if (!("## Decision record rows" in seen)) fail("missing section", "## Decision record rows")
   else if (ts < 2) fail("Decision record rows not in the grammar", "no | Row | Score | Evidence | table")
+  if (fd == 1) fail("Decision record rows not in the grammar", "the rows fold has no </details> line after the table")
+  if (fd > 0 && fnrows != "") {
+    if (fnrows != trows) fail("rows summary counts differ from the table", "the summary says " fnrows " rows, the table has " trows)
+    for (j = 1; j <= 4; j++) if ((fcount[sorder[j]] + 0) != (tcount[sorder[j]] + 0)) fail("rows summary counts differ from the table", "the summary says " (fcount[sorder[j]] + 0) " " sorder[j] ", the table has " (tcount[sorder[j]] + 0))
+  }
+  if (fd > 0 && !("## Summary" in seen)) fail("folded rows table with no ## Summary", "a verdict that folds the rows table names its rows that are not honored in ## Summary")
   if (!("## Findings" in seen)) fail("missing section", "## Findings")
   else if (nones + finds == 0) fail("Findings not in the grammar", "an empty section holds the single line None.")
   else if (nones > 0 && (finds > 0 || nones > 1)) fail("Findings not in the grammar", "None. is the only line of a section with no findings")

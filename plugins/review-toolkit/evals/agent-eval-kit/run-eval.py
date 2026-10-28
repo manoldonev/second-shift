@@ -18,6 +18,8 @@ To create a new eval:
 See ../agent-eval-kit/README.md (relative to your eval dir) for details.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import datetime as dt
