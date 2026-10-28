@@ -1526,7 +1526,7 @@ async def blind_prove_one(case: dict, run_no: int, work: Path, clones: Path, roo
             probes=probe_blocks(rec["candidates"], rec["probes"], len(rec["dropped"]), prober.cos)))
         stages["intent"] = await run_stage("intent", case, {"checkout": b["checkout"], "scratch": str(scratch), "state": str(state),
                                                             "prompt": str(state / "intent.prompt"), "allow": tmpl["allow"]},
-                                           models["intent"], timeout_s, {**os.environ}, bench, [root])
+                                           models["intent"], timeout_s, {**os.environ}, bench, [case["dir"] / "case.json"])
         stages["intent"].pop("text", None)
         rec["checkout"] = b["checkout"]
         if stages["intent"]["status"] != "timeout":

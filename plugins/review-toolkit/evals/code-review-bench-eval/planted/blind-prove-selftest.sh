@@ -240,6 +240,8 @@ blind prove-record prove "$C/record.md" "prove: voided-blindness"
 [ "$(order "$S")" = "hunt prove " ] && ok "a voided prove runs no probe and no intent" || bad "prove-record: $(order "$S")"
 blind prove-state prove "@W@/state/probe-binding.json" "prove: voided-blindness"
 blind intent-plan intent "@W@/checkout/docs/plans/tool-41-plan.md" ok
+blind intent-ticket intent "$C/ticket.md" ok
+blind intent-record intent "$C/record.md" ok
 blind intent-case intent "$C/case.json" "intent: voided-blindness"
 
 echo "== a stage that fails =="

@@ -9,7 +9,7 @@
 
 - [ ] 2.1 Selftest cases with a fake `claude` and a fake probe function: the stage order, three session ids, models and blindness results, the probe results and the summed cost in one record (plugins/review-toolkit/evals/code-review-bench-eval/planted/blind-prove-selftest.sh) [AC-1] [AC-2] [AC-6]
 - [ ] 2.2 Selftest cases that hunt's and prove's text reaches the next stage's prompt byte for byte (plugins/review-toolkit/evals/code-review-bench-eval/planted/blind-prove-selftest.sh) [AC-4] [AC-6]
-- [ ] 2.3 Selftest cases that a hunt or prove session voids on the corpus, plain's checkout or the state dir, and intent only on the corpus (plugins/review-toolkit/evals/code-review-bench-eval/planted/blind-prove-selftest.sh) [AC-3] [AC-6]
+- [ ] 2.3 Selftest cases that a hunt or prove session voids on the corpus, plain's checkout or the state dir, and intent only on the case's `case.json`, not on the ticket or the record (plugins/review-toolkit/evals/code-review-bench-eval/planted/blind-prove-selftest.sh) [AC-3] [AC-6]
 - [ ] 2.4 Selftest cases that a failed stage stops the case-run and names the stage, and that the cost cap stops it (plugins/review-toolkit/evals/code-review-bench-eval/planted/blind-prove-selftest.sh) [AC-2] [AC-6]
 - [ ] 2.5 Selftest cases that intent's verdict goes through `collect("plain", …)` and `score_review` (plugins/review-toolkit/evals/code-review-bench-eval/planted/blind-prove-selftest.sh) [AC-5]
 - [ ] 2.6 The stage prompts (plugins/review-toolkit/evals/code-review-bench-eval/planted/arms/hunt.md, plugins/review-toolkit/evals/code-review-bench-eval/planted/arms/prove.md, plugins/review-toolkit/evals/code-review-bench-eval/planted/arms/intent.md)

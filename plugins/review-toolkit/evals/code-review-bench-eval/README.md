@@ -147,7 +147,7 @@ scoring reads unchanged. `HUNT_MODEL`, `PROVE_MODEL` and `INTENT_MODEL` (or `--h
 rest) name the stages' models; prove must be on another family from hunt. `--max-cost` caps the
 summed cost of one case-run, `$3` by default. A failed stage, a read outside its blindness scope
 or a cost over the cap stops the case-run, and its status names the stage. Hunt and prove may not
-open the corpus, plain's checkout or the run's state dir; intent may not open the corpus.
+open the corpus, plain's checkout or the run's state dir; intent may not open the case's `case.json`.
 
 A case configures no test runner, so the lane's fails-without-the-change gate is not-applicable on
 every case; a runner added to an overlay's config makes the recipe run it on the record commit's
