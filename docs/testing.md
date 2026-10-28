@@ -832,8 +832,16 @@ best run on right − wrong − harm, both over every class but P2 and on P1 alo
 and never gates, because plain never sees the record. The rows land in `planted/changelog.md`,
 which never compares with the known-bug changelog.
 
+A third arm, **blind-prove**, runs alone and never enters the gate. Three sessions review each
+case-run: hunt reads the change with no ticket and names candidate breaks, prove turns them into
+commands, the harness runs those in the case's neutral `before` and `after` checkouts, and intent
+writes plain's verdict with the ticket, the record and all of that in its prompt. Its rows carry
+`agent=blind-prove` and each stage's model.
+
 **CI never runs the recipe.** CI runs only the model-free selftests beside it: the corpus's
 structure (`corpus-selftest.sh`), a local case built and rendered for both arms with no planted
-marker (`render-selftest.sh`), and the scorer on canned reviews (`score-selftest.sh`). The
+marker (`render-selftest.sh`), the scorer on canned reviews (`score-selftest.sh`), the probe on
+local upstreams (`probe-selftest.sh`), and the blind-prove arm with a fake `claude` and a fake
+probe (`blind-prove-selftest.sh`). The
 operator runs the recipe with `planted/run.sh`; `planted.py verify` builds and renders every case
 with no model first.

@@ -16,11 +16,15 @@ Subcommands, model-free unless named:
   verify    build every case, check a runner case's expected stop, and print each ground-truth range at
             the head (network; npm for a runner case)
   run       the operator's recipe: the judge's calibration, the reviews, the judge, the report (billed); with
-            --pilot, the plain arm on the pilot cases only, and no changelog row
+            --pilot, the plain arm on the pilot cases only, and no changelog row; with --arm blind-prove, alone,
+            three sessions per case-run: hunt names candidate breaks in the neutral `after` checkout, prove turns
+            them into commands, the harness runs each in `before` and `after`, and intent writes plain's verdict
   cases     right, wrong and noise per case, run and arm from a results file, and the right rate over a set of ids
   probe     build a case's neutral before and after checkouts, install each, run one command in both and print
             DIFFERS, SAME or UNPROVEN as JSON (network for the installs; none for the command where
             sandbox-exec exists)
+  bound-probe  prove's `probe` in a blind-prove case-run: one command on that run's prepared checkouts, bound
+            by a binding file, with no case id in its output
 """
 from __future__ import annotations
 
@@ -28,11 +32,13 @@ import argparse
 import asyncio
 import collections
 import datetime as dt
+import fcntl
 import fnmatch
 import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -69,6 +75,11 @@ PILOT = frozenset()
 PROMOTED = frozenset("fx6cim kx5vdb la2swf mn7cuh qb3hzm ug5nrb".split())
 NO_PILOT = "--pilot: there are no pilot cases; PILOT is empty"
 ARMS = ("plain", "lane")
+BLIND_PROVE = "blind-prove"
+STAGES = ("hunt", "prove", "intent")
+MAX_COST_USD = 3.0
+MAX_PROBES = 8
+PROBE_SHOWN = 2000
 SENDBACK_SCORES = ("violated", "undeterminable")
 CASE_ID_RE = re.compile(r"[a-z0-9]{6}")
 CLASS_IN_ID_RE = re.compile(r"p[1-5]|ctl|ctrl")
@@ -682,15 +693,20 @@ def run_step(argv: list[str], co: Path, env: dict, what: str, side: str) -> None
         raise Unproven(f"the {what} in {side} exited {r.returncode}: {(r.stdout + r.stderr).strip()[-400:]}")
 
 
+def probe_env(case: dict, clones: Path, bindir: Path) -> dict:
+    cache = probe_cache(case, clones)
+    return {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
+            "npm_config_cache": str(cache / "npm"), "npm_config_store_dir": str(cache / "pnpm-store"),
+            "YARN_CACHE_FOLDER": str(cache / "yarn"), "YARN_ENABLE_GLOBAL_CACHE": "false",
+            "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"}
+
+
 def probe_install(case: dict, cos: dict[str, Path], clones: Path, root: Path, env: dict) -> str | None:
-    """Each side's own install, with its package manager's stores in one cache per upstream and base, then the
-    overlay's probe.json setup. An npm base with no lockfile installs `before` unpinned and pins `after`, and
-    every later probe on the base, to the lockfile it generated. Returns the lockfile's origin."""
+    """Each side's own install, with its package manager's stores in one cache per upstream and base (named by
+    probe_env), then the overlay's probe.json setup. An npm base with no lockfile installs `before` unpinned and
+    pins `after`, and every later probe on the base, to the lockfile it generated. Returns the lockfile's origin."""
     cache = probe_cache(case, clones)
     cache.mkdir(parents=True, exist_ok=True)
-    env.update(npm_config_cache=str(cache / "npm"), npm_config_store_dir=str(cache / "pnpm-store"),
-               YARN_CACHE_FOLDER=str(cache / "yarn"), YARN_ENABLE_GLOBAL_CACHE="false",
-               COREPACK_ENABLE_DOWNLOAD_PROMPT="0")
     setup = ""
     pj = root / "overlays" / case["overlay"] / "probe.json"
     if pj.is_file():
@@ -757,38 +773,99 @@ def compare(sides: dict[str, dict], cos: dict[str, Path]) -> tuple[str, str]:
     return ("DIFFERS", "the " + ", ".join(differ) + " differ") if differ else ("SAME", "")
 
 
+class Prober:
+    """A case's neutral `before` and `after` checkouts under <dest>, built and installed once by prepare(). Each
+    run() puts both back on their commit, runs one bash command in each, and puts them back again, so many
+    commands share one build and none sees what another wrote."""
+
+    def __init__(self, case: dict, dest: Path, clones: Path, root: Path):
+        self.case, self.dest, self.clones, self.root = case, dest, clones, root
+        self.cos = {side: dest / side for side in PROBE_SIDES}
+        self.sandbox = shutil.which("sandbox-exec")
+        self.env = probe_env(case, clones, dest / "bin")
+        self.lockfile = None
+
+    def prepare(self) -> None:
+        bindir = self.dest / "bin"
+        bindir.mkdir(parents=True)
+        for pm in ("yarn", "pnpm"):
+            (bindir / pm).write_text(f'#!/usr/bin/env bash\nexec corepack {pm} "$@"\n')
+            (bindir / pm).chmod(0o755)
+        try:
+            store = base_store(self.case, self.clones)
+            for side, co in self.cos.items():
+                neutral_checkout(self.case, side, co, store, self.root)
+        except BuildError as e:
+            raise Unproven(str(e))
+        self.lockfile = probe_install(self.case, self.cos, self.clones, self.root, self.env)
+
+    def reset(self) -> None:
+        # the CLI of a session whose cwd is a checkout writes its own state under .claude/, which stays
+        for co in self.cos.values():
+            git(["checkout", "-q", "--", "."], cwd=co)
+            git(["clean", "-qfd", "-e", "/.claude/"], cwd=co)
+
+    def run(self, cmd: str, probe_dir: Path | None, timeout: int) -> dict:
+        env = {**self.env, **({"PROBE_DIR": str(probe_dir)} if probe_dir is not None else {})}
+        self.reset()
+        sides = {side: run_side(cmd, co, env, timeout, self.sandbox) for side, co in self.cos.items()}
+        self.reset()
+        verdict, reason = compare(sides, self.cos)
+        return {"verdict": verdict, "reason": reason, **{side: {k: r[k] for k in ("rc", "out", "err")} for side, r in sides.items()}}
+
+
 def probe(case: dict, cmd: str, dest: Path, clones: Path, root: Path, probe_dir: Path | None, timeout: int) -> dict:
     """The case's neutral `before` and `after` checkouts under <dest>, each with its own install, then one
     bash command in each and one verdict. Model-free; a failure outside the command is UNPROVEN."""
-    sandbox = shutil.which("sandbox-exec")
-    out = {"case": case["id"], "verdict": "UNPROVEN", "reason": "", "sandbox": "sandbox-exec" if sandbox else "none",
+    p = Prober(case, dest, clones, root)
+    out = {"case": case["id"], "verdict": "UNPROVEN", "reason": "", "sandbox": "sandbox-exec" if p.sandbox else "none",
            "lockfile": None, "dest": str(dest), "before": None, "after": None}
-    cos = {side: dest / side for side in PROBE_SIDES}
-    env = {**os.environ}
-    bindir = dest / "bin"
-    bindir.mkdir(parents=True)
-    for pm in ("yarn", "pnpm"):
-        (bindir / pm).write_text(f'#!/usr/bin/env bash\nexec corepack {pm} "$@"\n')
-        (bindir / pm).chmod(0o755)
-    env["PATH"] = f"{bindir}{os.pathsep}{env.get('PATH', '')}"
     try:
-        try:
-            store = base_store(case, clones)
-            for side, co in cos.items():
-                neutral_checkout(case, side, co, store, root)
-        except BuildError as e:
-            raise Unproven(str(e))
-        out["lockfile"] = probe_install(case, cos, clones, root, env)
+        p.prepare()
     except Unproven as e:
         out["reason"] = str(e)
         return out
-    if probe_dir is not None:
-        env["PROBE_DIR"] = str(probe_dir)
-    sides = {side: run_side(cmd, co, env, timeout, sandbox) for side, co in cos.items()}
-    out["verdict"], out["reason"] = compare(sides, cos)
-    for side, r in sides.items():
-        out[side] = {k: r[k] for k in ("rc", "out", "err")}
+    out["lockfile"] = p.lockfile
+    out.update(p.run(cmd, probe_dir, timeout))
     return out
+
+
+def write_probe_files(files, d: Path) -> str:
+    """A probe's `files`, an object of relative file name to text, written under <d>. Returns why they could
+    not be, or an empty string."""
+    if files is None:
+        return ""
+    if not isinstance(files, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in files.items()):
+        return "files is not an object of file name to text"
+    for name, text in files.items():
+        rel = Path(name)
+        if not name or rel.is_absolute() or ".." in rel.parts:
+            return f"the file name {name!r} is not a relative path inside the probe dir"
+        (d / rel).parent.mkdir(parents=True, exist_ok=True)
+        (d / rel).write_text(text)
+    return ""
+
+
+def bound_probe(binding: Path, cmd: str, files_json: str | None) -> dict:
+    """Prove's `probe`: one command on the case-run's prepared checkouts, with its files in a new dir under
+    prove's scratch. The output names no case, no checkout and no path the harness chose."""
+    b = json.loads(binding.read_text())
+    root = Path(b["root"])
+    p = Prober(load_case(root / "cases" / b["case"]), Path(b["dest"]), Path(b["clones"]), root)
+    try:
+        files = json.loads(files_json) if files_json is not None else None
+    except ValueError as e:
+        return {"verdict": "UNPROVEN", "reason": f"--files does not parse: {e}", "before": None, "after": None}
+    d = Path(tempfile.mkdtemp(prefix="probe-", dir=b["scratch"]))
+    err = write_probe_files(files, d)
+    if err:
+        return {"verdict": "UNPROVEN", "reason": err, "before": None, "after": None}
+    with binding.open() as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        r = p.run(cmd, d, PROBE_TIMEOUT_S)
+    for side in PROBE_SIDES:
+        r[side] = {"rc": r[side]["rc"], "out": normalize(r[side]["out"], p.cos[side]), "err": normalize(r[side]["err"], p.cos[side])}
+    return r
 
 
 def bash_parses(chunk: str) -> bool:
@@ -1169,6 +1246,40 @@ def last_verdict_comment(ghdir: Path) -> str | None:
     return bodies[-1] + "\n" if bodies else None
 
 
+async def spawn_session(argv: list[str], prompt: Path, cwd: str, env: dict, out_path: Path, err_path: Path,
+                        timeout_s: int) -> bool:
+    """False when the session outlives its timeout and is killed."""
+    # The prompt is the session's stdin file, as run.sh gives it: `claude -p` waits only 3 s for piped
+    # stdin, and under a full run's load a pipe written after the spawn can miss that.
+    with prompt.open("rb") as in_f, out_path.open("wb") as out_f, err_path.open("wb") as err_f:
+        proc = await asyncio.create_subprocess_exec(*argv, stdin=in_f, stdout=out_f, stderr=err_f, cwd=cwd, env=env)
+        try:
+            await asyncio.wait_for(proc.wait(), timeout_s)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return False
+    return True
+
+
+def session_result(stdout: bytes, bench, where: str) -> tuple[str, dict]:
+    if bench:
+        text, envelope = bench.kit.extract_result_text(stdout)
+        bench.kit.check_rate_limit(text, where)
+        if "session limit" in text or "usage limit" in text:
+            raise bench.kit.RateLimitedError(f"session limit in {where}: {text[:120]!r}")
+        return text, envelope
+    try:
+        envelope = json.loads(stdout.decode(errors="replace").strip() or "{}")
+    except ValueError:
+        return "", {}
+    return str(envelope.get("result") or ""), envelope
+
+
+def checkout_dirt(co: Path) -> list[str]:
+    return [l for l in git(["status", "--porcelain", "--ignored=no"], cwd=co).splitlines() if not l.startswith("?? .claude/")]
+
+
 async def review_one(case: dict, arm: str, run_no: int, work: Path, clones: Path, root: Path, bindir: Path,
                      model: str, timeout_s: int, sem, bench=None) -> dict:
     """Render, spawn the arm's session and collect what it wrote. The lane posts through the local gh; plain
@@ -1189,33 +1300,12 @@ async def review_one(case: dict, arm: str, run_no: int, work: Path, clones: Path
         out_path, err_path = Path(r["state"]) / "session.stdout", Path(r["state"]) / "session.stderr"
         base.update(session_stdout=str(out_path), session_stderr=str(err_path))
         started = dt.datetime.now(dt.timezone.utc)
-        # The prompt is the session's stdin file, as run.sh gives it: `claude -p` waits only 3 s for piped
-        # stdin, and under a full run's load a pipe written after the spawn can miss that.
-        with Path(r["prompt"]).open("rb") as in_f, out_path.open("wb") as out_f, err_path.open("wb") as err_f:
-            proc = await asyncio.create_subprocess_exec(
-                *session_args(arm, r, sid, model), stdin=in_f, stdout=out_f, stderr=err_f,
-                cwd=r["checkout"], env=env)
-            try:
-                await asyncio.wait_for(proc.wait(), timeout_s)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                return {**base, "status": "timeout", "session": sid}
-        stdout = out_path.read_bytes()
+        if not await spawn_session(session_args(arm, r, sid, model), Path(r["prompt"]), r["checkout"], env, out_path, err_path, timeout_s):
+            return {**base, "status": "timeout", "session": sid}
         wall = round((dt.datetime.now(dt.timezone.utc) - started).total_seconds())
-        envelope = {}
-        if bench:
-            text, envelope = bench.kit.extract_result_text(stdout)
-            bench.kit.check_rate_limit(text, f"{arm}/{case['id']}")
-            if "session limit" in text or "usage limit" in text:
-                raise bench.kit.RateLimitedError(f"session limit in {arm}/{case['id']}: {text[:120]!r}")
-        else:
-            try:
-                envelope = json.loads(stdout.decode(errors="replace").strip() or "{}")
-            except ValueError:
-                envelope = {}
+        _, envelope = session_result(out_path.read_bytes(), bench, f"{arm}/{case['id']}")
         co = Path(r["checkout"])
-        dirt = [l for l in git(["status", "--porcelain", "--ignored=no"], cwd=co).splitlines() if not l.startswith("?? .claude/")]
+        dirt = checkout_dirt(co)
         if arm == "lane":
             text = last_verdict_comment(Path(r["ghdir"]))
             rec = collect(arm, text, co / record_rel(case), Path(r["scratch"]) / "record-at-first.md")
@@ -1232,6 +1322,221 @@ async def review_one(case: dict, arm: str, run_no: int, work: Path, clones: Path
                 "resolved_model": bench.resolved_model(envelope, model) if bench else model}
 
 
+# --- the blind-prove arm ---------------------------------------------------------------------
+
+def parse_block(text: str, name: str, key: str) -> tuple[list[dict], dict]:
+    """The items of the last fenced block whose info string is <name>: a JSON array of objects, each with a
+    non-empty string <key>. A missing or unparsable block is zero items; the second item says which."""
+    blocks = re.findall(rf"^```{re.escape(name)}[ \t]*\n(.*?)^```[ \t]*$", text, re.M | re.S)
+    if not blocks:
+        return [], {"block": "missing", "items": 0, "invalid": 0}
+    try:
+        items = json.loads(blocks[-1])
+    except ValueError as e:
+        return [], {"block": "unparsable", "error": str(e), "items": 0, "invalid": 0}
+    if not isinstance(items, list):
+        return [], {"block": "unparsable", "error": "not a JSON array", "items": 0, "invalid": 0}
+    good = [i for i in items if isinstance(i, dict) and isinstance(i.get(key), str) and i[key].strip()]
+    return good, {"block": "ok", "items": len(good), "invalid": len(items) - len(good)}
+
+
+def probe_blocks(candidates: list[dict], results: list[dict], dropped: int, cos: dict[str, Path]) -> str:
+    """What intent reads of the probes: one block per candidate, with each of its commands' verdict, and each
+    side's exit code and the head of its normalized stdout and stderr."""
+    sites = {str(c["id"]): c.get("site") for c in candidates}
+    order = list(dict.fromkeys([*sites, *(r["candidate"] for r in results)]))
+    out = []
+    for cid in order:
+        out.append(f"### {cid} at {sites.get(cid) or 'no site in the candidate list'}")
+        runs = [r for r in results if r["candidate"] == cid]
+        if not runs:
+            out += ["No command ran for this candidate.", ""]
+            continue
+        for r in runs:
+            out += [f"command: {r['cmd']}", f"verdict: {r['verdict']}" + (f" ({r['reason']})" if r["reason"] else "")]
+            for side in PROBE_SIDES:
+                s = r.get(side)
+                if not s:
+                    out.append(f"{side}: did not run")
+                    continue
+                out.append(f"{side}: exit code {s['rc'] if s['rc'] is not None else 'none, it timed out'}")
+                for k, label in (("out", "stdout"), ("err", "stderr")):
+                    text = normalize(s[k] or "", cos[side])
+                    out += [f"{side} {label}, normalized: the first {min(len(text), PROBE_SHOWN):,} of {len(text):,} characters, "
+                            f"capped at {PROBE_SHOWN:,}", "~~~~", text[:PROBE_SHOWN], "~~~~"]
+            out.append("")
+    if dropped:
+        out.append(f"{dropped} more command(s) did not run: at most {MAX_PROBES} run per review.")
+    return "\n".join(out).strip() + "\n" if out else "No command ran.\n"
+
+
+def envelope_problem(envelope: dict) -> str:
+    """Why a finished session failed, by tools/classify-capture.sh's rule: is_error, or a subtype other than
+    success. A max-turns stop says subtype error_max_turns with is_error false."""
+    if not envelope or envelope.get("parse_error"):
+        return "no-result"
+    if envelope.get("is_error") or envelope.get("subtype") != "success":
+        return str(envelope.get("subtype") or "error")
+    return ""
+
+
+def stage_violations(bench, sid: str, blind: list[Path], scratch: Path) -> list[str]:
+    """The bench's transcript scan once per path the stage may not open, merged."""
+    if not bench:
+        return []
+    hits: list[str] = []
+    for p in dict.fromkeys(str(q) for b in blind for q in (b, b.resolve())):
+        hits += [h for h in bench.blindness_violations(sid, Path(p), scratch, bench.BLIND_RE) if h not in hits]
+    return hits
+
+
+async def run_stage(stage: str, case: dict, s: dict, model: str, timeout_s: int, env: dict, bench, blind: list[Path]) -> dict:
+    """One stage session: <s> names its checkout, scratch, prompt file, allowlist and state dir."""
+    sid = str(uuid.uuid4())
+    state = Path(s["state"])
+    out_path, err_path = state / f"{stage}.stdout", state / f"{stage}.stderr"
+    rec = {"session": sid, "model": model, "session_stdout": str(out_path), "session_stderr": str(err_path)}
+    argv = session_args(stage, {**s, "case": case["id"]}, sid, model)
+    if s.get("bash_ms"):
+        argv += ["--settings", json.dumps({"env": {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+                                                   "BASH_DEFAULT_TIMEOUT_MS": s["bash_ms"], "BASH_MAX_TIMEOUT_MS": s["bash_ms"]}})]
+    started = dt.datetime.now(dt.timezone.utc)
+    finished = await spawn_session(argv, Path(s["prompt"]), s["checkout"], env, out_path, err_path, timeout_s)
+    rec["wall_s"] = round((dt.datetime.now(dt.timezone.utc) - started).total_seconds())
+    if not finished:
+        return {**rec, "status": "timeout", "cost_usd": None}
+    text, envelope = session_result(out_path.read_bytes(), bench, f"{stage}/{case['id']}")
+    dirt = checkout_dirt(Path(s["checkout"]))
+    viol = stage_violations(bench, sid, blind, Path(s["scratch"]))
+    status = "modified-checkout" if dirt else "voided-blindness" if viol else envelope_problem(envelope) or "ok"
+    return {**rec, "status": status, "text": text, "cost_usd": envelope.get("total_cost_usd"), "num_turns": envelope.get("num_turns"),
+            "violations": viol, "dirt": dirt[:20], "resolved_model": bench.resolved_model(envelope, model) if bench else model}
+
+
+def probe_wrapper(state: Path, binding: Path) -> Path:
+    """Prove's `probe` on its PATH, bound to its case-run. The case id lives in the binding under the state
+    dir, which prove may not open."""
+    bindir = state / "bin"
+    bindir.mkdir(parents=True, exist_ok=True)
+    w = bindir / "probe"
+    w.write_text("#!/usr/bin/env bash\n"
+                 f"exec python3 {shlex.quote(str(HERE / 'planted.py'))} bound-probe {shlex.quote(str(binding))} \"$@\"\n")
+    w.chmod(0o755)
+    return bindir
+
+
+async def blind_prove_one(case: dict, run_no: int, work: Path, clones: Path, root: Path, models: dict[str, str],
+                          timeout_s: int, max_cost: float, sem, bench=None, probe_fn=None) -> dict:
+    """Hunt reads the neutral `after` checkout and names candidate breaks; prove turns them into commands; the
+    harness runs each command in `before` and `after`; intent reads plain's checkout, the ticket, the record and
+    all of that, and writes a verdict in plain's form. A stage that fails, or a summed cost over <max_cost>,
+    stops the case-run at that stage. <probe_fn> stands in for Prober.run."""
+    async with sem:
+        rec = {"arm": BLIND_PROVE, "case": case["id"], "run": run_no, "models": dict(models), "max_cost_usd": max_cost,
+               "stages": {}, "candidates": [], "probes": [], "dropped": []}
+        stages = rec["stages"]
+        state = work / "state"
+        state.mkdir(parents=True, exist_ok=True)
+
+        def spent() -> float:
+            return round(sum(s.get("cost_usd") or 0 for s in stages.values()), 4)
+
+        def finish(status: str) -> dict:
+            rec.update(status=status, cost_usd=spent(),
+                       wall_s=sum(s.get("wall_s") or 0 for s in stages.values()) + sum(p["wall_s"] for p in rec["probes"]),
+                       resolved_models={k: s.get("resolved_model") for k, s in stages.items() if s.get("resolved_model")})
+            return rec
+
+        def stopped(stage: str) -> str | None:
+            st = stages[stage]["status"]
+            if st != "ok":
+                return f"{stage}: {st}"
+            if spent() > max_cost:
+                return f"{stage}: over the cost cap (${spent():.2f} of ${max_cost:.2f})"
+            return None
+
+        prober = Prober(case, work / "probe", clones, root)
+        try:
+            await asyncio.to_thread(prober.prepare)
+        except Unproven as e:
+            rec["problems"] = [str(e)]
+            return finish("build-failed")
+        run_probe = probe_fn or prober.run
+        after = prober.cos["after"]
+        shas = {"base": git(["rev-parse", "HEAD~1"], cwd=after), "head": git(["rev-parse", "HEAD"], cwd=after)}
+        blind = [root, work / "checkout", state]
+
+        scratch = work / "hunt-scratch"
+        scratch.mkdir()
+        tmpl = parse_arm(root / "arms" / "hunt.md")
+        (state / "hunt.prompt").write_text(tmpl["prompt"].format(checkout=after, scratch=scratch, **shas))
+        stages["hunt"] = await run_stage("hunt", case, {"checkout": str(after), "scratch": str(scratch), "state": str(state),
+                                                        "prompt": str(state / "hunt.prompt"), "allow": tmpl["allow"]},
+                                         models["hunt"], timeout_s, {**os.environ}, bench, blind)
+        why = stopped("hunt")
+        if why:
+            return finish(why)
+        hunt = stages["hunt"]["text"]
+        rec["candidates"], stages["hunt"]["handover"] = parse_block(hunt, "candidates", "id")
+
+        scratch = work / "prove-scratch"
+        scratch.mkdir()
+        binding = state / "probe-binding.json"
+        binding.write_text(json.dumps({"root": str(root), "case": case["id"], "dest": str(prober.dest),
+                                       "clones": str(clones), "scratch": str(scratch)}))
+        bindir = probe_wrapper(state, binding)
+        tmpl = parse_arm(root / "arms" / "prove.md")
+        (state / "prove.prompt").write_text(tmpl["prompt"].format(checkout=after, scratch=scratch, hunt=hunt, timeout=PROBE_TIMEOUT_S,
+                                                                  max_probes=MAX_PROBES, **shas))
+        stages["prove"] = await run_stage("prove", case, {"checkout": str(after), "scratch": str(scratch), "state": str(state),
+                                                          "prompt": str(state / "prove.prompt"), "allow": tmpl["allow"],
+                                                          "bash_ms": str((2 * PROBE_TIMEOUT_S + 60) * 1000)},
+                                          models["prove"], timeout_s,
+                                          {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}"}, bench, blind)
+        why = stopped("prove")
+        if why:
+            return finish(why)
+        prove = stages["prove"]["text"]
+        probes, stages["prove"]["handover"] = parse_block(prove, "probes", "cmd")
+        rec["dropped"] = probes[MAX_PROBES:]
+
+        for n, p in enumerate(probes[:MAX_PROBES], 1):
+            d = state / "probes" / str(n)
+            d.mkdir(parents=True)
+            started = dt.datetime.now(dt.timezone.utc)
+            err = write_probe_files(p.get("files"), d)
+            res = {"verdict": "UNPROVEN", "reason": err, "before": None, "after": None} if err else \
+                await asyncio.to_thread(run_probe, p["cmd"], d, PROBE_TIMEOUT_S)
+            rec["probes"].append({"candidate": str(p.get("candidate", "")), "cmd": p["cmd"], "files": p.get("files"), **res,
+                                  "wall_s": round((dt.datetime.now(dt.timezone.utc) - started).total_seconds())})
+
+        try:
+            b = build(case, "plain", work / "checkout", clones, root)
+        except BuildError as e:
+            rec["problems"] = [str(e)]
+            return finish("intent: build-failed")
+        scratch = work / "intent-scratch"
+        scratch.mkdir()
+        out = scratch / "verdict.md"
+        title, body = read_ticket(case)
+        tmpl = parse_arm(root / "arms" / "intent.md")
+        (state / "intent.prompt").write_text(tmpl["prompt"].format(
+            title=title, body=body.rstrip("\n"), checkout=b["checkout"], base=b["base"], head=b["head"], scratch=scratch, out=out,
+            record=(case["dir"] / "record.md").read_text(), hunt=hunt, prove=prove,
+            probes=probe_blocks(rec["candidates"], rec["probes"], len(rec["dropped"]), prober.cos)))
+        stages["intent"] = await run_stage("intent", case, {"checkout": b["checkout"], "scratch": str(scratch), "state": str(state),
+                                                            "prompt": str(state / "intent.prompt"), "allow": tmpl["allow"]},
+                                           models["intent"], timeout_s, {**os.environ}, bench, [case["dir"] / "case.json"])
+        stages["intent"].pop("text", None)
+        rec["checkout"] = b["checkout"]
+        if stages["intent"]["status"] != "timeout":
+            rec.update(collect("plain", out.read_text() if out.exists() else None, None, None))
+        why = stopped("intent")
+        if why:
+            return finish(why)
+        return finish(rec["status"] if rec["status"] == "ok" else f"intent: {rec['status']}")
+
+
 # --- the operator's recipe -------------------------------------------------------------------
 
 def select_cases(cases: list[dict], ids: list[str], pilot: bool, pilot_ids: frozenset = PILOT) -> list[dict]:
@@ -1246,11 +1551,42 @@ def select_cases(cases: list[dict], ids: list[str], pilot: bool, pilot_ids: froz
 
 
 def run_arms(arms: list[str], pilot: bool) -> list[str]:
+    if BLIND_PROVE in arms and len(set(arms)) > 1:
+        raise ValueError("--arm blind-prove runs alone; drop --arm plain and --arm lane")
     if not pilot:
         return arms
-    if "lane" in arms:
-        raise ValueError("--pilot reviews with the plain arm only; drop --arm lane")
+    for arm in ("lane", BLIND_PROVE):
+        if arm in arms:
+            raise ValueError(f"--pilot reviews with the plain arm only; drop --arm {arm}")
     return ["plain"]
+
+
+def stage_models(args) -> dict[str, str]:
+    return {s: (getattr(args, f"{s}_model", None) or "").strip() for s in STAGES}
+
+
+def model_problems(args, bench) -> list[str]:
+    """Why the run's models cannot run its arms: an empty one, or prove in hunt's family."""
+    p = [f"{name} is empty" for m, name in ((args.judge_model, "JUDGE_MODEL"),) if not (m or "").strip()]
+    if BLIND_PROVE not in args.arm:
+        return p + (["REVIEWER_MODEL is empty"] if not (args.reviewer_model or "").strip() else [])
+    models = stage_models(args)
+    p += [f"{s.upper()}_MODEL is empty" for s, m in models.items() if not m]
+    if models["hunt"] and models["prove"] and bench.family(models["hunt"]) == bench.family(models["prove"]):
+        p.append(f"prove model {models['prove']} is in hunt's family {bench.family(models['hunt'])}; prove runs on the other family")
+    return p
+
+
+def reviewer_models(r: dict) -> list[str]:
+    return [m for m in (r.get("resolved_model"), *(r.get("resolved_models") or {}).values()) if m]
+
+
+def model_segment(arm: str, records: list[dict], args, models: dict[str, str]) -> str:
+    mine = [r for r in records if r["arm"] == arm]
+    if arm != BLIND_PROVE:
+        return f"model={'+'.join(sorted({r['resolved_model'] for r in mine if r.get('resolved_model')})) or args.reviewer_model}"
+    per = {s: "+".join(sorted({(r.get("resolved_models") or {}).get(s) for r in mine} - {None})) or models[s] for s in STAGES}
+    return "model=" + ", ".join(f"{s} {m}" for s, m in per.items())
 
 
 def writes_row(no_record: bool, pilot: bool) -> bool:
@@ -1297,14 +1633,21 @@ async def run_recipe(args, bench) -> None:
     by_id = {c["id"]: c for c in cases}
     bindir = install_gh(work_root / "bin")
     sem = asyncio.Semaphore(args.concurrency)
+    models = stage_models(args)
     for arm in ([] if args.rescore else args.arm):
         print(f"\n=== arm {arm}: {len(cases)} cases x {args.runs} runs ===", flush=True)
-        records += await asyncio.gather(*(
-            review_one(c, arm, n, work_root / arm / f"{c['id']}-{n}", clones, root, bindir, args.reviewer_model,
-                       args.reviewer_timeout_s, sem, bench)
-            for c in cases for n in range(1, args.runs + 1)))
+        if arm == BLIND_PROVE:
+            records += await asyncio.gather(*(
+                blind_prove_one(c, n, work_root / arm / f"{c['id']}-{n}", clones, root, models, args.reviewer_timeout_s,
+                                args.max_cost, sem, bench)
+                for c in cases for n in range(1, args.runs + 1)))
+        else:
+            records += await asyncio.gather(*(
+                review_one(c, arm, n, work_root / arm / f"{c['id']}-{n}", clones, root, bindir, args.reviewer_model,
+                           args.reviewer_timeout_s, sem, bench)
+                for c in cases for n in range(1, args.runs + 1)))
         write_results(cache, stamp, {"records": records, "calibration": cal, "sha": sha})
-    rev_fams = {bench.family(r["resolved_model"]) for r in records if r.get("resolved_model")}
+    rev_fams = {bench.family(m) for r in records for m in reviewer_models(r)}
     if rev_fams & judge_fams and not args.allow_same_family:
         sys.exit(f"[planted] judge family {judge_fams} equals reviewer family {rev_fams}; set JUDGE_MODEL to the other family")
 
@@ -1318,7 +1661,7 @@ async def run_recipe(args, bench) -> None:
     try:
         await score_records(by_id, records, judge)
     except JudgeFailed as e:
-        again = "--pilot --arm plain" if args.pilot else "--arm plain --arm lane"
+        again = "--pilot --arm plain" if args.pilot else " ".join(f"--arm {a}" for a in args.arm)
         sys.exit(f"[planted] a judge call failed ({e}); no row is written. The reviews are kept: "
                  f"re-judge them with `planted.py run --rescore {results} {again}`")
     arms = tally(by_id, records)
@@ -1327,8 +1670,7 @@ async def run_recipe(args, bench) -> None:
     out = write_results(cache, stamp, {"records": records, "calibration": cal, "arms": arms, "gate": g, "sha": sha})
     for arm, runs in sorted(arms.items()):
         cl = [run["classes"] for run in runs.values()]
-        segs = [f"mode=planted", f"agent={arm}", f"sha={sha}",
-                f"model={'+'.join(sorted({r['resolved_model'] for r in records if r['arm'] == arm and r.get('resolved_model')})) or args.reviewer_model}",
+        segs = [f"mode=planted", f"agent={arm}", f"sha={sha}", model_segment(arm, records, args, models),
                 f"judge={'+'.join(cal['judge_resolved']) or args.judge_model}", f"cases={len(cases)}", f"runs={len(runs)}",
                 "net=" + ",".join(str(r["net"]) for r in runs.values()),
                 "gate_net=" + ",".join(str(r["gate_net"]) for r in runs.values()),
@@ -1338,7 +1680,10 @@ async def run_recipe(args, bench) -> None:
             segs.append(f"{c}=" + (f"harm {tot['harm']}/{tot['n']}" if c == CONTROL else
                                    f"right {tot['right']} wrong {tot['wrong']} noise {tot['noise']} of {tot['n']}") + f", unscorable {tot['unscorable']}")
         segs += [f"calib={cal['agreement']:.0%}", f"wall={max(r['wall_s'] for r in runs.values())}s",
-                 f"cost=${sum(r['cost_usd'] for r in runs.values()):.2f}", f"note=\"{args.note}\""]
+                 f"cost=${sum(r['cost_usd'] for r in runs.values()):.2f}"]
+        if arm == BLIND_PROVE:
+            segs.append(f"cap=${args.max_cost:.2f}")
+        segs.append(f"note=\"{args.note}\"")
         line = bench.kit.changelog_row(started, segs)
         if writes_row(args.no_record, args.pilot):
             bench.kit.append_changelog(root / "changelog.md", line)
@@ -1551,8 +1896,15 @@ def main() -> int:
     s.add_argument("--timeout", type=int, default=PROBE_TIMEOUT_S, help="seconds per side")
     s.add_argument("--dest", help="where the checkouts go; it must not exist; default a new temporary directory")
     s.add_argument("--clones", default=os.path.expanduser(os.path.join(cache_default, "bases")))
+    s = sub.add_parser("bound-probe", help="prove's `probe`, bound to one case-run by a binding file; prints no case id")
+    s.add_argument("binding")
+    s.add_argument("--cmd", dest="command", required=True, help="a bash string, run with bash -c in each side's checkout")
+    s.add_argument("--files", help="a JSON object of file name to text, written into the dir the command reads as $PROBE_DIR")
     s = sub.add_parser("run")
-    s.add_argument("--arm", action="append", choices=ARMS, default=[])
+    s.add_argument("--arm", action="append", choices=(*ARMS, BLIND_PROVE), default=[])
+    for stage in STAGES:
+        s.add_argument(f"--{stage}-model", default=os.environ.get(f"{stage.upper()}_MODEL"), help=f"the {BLIND_PROVE} arm's {stage} stage")
+    s.add_argument("--max-cost", type=float, default=MAX_COST_USD, help=f"USD per {BLIND_PROVE} case-run, summed over its stages")
     s.add_argument("--case", action="append", default=[], help="restrict to these case ids; repeatable")
     s.add_argument("--runs", type=int, default=3)
     s.add_argument("--concurrency", type=int, default=3)
@@ -1589,9 +1941,9 @@ def main() -> int:
         return cmd_verify(args)
     if args.cmd == "probe":
         return cmd_probe(args)
-    for m, name in ((args.reviewer_model, "REVIEWER_MODEL"), (args.judge_model, "JUDGE_MODEL")):
-        if not m or not m.strip():
-            sys.exit(f"[planted] {name} is empty")
+    if args.cmd == "bound-probe":
+        print(json.dumps(bound_probe(Path(args.binding), args.command, args.files), indent=1))
+        return 0
     try:
         args.arm = run_arms(args.arm, args.pilot)
         if args.pilot:
@@ -1600,7 +1952,12 @@ def main() -> int:
         sys.exit(f"[planted] {e}")
     if not args.arm:
         sys.exit("[planted] name at least one --arm")
+    if args.max_cost <= 0:
+        sys.exit("[planted] --max-cost must be a positive number of USD")
     bench = load_bench()
+    problems = model_problems(args, bench)
+    if problems:
+        sys.exit("[planted] " + "; ".join(problems))
     try:
         asyncio.run(run_recipe(args, bench))
     except bench.kit.RateLimitedError as e:
