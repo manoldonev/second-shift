@@ -124,6 +124,11 @@ review.
    `departed` or `undeterminable`. A departed row was edited: name who decided, per its
    provenance. For an undeterminable row, say what you could not read. A violated or
    undeterminable row is a blocker. Do not approve when a row has either score.
+
+   <!-- LOCKSTEP-BEGIN review-row-reach -->
+   A row can say where or to what a rule applies. Score that row against every caller of the unit that holds the rule, in the repository at the head. The row is `honored` only when the review names each caller and shows that each one gets the rule. A caller that only passes an opt-in along is followed up to the callers that decide it. A caller that the row or the ticket itself names as outside the rule does not count. External and dynamic callers do not count. Any other caller left outside the rule scores the row `violated`. The review then files a `[blocker]` at that caller's file:line, with a concrete input that the caller prints or handles differently from the rule.
+   <!-- LOCKSTEP-END review-row-reach -->
+
    A row can name a deferred, unmeasured or inherited cost, load or performance risk. Still score
    that row on whether the code matches it. The row is the operator's decision. A score never
    overrides it. Its risk is also required performance work: the review states the worst-case
