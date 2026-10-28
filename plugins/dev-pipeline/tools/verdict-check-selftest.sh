@@ -4,7 +4,8 @@
 # INVARIANTS GUARDED: PR #983's two verdicts as posted are rejected against the #979 record at each
 # head and at its first commit (round 1 names "needs-work with no blocker", round 2 "Findings not in
 # the grammar"); each rule passes and fails; a needs-work with any of the three line-3 reasons passes; a row the build
-# deleted or added is still owed a score; every failed rule is printed, not only the first; a record
+# deleted or added is still owed a score; a folded rows table passes only under a summary that counts it and
+# beside a ## Summary, and a bare table still passes; every failed rule is printed, not only the first; a record
 # that cannot be read is exit 2. The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
 #
 # Operator-safe: no network. Exit code = number of failed checks.
@@ -106,6 +107,54 @@ check s-table "$(summ approve $'Mergeable as it is.\nD-2 departed.\n| a | b |' "
 fails_with "(s4) a table in the Summary" "Summary not in the grammar"
 check s-order "$(body approve "$HEAD_ROWS" 'None.' $'\n## Summary\n\nMergeable as it is.\nD-2 departed.')"
 fails_with "(s5) a Summary after the findings" "section out of order: ## Summary"
+# ---- the folded rows table: a one-line count summary, a blank line, the table, then </details> ----
+folded() { # folded <verdict> <summary-line> <rows> <findings> [summary-section]
+  printf 'verdict: %s\nreviewed: %s\n\n%s## Decision record rows\n\n%s\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n%s\n</details>\n\n## Findings\n\n%s\n' \
+    "$1" "$SHA" "${5-$'## Summary\n\nMergeable as it is.\nD-2 departed: the build deleted it.\nNothing to do.\n\n'}" "$2" "$3" "$4"
+}
+FOLD_OK='<details><summary>3 rows: 2 honored, 1 departed</summary>'
+check fold-ok "$(folded approve "$FOLD_OK" "$HEAD_ROWS" 'None.')"
+passes "(fo1) a folded rows table under a summary that counts it passes"
+check fold-blank-end "$(folded approve "$FOLD_OK" "$HEAD_ROWS" 'None.' | awk '{ print } $0 == "| D-3 e | honored | z |" { print "" }')"
+passes "(fo1) a blank line between the table and </details> passes"
+check fold-nw "$(folded needs-work '<details><summary>3 rows: 1 honored, 1 departed, 1 violated</summary>' $'| D-1 a | violated | x |\n| D-2 c | departed | y |\n| D-3 e | honored | z |' '- [blocker] B1 a thing to fix' $'## Summary\n\nNot mergeable yet.\nD-1 violated. D-2 departed.\nFix B1.\n\n')"
+passes "(fo1) a folded needs-work names its violated and departed rows in the Summary and passes"
+check fold-reason "$(printf 'verdict: needs-work\nreviewed: %s\nreason: render-unavailable\n\n## Summary\n\nNot mergeable yet.\nRender the screens.\n\n## Decision record rows\n\n<details><summary>0 rows</summary>\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n</details>\n\n## Findings\n\nNone.' "$SHA")"
+passes "(fo1) under a reason line, an empty folded table counts 0 rows"
+check fold-unscored "$(folded approve '<details><summary>2 rows: 1 honored, 1 departed</summary>' $'| D-1 a | honored | x |\n| D-2 c | departed | y |' 'None.')"
+fails_with "(fo2) a row left unscored inside the fold still fails" "record row not scored: D-3"
+check fold-badscore "$(folded approve '<details><summary>3 rows: 2 honored, 1 departed</summary>' $'| D-1 a | fine | x |\n| D-2 c | departed | y |\n| D-3 e | honored | z |' 'None.')"
+fails_with "(fo2) an unknown score inside the fold still fails" "score not in the grammar: D-1: fine"
+check fold-violated "$(folded approve '<details><summary>3 rows: 1 honored, 1 departed, 1 violated</summary>' $'| D-1 a | violated | x |\n| D-2 c | departed | y |\n| D-3 e | honored | z |' 'None.' $'## Summary\n\nMergeable as it is.\nD-1 violated. D-2 departed.\nNothing to do.\n\n')"
+fails_with "(fo2) an approve with a violated row inside the fold still fails" "approve with a violated or undeterminable row: D-1 violated"
+check fold-hidden "$(folded approve "$FOLD_OK" "$HEAD_ROWS" 'None.' $'## Summary\n\nMergeable as it is.\nNothing to do.\n\n')"
+fails_with "(fo2) a Summary that hides a departed row under a fold still fails" "Summary does not name a row that is not honored: D-2"
+check fold-count "$(folded approve '<details><summary>3 rows: 3 honored</summary>' "$HEAD_ROWS" 'None.')"
+fails_with "(fo3) a summary whose score counts differ from the table" "rows summary counts differ from the table: the summary says 3 honored, the table has 2"
+has "the summary says 0 departed, the table has 1" && ok "(fo3) the missing departed count is named too" || bad "(fo3) departed count: $(tr '\n' '|' <<<"$OUT")"
+check fold-total "$(folded approve '<details><summary>4 rows: 2 honored, 1 departed</summary>' "$HEAD_ROWS" 'None.')"
+fails_with "(fo3) a summary whose row total differs from the table" "rows summary counts differ from the table: the summary says 4 rows, the table has 3"
+check fold-nosummary "$(folded approve '<details><summary>3 rows: 2 honored, 1 departed</summary>' "$HEAD_ROWS" 'None.' '')"
+fails_with "(fo4) a folded table with no ## Summary" "folded rows table with no ## Summary"
+check fold-open "$(folded approve '<details open><summary>3 rows: 2 honored, 1 departed</summary>' "$HEAD_ROWS" 'None.')"
+fails_with "(fo5) a fold that renders open" "Decision record rows not in the grammar: line 12: <details open>"
+check fold-order "$(folded approve '<details><summary>3 rows: 1 departed, 2 honored</summary>' "$HEAD_ROWS" 'None.')"
+fails_with "(fo5) scores out of order in the summary" "the summary lists honored, departed, violated, undeterminable in that order"
+check fold-zero "$(folded approve '<details><summary>3 rows: 2 honored, 1 departed, 0 violated</summary>' "$HEAD_ROWS" 'None.')"
+fails_with "(fo5) a zero count in the summary" "the summary leaves out a zero count"
+check fold-word "$(folded approve '<details><summary>3 decisions: 2 honored, 1 departed</summary>' "$HEAD_ROWS" 'None.')"
+fails_with "(fo5) a summary that does not say rows" "the summary is <N> rows: <k> <score>"
+check fold-noblank "$(folded approve "$FOLD_OK" "$HEAD_ROWS" 'None.' | awk 'prev ~ /^<details>/ && $0 == "" { prev = $0; next } { print; prev = $0 }')"
+fails_with "(fo5) no blank line after the summary" "a blank line follows the rows summary"
+check fold-noclose "$(folded approve "$FOLD_OK" "$HEAD_ROWS" 'None.' | grep -vx '</details>')"
+fails_with "(fo5) a fold with no </details>" "the rows fold has no </details> line after the table"
+check fold-after "$(folded approve "$FOLD_OK" "$HEAD_ROWS" 'None.' | awk '{ print } $0 == "</details>" { print "trailing prose" }')"
+fails_with "(fo5) prose after </details>" "Decision record rows not in the grammar: line 20: trailing prose"
+check bare-summary "$(summ approve $'Mergeable as it is.\nD-2 departed: the build deleted it.\nNothing to do.' "$HEAD_ROWS" 'None.')"
+passes "(fo6) a bare table beside a Summary still passes"
+check bare-nosummary "$(body approve "$HEAD_ROWS" 'None.')"
+passes "(fo6) a bare table with no Summary still passes"
+
 check rs-row "$(body approve "$HEAD_ROWS"$'\n| RS-1 home | honored | w |' 'None.')"
 fails_with "(f8) an RS row in the table" "row is not a D-n row: RS-1 home"
 check bad-score "$(body approve $'| D-1 a | fine | x |\n| D-2 c | honored | y |\n| D-3 e | honored | z |' 'None.')"

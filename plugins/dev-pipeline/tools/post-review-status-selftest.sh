@@ -4,7 +4,8 @@
 # INVARIANTS GUARDED: a body that breaks the verdict grammar posts no status (above all, never `success`)
 # and prints its failed rules; a body the checker cannot evaluate posts nothing; a passing approve posts
 # success and a passing needs-work failure, on the named sha, under second-shift/review, linking the
-# verdict; every write goes through $GH; a refused post is exit 3 with gh's error.
+# verdict; every write goes through $GH; a refused post is exit 3 with gh's error; a folded rows table posts;
+# --recheck reads the posted comment by id, re-posts what a passing one implies and posts error on a failing one.
 #
 # Operator-safe: a fake gh, no network. Exit code = number of failed checks.
 set -uo pipefail
@@ -25,6 +26,9 @@ cat > "$T/bin/fake-gh" <<'EOF'
 S="$FAKE_GH"
 case "$1 $2" in
   "repo view") echo o/r ;;
+  # `gh api ... --jq .body` prints the comment's body string raw; a missing comment is the REST API's 404
+  # ("Get an issue comment", docs.github.com/rest/issues/comments), which gh reports as "gh: Not Found (HTTP 404)"
+  "api repos/o/r/issues/comments/"*) f="$S/comment-${2##*/}"; [ -f "$f" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }; cat "$f" ;;
   "api -X")    [ -f "$S/fail" ] && { echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; }
                p="$4"; shift 4; echo "${FAKE_AS:-operator} $p $*" >> "$S/posts"; echo '{}' ;;
   *) echo "fake gh: unhandled $*" >&2; exit 1 ;;
@@ -113,6 +117,47 @@ run p10 7 "$SHA" "$T/approve-dep.md" "$T/head/docs/plans/r-42-decisions.md" "$T/
 printf '%s\n## Test intent\n\nACs: AC-1 AC-8 AC-9\n\nAC-1: x\nAC-8: y\nAC-9: the guard\n' "$LEDGER" > "$T/head/docs/plans/r-42-decisions.md"
 run p10b 7 "$SHA" "$T/approve-ok.md" "$T/head/docs/plans/r-42-decisions.md" "$T/first-dep.md" https://x/pr/7#c1; rc=$?
 [ "$rc" -eq 1 ] && [ -z "$(posts)" ] && grep -q 'which only the record at the head defines' "$S/out" && ok "(p10) a head-only AC with no operator row: no status, exit 1" || bad "(p10b) rc=$rc posts='$(posts)' out=$(tr '\n' '|' < "$S/out")"
+
+# (p11) a verdict whose rows table is folded under its count summary posts its status
+folded() { # folded <verdict> <score> <findings> <summary line 1>
+  printf 'verdict: %s\nreviewed: %s\n\n## Summary\n\n%s\nNothing to do.\n\n## Decision record rows\n\n<details><summary>1 rows: 1 %s</summary>\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n| D-1 | %s | x |\n</details>\n\n## Findings\n\n%s\n' "$1" "$SHA" "$4" "$2" "$2" "$3"
+}
+folded approve honored 'None.' 'Mergeable as it is.' > "$T/folded-ok.md"
+run p11 7 "$SHA" "$T/folded-ok.md" "$T/rec.md" "$T/rec.md" https://x/pr/7#c1; rc=$?
+[ "$rc" -eq 0 ] && grep -q "^operator repos/o/r/statuses/$SHA -f state=success -f context=second-shift/review " "$S/posts" \
+  && ok "(p11) an approve with a folded rows table posts success" || bad "(p11) rc=$rc posts='$(posts)' out=$(cat "$S/out" "$S/err" | tr '\n' '|')"
+
+# --recheck <comment-id>: the posted comment is read through $GH by id, then checked as a body file is
+recheck() { S="$T/$1"; mkdir -p "$S"; cp "$2" "$S/comment-$3"; shift 3; FAKE_GH="$S" GH="$T/bin/fake-gh" bash "$TOOL" "$@" > "$S/out" 2> "$S/err"; }
+recheck r1 "$T/folded-ok.md" 55 --recheck 55 7 "$SHA" "$T/rec.md" "$T/rec.md" https://x/pr/7#c55; rc=$?
+[ "$rc" -eq 0 ] && [ "$(posts)" = "operator repos/o/r/statuses/$SHA -f state=success -f context=second-shift/review -f target_url=https://x/pr/7#c55 -f description=approved at this head — see the verdict" ] \
+  && ok "(r1) --recheck of a passing approve comment re-posts success on the sha" || bad "(r1) rc=$rc posts='$(posts)' err=$(cat "$S/err")"
+folded needs-work honored '- [blocker] B1 fix it' 'Not mergeable yet.' > "$T/folded-nw.md"
+FAKE_AS=bot recheck r1b "$T/folded-nw.md" 56 --repo o/r --recheck 56 7 "$SHA" "$T/rec.md" "$T/rec.md" https://x/pr/7#c56; rc=$?
+[ "$rc" -eq 0 ] && grep -q "^bot repos/o/r/statuses/$SHA .*state=failure .*description=needs-work at this head" "$S/posts" \
+  && ok "(r1) --recheck of a passing needs-work comment re-posts failure, written as \$GH" || bad "(r1b) rc=$rc posts='$(posts)' err=$(cat "$S/err")"
+# an edit after posting folded the table under a wrong count and dropped its Summary
+folded approve honored 'None.' 'Mergeable as it is.' | sed 's/1 rows: 1 honored/2 rows: 2 honored/' | awk '/^## Summary$/ { skip = 1 } /^## Decision record rows$/ { skip = 0 } !skip' > "$T/edited-bad.md"
+recheck r2 "$T/edited-bad.md" 57 --recheck 57 7 "$SHA" "$T/rec.md" "$T/rec.md" https://x/pr/7#c57; rc=$?
+[ "$rc" -eq 1 ] && [ "$(grep -c . "$S/posts")" = 1 ] && grep -q "^operator repos/o/r/statuses/$SHA -f state=error -f context=second-shift/review -f target_url=https://x/pr/7#c57 -f description=re-check failed: rows summary counts differ from the table" "$S/posts" \
+  && grep -q '^- rows summary counts differ from the table' "$S/out" && grep -q '^- folded rows table with no ## Summary' "$S/out" \
+  && ok "(r2) --recheck of a failing comment posts error on the sha naming the first rule, prints every rule, exit 1" || bad "(r2) rc=$rc posts='$(posts)' out=$(tr '\n' '|' < "$S/out")"
+printf '| ID | Decision |\n| --- | --- |\n| D-1 | a |\n\n## Test intent\n\nACs: AC-1 AC-8\n\nAC-1: x\nAC-8: y\n' > "$T/head/docs/plans/r-43-decisions.md"
+printf '%s\n' '- [ ] 1.1 a (a.spec.ts) [AC-1]' > "$T/head/docs/plans/r-43-plan.md"
+recheck r3 "$T/folded-ok.md" 58 --recheck 58 7 "$SHA" "$T/head/docs/plans/r-43-decisions.md" "$T/head/docs/plans/r-43-decisions.md" https://x/pr/7#c58; rc=$?
+[ "$rc" -eq 1 ] && grep -q "state=error .*description=re-check failed: plan-coverage: RED: AC-8 has no test task" "$S/posts" \
+  && ok "(r3) --recheck of an approve whose plan coverage is red posts error, exit 1" || bad "(r3) rc=$rc posts='$(posts)' out=$(tr '\n' '|' < "$S/out")"
+S="$T/r4"; mkdir -p "$S"; FAKE_GH="$S" GH="$T/bin/fake-gh" bash "$TOOL" --recheck 404 7 "$SHA" "$T/rec.md" "$T/rec.md" https://x/pr/7#c404 > "$S/out" 2> "$S/err"; rc=$?
+[ "$rc" -eq 2 ] && [ -z "$(posts)" ] && grep -q 'comment 404 could not be read .*HTTP 404' "$S/err" \
+  && ok "(r4) --recheck of a comment that cannot be read posts nothing, exit 2" || bad "(r4) rc=$rc posts='$(posts)' err=$(cat "$S/err")"
+recheck r5 "$T/edited-bad.md" 59 --recheck 59 7 "$SHA" "$T/rec.md" "$T/no-such-record.md" https://x/pr/7#c59; rc=$?
+[ "$rc" -eq 2 ] && [ -z "$(posts)" ] && ok "(r5) --recheck that cannot evaluate the body posts nothing, exit 2" || bad "(r5) rc=$rc posts='$(posts)'"
+S="$T/r6"; mkdir -p "$S"; touch "$S/fail"; cp "$T/edited-bad.md" "$S/comment-60"
+FAKE_GH="$S" GH="$T/bin/fake-gh" bash "$TOOL" --recheck 60 7 "$SHA" "$T/rec.md" "$T/rec.md" https://x/pr/7#c60 > "$S/out" 2> "$S/err"; rc=$?
+[ "$rc" -eq 3 ] && grep -q 'NOT posted .*HTTP 403' "$S/err" && ok "(r6) --recheck whose error post is refused: exit 3, gh's error named" || bad "(r6) rc=$rc err=$(cat "$S/err")"
+recheck r7 "$T/folded-ok.md" 61 --recheck x 7 "$SHA" "$T/rec.md" "$T/rec.md" https://x; rc1=$?
+recheck r7 "$T/folded-ok.md" 61 --recheck 61 7 "$SHA" "$T/rec.md" "$T/rec.md"; rc2=$?
+[ "$rc1" -eq 2 ] && [ "$rc2" -eq 2 ] && [ -z "$(posts)" ] && ok "(r7) --recheck with a malformed id or a missing argument is usage (exit 2)" || bad "(r7) rc=$rc1/$rc2"
 
 echo "post-review-status-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"
