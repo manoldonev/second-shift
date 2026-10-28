@@ -11,7 +11,7 @@
   "truth": {
     "class": "P4",
     "pattern": "dead-guard",
-    "description": "triggerEffects now skips an outdated dep entry only when effect.allowRecurse is set, but toggleRecurse turns allowRecurse off for exactly the pre-render phase in which updateComponentPreRender writes a child's new props, so a child that receives new props is left Dirty with a pending schedule and re-renders on its next computed trigger even when that computed's value did not change.",
+    "description": "triggerEffects drops the old skip for a running effect that is not recursive and now skips an outdated dep entry only when effect.allowRecurse is set, but toggleRecurse turns allowRecurse off for exactly the pre-render phase in which updateComponentPreRender writes a child's new props, so a child that receives new props is left Dirty with a pending schedule and re-renders on its next computed trigger even when that computed's value did not change.",
     "locations": [
       {"file": "packages/reactivity/src/effect.ts", "start": 294, "end": 297, "side": "head"},
       {"file": "packages/runtime-core/src/renderer.ts", "start": 1485, "end": 1490, "side": "head"},
