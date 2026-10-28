@@ -136,6 +136,19 @@ The patch applies to the base after the overlay, and adds the plan at
 the id in its scratch path and session name. Each overlay under `planted/overlays/` is shared by
 the cases of one upstream. `NOTICE` names each upstream and its license.
 
+`planted/run.sh --arm blind-prove` runs alone and spends three sessions on each case-run. Hunt
+reads the neutral `after` checkout that `planted.py probe` builds, with no ticket, and ends its
+answer with a fenced `candidates` block. Prove reads hunt's whole answer and ends with a fenced
+`probes` block of bash commands; it can try each one through a `probe` command bound to its
+case-run. The harness then runs at most 8 of those commands, 120 s per side, in the `before` and
+`after` checkouts built once for the case-run. Intent reads plain's checkout, the ticket, the
+record, both answers and the probe results, and writes a verdict in plain's form, which plain's
+scoring reads unchanged. `HUNT_MODEL`, `PROVE_MODEL` and `INTENT_MODEL` (or `--hunt-model` and the
+rest) name the stages' models; prove must be on another family from hunt. `--max-cost` caps the
+summed cost of one case-run, `$3` by default. A failed stage, a read outside its blindness scope
+or a cost over the cap stops the case-run, and its status names the stage. Hunt and prove may not
+open the corpus, plain's checkout or the run's state dir; intent may not open the corpus.
+
 A case configures no test runner, so the lane's fails-without-the-change gate is not-applicable on
 every case; a runner added to an overlay's config makes the recipe run it on the record commit's
 tree, as the lane does. The checkouts, the clones and the per-run state live under the cache dir,

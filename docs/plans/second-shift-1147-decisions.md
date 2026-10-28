@@ -16,7 +16,7 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 
 | ID | Decision | Resolution | Provenance | Kind |
 | --- | --- | --- | --- | --- |
-| D-1 | The model per stage | Hunt `claude-opus-5-5`, prove `claude-fable-5-1` and intent `claude-opus-5-5`. The judge stays `claude-sonnet-5-5`. The run refuses a prove model in hunt's family. | user-answered | intent |
+| D-1 | The model per stage | The operator names each stage's model in `HUNT_MODEL`, `PROVE_MODEL` and `INTENT_MODEL` or the matching flags, and the run refuses an empty one. The intended models stay hunt `claude-opus-5-5`, prove `claude-fable-5-1` and intent `claude-opus-5-5`, with the judge on `claude-sonnet-5-5`. The run refuses a prove model in hunt's family. `planted/run.sh` no longer requires `REVIEWER_MODEL`, and `planted.py` asks for it only for plain and lane. Changed in build: CI's `scripts/check-eval-model-identity.sh` rejects a model id written under `evals/`, so no stage model can be a checked-in default. | user-delegated | intent |
 | D-2 | The cost cap | `$3` per case-run, overridden by `--max-cost`. The summed cost is checked after each stage. Over the cap, the case-run stops, and its status names the stage. | user-answered | intent |
 | D-3 | What hunt and prove hand over | Prose plus one fenced block each. Hunt writes ```` ```candidates ```` with `[{id, site, input}]`, where `site` is a `path:line`. Prove writes ```` ```probes ```` with `[{candidate, cmd, files}]`. A missing or unparsable block counts as zero items and is recorded. The whole text passes on verbatim. | user-answered | intent |
 | D-4 | Whether prove runs probes while writing them | Yes, only through a wrapper bound to its own case that hides the case id. Only the harness's final probe runs count. | user-answered | intent |
@@ -29,9 +29,11 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-11 | Whether `build()` takes the new arm | No, it raises on an arm outside `ARMS`. The arm builds through #1146's neutral path and plain's `build()` path. run: `grep -n 'if arm not in ARMS' planted.py` → 569 | codebase-derived | fact |
 | D-12 | The judge-family guard with these models | It passes. Families come from `claude-([a-z]+)-`, so opus and fable differ from sonnet. run: `grep -n '^FAMILY_RE' bench.py` → `FAMILY_RE = re.compile(r"claude-([a-z]+)-")` | codebase-derived | fact |
 | D-13 | The Fable model id | `claude-fable-5-1`, as the repo already names it. run: `grep -rn 'claude-fable-5-1' plugins \| wc -l` → 5 | codebase-derived | fact |
-| D-14 | Flag and file names | Parked under OR-1 (owner: the build, by its default) | deferred | open |
+| D-14 | Flag and file names | `--hunt-model`, `--prove-model` and `--intent-model` with no default, and `--max-cost`. The prompts are `arms/hunt.md`, `arms/prove.md` and `arms/intent.md`, the selftest is `blind-prove-selftest.sh`, and prove's wrapper is `probe`. Changed in build: OR-1's default gave the flags D-1's model ids as defaults, which CI rejects, as D-1 says. | user-delegated | open |
 | D-15 | The blindness scope per stage | Parked under OR-2 (owner: the build, by its default) | deferred | open |
 | D-16 | How the orchestrator calls the probe runner | Parked under OR-3 (owner: the build, by its default) | deferred | open |
+| D-17 | A cost over the cap after intent | The verdict is kept in the record, and the status is `intent: over the cost cap`, so `tally` counts the case-run unscorable. Added in build: D-2 checks the cap after each stage, and no row said what happens after the last one. | user-delegated | intent |
+| D-18 | What counts as a failed stage session | A timeout, a modified checkout, a blindness void, or an envelope with `is_error` or a `subtype` other than `success`, as `tools/classify-capture.sh` reads it. A max-turns stop has `is_error` false and still fails. Added in build: D-8 names a failure without saying how the harness tells one. | user-delegated | intent |
 
 Options weighed:
 
