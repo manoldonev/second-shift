@@ -31,6 +31,9 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-13 | Where the plan file comes from | The patch adds it, so the neutral `after` drops `plan_rel(case)` after applying. run: `sed -n 385,386p planted.py` → `if plan_rel(case) not in touched: bad("the patch does not add the plan …")` | codebase-derived | fact |
 | D-14 | The selftest's package managers | Parked under OR-1 (owner: the build, by its default) | deferred | open |
 | D-15 | AC-5 test intent | `holds`. render-selftest and score-selftest keep passing unchanged. | user-answered | intent |
+| D-16 | A bound on installs and setup steps | Each install and each `probe.json` setup step stops at 1800 s, and the probe reports `UNPROVEN` with a reason. Added in build: no row bounded the install, and a hung install would hang the probe. | user-delegated | intent |
+| D-17 | Where the checkouts go without `--dest` | A new temporary directory, kept after the probe and named in the JSON as `dest`. A `--dest` that exists is a usage error. Added in build: D-8 names `--dest` but not its default. | user-delegated | intent |
+| D-18 | What counts as a timing line, and how a setup step reaches pnpm or yarn | A line that starts with `Time`, `Duration`, `Start at`, `Done in` or `Finished in`, or ends with a duration in parentheses, is stripped. `yarn` and `pnpm` shims that call `corepack` sit first on PATH for the setup and the command. Added in build: D-7 and D-4 leave both open. | user-delegated | intent |
 
 Options weighed:
 

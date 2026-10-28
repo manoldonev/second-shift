@@ -18,6 +18,9 @@ Subcommands, model-free unless named:
   run       the operator's recipe: the judge's calibration, the reviews, the judge, the report (billed); with
             --pilot, the plain arm on the pilot cases only, and no changelog row
   cases     right, wrong and noise per case, run and arm from a results file, and the right rate over a set of ids
+  probe     build a case's neutral before and after checkouts, install each, run one command in both and print
+            DIFFERS, SAME or UNPROVEN as JSON (network for the installs; none for the command where
+            sandbox-exec exists)
 """
 from __future__ import annotations
 
@@ -602,6 +605,190 @@ def build(case: dict, arm: str, dest: Path, clones: Path, root: Path) -> dict:
         raise BuildError(f"{dest} has a remote")
     return {"checkout": str(dest), "arm": arm, "branch": branch, "base": base, "first": first, "head": head,
             "record_rel": record_rel(case), "plan_rel": plan_rel(case)}
+
+
+# --- the probe ---------------------------------------------------------------------------------
+
+PROBE_SIDES = ("before", "after")
+PROBE_TIMEOUT_S = 120
+PROBE_INSTALL_TIMEOUT_S = 1800
+PROBE_SANDBOX = "(version 1)(allow default)(deny network*)"
+VERDICTS = ("DIFFERS", "SAME", "UNPROVEN")
+TIMING_RE = re.compile(r"^\s*(Time|Duration|Start at|Done in|Finished in)\b|\(\d+(?:\.\d+)? ?m?s\)\s*$")
+
+
+class Unproven(RuntimeError):
+    pass
+
+
+def probe_cache(case: dict, clones: Path) -> Path:
+    return clones / f"{upstream_key(case)}.probe" / case["base"]
+
+
+def neutral_checkout(case: dict, side: str, dest: Path, store: Path, root: Path) -> None:
+    """The base and the overlay, then for `after` the patch without its plan file, each under a subject that
+    names nothing of the case. No remote, no FETCH_HEAD, no reflog."""
+    dest.mkdir(parents=True)
+    git(["init", "-q", str(dest)], cwd=dest.parent)
+    git(["fetch", "-q", "--depth", "1", "--no-tags", str(store), f"refs/bases/{case['base']}"], cwd=dest)
+    git(["checkout", "-q", "-b", side, "FETCH_HEAD"], cwd=dest)
+    t0 = int(git(["log", "-1", "--format=%ct"], cwd=dest))
+    ov = root / "overlays" / case["overlay"]
+    (dest / ".claude" / "second-shift").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ov / "review-context.md", dest / ".claude" / "second-shift" / "review-context.md")
+    shutil.copyfile(ov / "config.json", dest / ".claude" / "second-shift.config.json")
+    git(["add", "-f", ".claude/second-shift/review-context.md", ".claude/second-shift.config.json"], cwd=dest)
+    commit(dest, "chore: add the review configuration", t0 + 3600)
+    if side == "after":
+        r = subprocess.run(["git", *GIT_CFG, "apply", "--index", "--whitespace=nowarn", str(case["dir"] / "patch.diff")],
+                           cwd=dest, text=True, capture_output=True)
+        if r.returncode:
+            raise Unproven(f"the patch does not apply to the base: {r.stderr.strip()[:300]}")
+        git(["rm", "-q", "--cached", "--ignore-unmatch", plan_rel(case)], cwd=dest)
+        (dest / plan_rel(case)).unlink(missing_ok=True)
+        commit(dest, "change", t0 + 7200)
+    (dest / ".git" / "FETCH_HEAD").unlink(missing_ok=True)
+    git(["reflog", "expire", "--expire=now", "--all"], cwd=dest)
+
+
+def package_manager(co: Path) -> tuple[str, list[str]] | None:
+    """The install the base names: its packageManager through corepack, else npm. None without a package.json."""
+    try:
+        pkg = json.loads((co / "package.json").read_text())
+    except OSError:
+        return None
+    except ValueError as e:
+        raise Unproven(f"package.json does not parse: {e}")
+    pm = str(pkg.get("packageManager") or "").split("@", 1)[0]
+    if pm == "yarn":
+        return "yarn", ["corepack", "yarn", "install", "--immutable"]
+    if pm == "pnpm":
+        return "pnpm", ["corepack", "pnpm", "install", "--frozen-lockfile"]
+    if pm and pm != "npm":
+        raise Unproven(f"packageManager {pkg['packageManager']!r} is neither npm, yarn nor pnpm")
+    if (co / "package-lock.json").is_file():
+        return "npm", ["npm", "ci", "--no-audit", "--no-fund"]
+    return "npm", ["npm", "install", "--no-audit", "--no-fund"]
+
+
+def run_step(argv: list[str], co: Path, env: dict, what: str, side: str) -> None:
+    try:
+        r = subprocess.run(argv, cwd=co, env=env, text=True, capture_output=True, timeout=PROBE_INSTALL_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise Unproven(f"the {what} in {side} ran past {PROBE_INSTALL_TIMEOUT_S} s")
+    except OSError as e:
+        raise Unproven(f"the {what} in {side} could not start: {e}")
+    if r.returncode:
+        raise Unproven(f"the {what} in {side} exited {r.returncode}: {(r.stdout + r.stderr).strip()[-400:]}")
+
+
+def probe_install(case: dict, cos: dict[str, Path], clones: Path, root: Path, env: dict) -> str | None:
+    """Each side's own install, with its package manager's stores in one cache per upstream and base, then the
+    overlay's probe.json setup. An npm base with no lockfile installs `before` unpinned and pins `after`, and
+    every later probe on the base, to the lockfile it generated. Returns the lockfile's origin."""
+    cache = probe_cache(case, clones)
+    cache.mkdir(parents=True, exist_ok=True)
+    env.update(npm_config_cache=str(cache / "npm"), npm_config_store_dir=str(cache / "pnpm-store"),
+               YARN_CACHE_FOLDER=str(cache / "yarn"), YARN_ENABLE_GLOBAL_CACHE="false",
+               COREPACK_ENABLE_DOWNLOAD_PROMPT="0")
+    setup = ""
+    pj = root / "overlays" / case["overlay"] / "probe.json"
+    if pj.is_file():
+        try:
+            setup = str(json.loads(pj.read_text()).get("setup") or "")
+        except ValueError as e:
+            raise Unproven(f"{pj.name} of overlay {case['overlay']} does not parse: {e}")
+    pm = package_manager(cos["before"])
+    lockfile = None if pm is None else "committed"
+    generated = cache / "package-lock.json"
+    for side, co in cos.items():
+        excludes = ["node_modules/"]
+        if pm is not None:
+            name, argv = pm
+            if name == "npm" and not (co / "package-lock.json").is_file() or lockfile == "generated":
+                lockfile = "generated"
+                if generated.is_file():
+                    shutil.copyfile(generated, co / "package-lock.json")
+                    argv = ["npm", "ci", "--no-audit", "--no-fund"]
+                excludes.append("/package-lock.json")
+            if not shutil.which(argv[0], path=env["PATH"]):
+                raise Unproven(f"the base installs with {name}, and no {argv[0]} is on PATH")
+            run_step(argv, co, env, f"{name} install", side)
+            if lockfile == "generated" and not generated.is_file():
+                if not (co / "package-lock.json").is_file():
+                    raise Unproven(f"npm install in {side} generated no package-lock.json")
+                shutil.copyfile(co / "package-lock.json", generated)
+        if setup:
+            run_step(["bash", "-c", setup], co, env, f"{pj.name} setup", side)
+        (co / ".git" / "info").mkdir(exist_ok=True)
+        with (co / ".git" / "info" / "exclude").open("a") as f:
+            f.write("".join(f"{e}\n" for e in excludes))
+    return lockfile
+
+
+def run_side(cmd: str, co: Path, env: dict, timeout: int, sandbox: str | None) -> dict:
+    argv = ["bash", "-c", cmd]
+    if sandbox:
+        argv = [sandbox, "-p", PROBE_SANDBOX, *argv]
+    p = subprocess.Popen(argv, cwd=co, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, errors="replace", start_new_session=True)
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, 9)
+        out, err = p.communicate()
+        return {"rc": None, "out": out, "err": err, "timed_out": True}
+    return {"rc": p.returncode, "out": out, "err": err}
+
+
+def normalize(text: str, co: Path) -> str:
+    for root in sorted({str(co), str(co.resolve())}, key=len, reverse=True):
+        text = text.replace(root, "<ROOT>")
+    return "\n".join(l for l in text.split("\n") if not TIMING_RE.search(l))
+
+
+def compare(sides: dict[str, dict], cos: dict[str, Path]) -> tuple[str, str]:
+    for side, r in sides.items():
+        if r.get("timed_out"):
+            return "UNPROVEN", f"the command in {side} ran past its timeout"
+    differ = [label for key, label in (("rc", "exit code"), ("out", "stdout"), ("err", "stderr"))
+              if (sides["before"][key] if key == "rc" else normalize(sides["before"][key], cos["before"]))
+              != (sides["after"][key] if key == "rc" else normalize(sides["after"][key], cos["after"]))]
+    return ("DIFFERS", "the " + ", ".join(differ) + " differ") if differ else ("SAME", "")
+
+
+def probe(case: dict, cmd: str, dest: Path, clones: Path, root: Path, probe_dir: Path | None, timeout: int) -> dict:
+    """The case's neutral `before` and `after` checkouts under <dest>, each with its own install, then one
+    bash command in each and one verdict. Model-free; a failure outside the command is UNPROVEN."""
+    sandbox = shutil.which("sandbox-exec")
+    out = {"case": case["id"], "verdict": "UNPROVEN", "reason": "", "sandbox": "sandbox-exec" if sandbox else "none",
+           "lockfile": None, "dest": str(dest), "before": None, "after": None}
+    cos = {side: dest / side for side in PROBE_SIDES}
+    env = {**os.environ}
+    bindir = dest / "bin"
+    bindir.mkdir(parents=True)
+    for pm in ("yarn", "pnpm"):
+        (bindir / pm).write_text(f'#!/usr/bin/env bash\nexec corepack {pm} "$@"\n')
+        (bindir / pm).chmod(0o755)
+    env["PATH"] = f"{bindir}{os.pathsep}{env.get('PATH', '')}"
+    try:
+        try:
+            store = base_store(case, clones)
+            for side, co in cos.items():
+                neutral_checkout(case, side, co, store, root)
+        except BuildError as e:
+            raise Unproven(str(e))
+        out["lockfile"] = probe_install(case, cos, clones, root, env)
+    except Unproven as e:
+        out["reason"] = str(e)
+        return out
+    if probe_dir is not None:
+        env["PROBE_DIR"] = str(probe_dir)
+    sides = {side: run_side(cmd, co, env, timeout, sandbox) for side, co in cos.items()}
+    out["verdict"], out["reason"] = compare(sides, cos)
+    for side, r in sides.items():
+        out[side] = {k: r[k] for k in ("rc", "out", "err")}
+    return out
 
 
 def bash_parses(chunk: str) -> bool:
@@ -1249,6 +1436,25 @@ def cmd_cases(args) -> int:
     return 0
 
 
+def cmd_probe(args) -> int:
+    root = Path(args.root)
+    case = find_case(root, args.case)
+    if args.timeout <= 0:
+        sys.exit("[planted] --timeout must be a positive number of seconds")
+    probe_dir = Path(args.dir).resolve() if args.dir else None
+    if probe_dir is not None and not probe_dir.is_dir():
+        sys.exit(f"[planted] --dir {args.dir} is not a directory")
+    if args.dest:
+        dest = Path(args.dest).resolve()
+        if dest.exists():
+            sys.exit(f"[planted] --dest {args.dest} already exists")
+    else:
+        dest = Path(tempfile.mkdtemp(prefix=f"planted-probe-{case['id']}-"))
+    out = probe(case, args.command, dest, Path(args.clones), root, probe_dir, args.timeout)
+    print(json.dumps(out, indent=1))
+    return 0
+
+
 def stop_problem(case: dict, b: dict) -> str:
     """Why the lane's stop is not the case's expected one: a stop on fails-without-the-change whose every red
     is a tagged test of a truth file passing on the record commit's tree. Empty when it is."""
@@ -1338,6 +1544,13 @@ def main() -> int:
     s.add_argument("--dest", required=True)
     s.add_argument("--case", action="append", default=[])
     s.add_argument("--clones", default=os.path.expanduser(os.path.join(cache_default, "bases")))
+    s = sub.add_parser("probe")
+    s.add_argument("case")
+    s.add_argument("--cmd", dest="command", required=True, help="a bash string, run with bash -c in each side's checkout")
+    s.add_argument("--dir", help="the probe's files, outside both checkouts; the command reads it as $PROBE_DIR")
+    s.add_argument("--timeout", type=int, default=PROBE_TIMEOUT_S, help="seconds per side")
+    s.add_argument("--dest", help="where the checkouts go; it must not exist; default a new temporary directory")
+    s.add_argument("--clones", default=os.path.expanduser(os.path.join(cache_default, "bases")))
     s = sub.add_parser("run")
     s.add_argument("--arm", action="append", choices=ARMS, default=[])
     s.add_argument("--case", action="append", default=[], help="restrict to these case ids; repeatable")
@@ -1374,6 +1587,8 @@ def main() -> int:
         return cmd_score(args)
     if args.cmd == "verify":
         return cmd_verify(args)
+    if args.cmd == "probe":
+        return cmd_probe(args)
     for m, name in ((args.reviewer_model, "REVIEWER_MODEL"), (args.judge_model, "JUDGE_MODEL")):
         if not m or not m.strip():
             sys.exit(f"[planted] {name} is empty")

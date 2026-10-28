@@ -1,0 +1,3 @@
+{
+  "setup": "pnpm --filter ./packages/vite run build"
+}
