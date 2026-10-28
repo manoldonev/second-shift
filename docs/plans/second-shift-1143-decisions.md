@@ -37,6 +37,7 @@ Provenance legend: `user-answered` = the operator chose. `codebase-derived` = a 
 | D-21 | `post-review-status.sh` delegates the grammar | It runs `verdict-check.sh` on the body, so AC-7 follows from AC-4 — run: `grep -n 'verdict-check.sh' plugins/dev-pipeline/tools/post-review-status.sh` → 41: rules="$(bash "$HERE/verdict-check.sh" "$BODY" "$4" "$5")" | codebase-derived | fact |
 | D-22 | Other parsers of the rows table | None in production besides `verdict-check.sh`. The other hits are selftests — run: `grep -rln 'Decision record rows' plugins scripts tools \| grep -v -e fixtures -e selftest` → verdict-check.sh, review/SKILL.md, run.sh | codebase-derived | fact |
 | D-23 | The lockstep pair for the grammar text | `scripts/check-lockstep-pairs.sh` anchor `verdict-grammar`, `review/SKILL.md` against `run.sh` — run: `bash scripts/check-lockstep-pairs.sh \| grep verdict-grammar` → PASS: verdict-grammar (verbatim) | codebase-derived | fact |
+| D-24 | Fix the red `bench-arms-selftest.sh` in this PR? | Yes. `agent-eval-kit/run-eval.py` gains `from __future__ import annotations`, the line its siblings `bench.py` and `planted.py` already carry, so its `dict \| None` annotation loads under the Python 3.9 that `/usr/bin/python3` provides. Added in build: the lane's selftest check ran under Python 3.9 and failed on this file, which the ticket does not touch. | user-delegated | intent |
 
 Options weighed:
 - D-1: two parallel slices, two sequential slices, or one ticket. The operator chose one ticket.
