@@ -27,6 +27,10 @@ review.
    `gh pr view <pr> --json body --jq '.body | split("\n")[] | (capture("^\\s*(?<l>(closes|fixes|resolves)\\s+(#\\d+|\\[[A-Za-z][A-Za-z0-9]*-\\d+\\]))\\s*$"; "i").l), (capture("^(?<l>Record baseline: [0-9a-f]{7,40})\\s*$").l), scan("[^\\s()<>\\[\\]]*decisions\\.md")'`.
    The tokens name the ticket (`Closes #N`), the `Record baseline:` and the decision record
    (`<plansDir>/<repo>-<key>-decisions.md`).
+   **Refuse the command for a PR that is not a lane PR.** A lane PR always names its decision
+   record, because the build commits the record as the first commit of its branch. When the filter
+   prints no `decisions.md` token, the PR is not a lane PR. Refuse this command at once. Tell the
+   operator in one line that the PR is not a lane PR, and end the turn. Do nothing else.
    **Read the ticket yourself.** Under github, run `gh issue view <N> --json title,body,comments`.
    Under jira, use the `getJiraIssue` MCP tool, under whichever Atlassian namespace this session
    exposes. If you cannot read the ticket, you cannot review the PR: post `verdict: needs-work`
