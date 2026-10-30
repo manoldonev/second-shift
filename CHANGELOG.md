@@ -4,6 +4,54 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.9.0
+
+### `dev-pipeline` 17.8.0 → 17.9.0
+
+- **fix(dev-pipeline): review refuses a PR that names no decision record (#1151)** (#1151)
+  /dev-pipeline:review refuses a PR whose body names no
+  decision record (not a lane PR), in one line, and does nothing else.
+  Migration: none.
+- **feat(dev-pipeline): the lane review scores a where-the-rule-applies row against every caller (#1156)** (#1156)
+  the lane review scores a record row that says where a rule
+  applies against every caller in the repository at the head. A caller left
+  outside the rule makes the row violated and files a blocker at that caller.
+  Migration: none.
+- **test(dev-pipeline): run-rows-selftest no longer re-runs the repo-only lockstep checker (#1168)** (#1168)
+
+### `review-toolkit` 11.4.0 → 11.5.0
+
+- **feat(review-toolkit): the planted bench probes a case's code before and after its change (#1150)** (#1150)
+  `planted.py probe <case> --cmd '<bash>'` runs a command in a planted
+  case's code before and after its change and reports DIFFERS, SAME or UNPROVEN.
+  Migration: none.
+- **feat(review-toolkit): the planted bench runs a three-stage blind-prove review arm (#1153)** (#1153)
+  the planted bench gains a blind-prove arm: `planted.py run
+  --arm blind-prove` runs hunt, prove, the probes and intent per case-run,
+  with a $3 cost cap that --max-cost overrides, and writes its own
+  changelog row with each stage's model.
+  Migration: planted/run.sh no longer requires REVIEWER_MODEL; the plain
+  and lane arms still refuse to run without it.
+- **feat(review-toolkit): the blind-prove arm blocks an unexcused proven difference, and planted.py compare sets it beside plain (#1154)** (#1154)
+  the planted bench's blind-prove arm turns a proven difference or a
+  removed test expectation that intent does not ground into a blocker, and
+  `planted.py compare` reads the arm beside plain's and the lane's stored runs.
+  Migration: none.
+- **chore(review-toolkit): record the blind-prove planted row (#1155)** (#1155)
+- **chore(review-toolkit): record the lane planted row after the caller-reach clause (#1157)** (#1157)
+- **chore(review-toolkit): record the full lane planted row after the caller-reach clause (#1164)** (#1164)
+
+### `second-shift` 13.4.0 → 13.5.0
+
+- **feat(second-shift): onboard and doctor hand a directory copy off to the marketplace copy (#1167)** (#1167)
+  a second-shift installed from Anthropic's plugin directory
+  (second-shift@claude-plugins-official) is now visible. Doctor WARNs on it
+  beside the marketplace copy and prints its uninstall line; with only the
+  directory copy installed, doctor's FAIL says to install the marketplace
+  copy at user scope first, then uninstall the directory copy. Onboard's
+  hand-off prints the same lines.
+  Migration: none.
+
 ## v17.8.0
 
 ### `dev-pipeline` 17.7.0 → 17.8.0
