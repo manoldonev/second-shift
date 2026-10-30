@@ -231,16 +231,34 @@ DOCTOR_TOOLS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCOPE_SHADOWS="${SECOND_SHIFT_SCOPE_SHADOWS:-$DOCTOR_TOOLS/scope-shadows.sh}"
 SHADOW_ROWS=""
 [[ -f "$SCOPE_SHADOWS" ]] && SHADOW_ROWS="$(bash "$SCOPE_SHADOWS" --root "$ROOT" --marketplace "$MKT" 2>/dev/null)"
+other_mkt_uninstall() { # $1 marketplace, $2 scope
+  local line="claude plugin uninstall second-shift@$1 --scope $2"
+  if [[ "$2" == "project" ]]; then
+    line+=" — CAUTION: that also edits the committed .claude/settings.json; review it with git diff -- .claude/settings.json before you commit"
+  fi
+  printf '%s' "$line"
+}
+OTHER_MKT_UNINSTALLS=""
+while IFS=$'\t' read -r kind _ om os; do
+  [[ "$kind" == "other-marketplace" ]] || continue
+  OTHER_MKT_UNINSTALLS="${OTHER_MKT_UNINSTALLS:+$OTHER_MKT_UNINSTALLS, then }$(other_mkt_uninstall "$om" "$os")"
+done <<< "$SHADOW_ROWS"
 for p in $(jq -r '.plugins | keys[]' "$LOCK"); do
   want="$(jq -r --arg p "$p" '.plugins[$p]' "$LOCK")"
   entry="$(jq -c --arg id "$p@$MKT" --arg root "$ROOT" "$RESOLVE_RECORD" <<< "$PLUGLIST")"
   if [[ -z "$entry" ]]; then
+    fix="claude plugin install $p@$MKT --scope project"
+    # A copy from another marketplace cannot serve the pin. User scope matches the README's hand
+    # setup, so the marketplace copy serves every repo the other copy served before its uninstall.
+    if [[ "$p" == "second-shift" && -n "$OTHER_MKT_UNINSTALLS" ]]; then
+      fix="claude plugin marketplace add $LOCK_REPO && claude plugin install $p@$MKT, at user scope, then $OTHER_MKT_UNINSTALLS (a copy from another marketplace is unpinned, so it cannot serve the lockfile entry)"
+    fi
     enabled_in_settings=false
     [[ "$SETTINGS_OK" -eq 1 ]] && enabled_in_settings="$(jq -r --arg k "$p@$MKT" '.enabledPlugins[$k] // false' "$SETTINGS" 2>/dev/null)"
     if [[ "$enabled_in_settings" == "true" ]]; then
-      bad "$p: enabled in project settings but NOT installed (fresh clone / skipped trust prompt — the most common state). Fix: claude plugin install $p@$MKT --scope project"
+      bad "$p: enabled in project settings but NOT installed (fresh clone / skipped trust prompt — the most common state). Fix: $fix"
     else
-      bad "$p: in the lockfile but neither installed nor enabled here. Fix: claude plugin install $p@$MKT --scope project"
+      bad "$p: in the lockfile but neither installed nor enabled here. Fix: $fix"
     fi
     NEED_RESTART=1; continue
   fi
@@ -282,6 +300,13 @@ while IFS=$'\t' read -r kind sp spv suv; do
   [[ "$kind" == "shadowed" ]] || continue
   warn "$sp: the project-scope record ($spv) is redundant — a user-scope record ($suv) already serves this plugin, and only the CURRENT repo is ever realigned, so the project one rots behind it. Fix: claude plugin uninstall $sp@$MKT --scope project — CAUTION: that also deletes \"$sp@$MKT\" from the committed .claude/settings.json enabledPlugins; restore it with git checkout -- .claude/settings.json && git status"
 done <<< "$SHADOW_ROWS"
+# While second-shift@second-shift is not served, the not-installed FAIL above carries this uninstall.
+if [[ -n "$(jq -c --arg id "second-shift@$MKT" --arg root "$ROOT" "$RESOLVE_RECORD" <<< "$PLUGLIST")" ]]; then
+  while IFS=$'\t' read -r kind _ om os; do
+    [[ "$kind" == "other-marketplace" ]] || continue
+    warn "second-shift: a copy from the $om marketplace is installed at $os scope beside second-shift@$MKT — the lockfile pins the $MKT marketplace copy, and the other copy updates outside that pin. Fix: $(other_mkt_uninstall "$om" "$os")"
+  done <<< "$SHADOW_ROWS"
+fi
 
 # --- 3.5 upgrade skew: a review-toolkit older than the plugins that read it ----------------
 # review-toolkit ships the intake Workflow scripts intake-toolkit copies and the tier alphabet

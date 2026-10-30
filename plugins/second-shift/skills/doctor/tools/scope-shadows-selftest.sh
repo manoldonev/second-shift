@@ -62,6 +62,29 @@ cat > "$TMP/many.json" <<EOF
   { "id": "audit-toolkit@othermarket",   "version": "9.0.0", "scope": "user" }
 ]
 EOF
+cat > "$TMP/dir-only.json" <<EOF
+[ { "id": "second-shift@claude-plugins-official", "version": "b74220d41142", "scope": "user", "enabled": true } ]
+EOF
+cat > "$TMP/dir-beside.json" <<EOF
+[
+  { "id": "second-shift@second-shift",            "version": "1.0.0",        "scope": "user" },
+  { "id": "second-shift@claude-plugins-official", "version": "b74220d41142", "scope": "user" }
+]
+EOF
+cat > "$TMP/dir-scopes.json" <<EOF
+[
+  { "id": "second-shift@claude-plugins-official", "version": "b74220d41142", "scope": "project", "projectPath": "$ROOT" },
+  { "id": "second-shift@claude-plugins-official", "version": "b74220d41142", "scope": "project", "projectPath": "$OTHER" },
+  { "id": "second-shift@claude-plugins-official", "version": "b74220d41142", "scope": "local",   "projectPath": "$ROOT", "enabled": false }
+]
+EOF
+cat > "$TMP/dir-and-shadowed.json" <<EOF
+[
+  { "id": "dev-pipeline@second-shift",            "version": "2.0.1",        "scope": "project", "projectPath": "$ROOT" },
+  { "id": "dev-pipeline@second-shift",            "version": "2.1.0",        "scope": "user" },
+  { "id": "second-shift@claude-plugins-official", "version": "b74220d41142", "scope": "user" }
+]
+EOF
 printf '[]\n'      > "$TMP/empty.json"
 printf 'not json\n' > "$TMP/garbage.json"
 
@@ -102,6 +125,24 @@ run "$TMP/garbage.json" 2 "" "unparseable plugin list -> rc=2"
 
 # --marketplace retargets the id suffix; nothing else in the classification changes.
 run "$TMP/many.json" 1 "$(printf 'user-served\taudit-toolkit\t-\t9.0.0')" "--marketplace retargets the suffix" --marketplace othermarket
+
+# A second-shift record from another marketplace is reported with that marketplace and its scope,
+# so a caller can print the uninstall that removes exactly that record. It never moves the exit
+# status, which local-dev-refresh Step 4 reads as "a project record is redundant".
+run "$TMP/dir-only.json"   1 "$(printf 'other-marketplace\tsecond-shift\tclaude-plugins-official\tuser')" \
+  "second-shift from another marketplace -> other-marketplace row, rc=1"
+run "$TMP/dir-beside.json" 1 "$(printf 'user-served\tsecond-shift\t-\t1.0.0\nother-marketplace\tsecond-shift\tclaude-plugins-official\tuser')" \
+  "beside second-shift@second-shift -> both rows, the marketplace copy first"
+# Only records that load here count: a project record of another checkout cannot be uninstalled
+# from this one. A disabled record is still installed, so it counts.
+run "$TMP/dir-scopes.json" 1 "$(printf 'other-marketplace\tsecond-shift\tclaude-plugins-official\tlocal\nother-marketplace\tsecond-shift\tclaude-plugins-official\tproject')" \
+  "one row per record that loads here, disabled included, another root's excluded"
+run "$TMP/dir-and-shadowed.json" 0 "$(printf 'shadowed\tdev-pipeline\t2.0.1\t2.1.0\nother-marketplace\tsecond-shift\tclaude-plugins-official\tuser')" \
+  "other-marketplace row leaves the shadowed exit status alone"
+run "$TMP/dir-and-shadowed.json" 0 "$(printf 'shadowed\tdev-pipeline\t2.0.1\t2.1.0')" \
+  "name filter excludes the other-marketplace row of an unnamed plugin" dev-pipeline
+run "$TMP/dir-and-shadowed.json" 1 "$(printf 'other-marketplace\tsecond-shift\tclaude-plugins-official\tuser')" \
+  "name filter second-shift -> other-marketplace row, rc=1" second-shift
 
 # DOCTOR_REPO_ROOT is the no-flag path — the one doctor's children actually take, since doctor
 # exports its injections rather than passing flags down.
