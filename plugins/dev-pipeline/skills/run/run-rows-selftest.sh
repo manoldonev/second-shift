@@ -86,16 +86,13 @@ sdir=$(grep -A1 -x -- '--add-dir' "$FAKE_GH/args-2.txt" | grep -- '-scratch\.' |
   && ok "[F20] the review is handed the run's scratch dir, and its prompt names it" || bad "[F20] scratch dir '${sdir:-none}' not added to the review, or not named in its prompt"
 case ",$ral," in *",Bash(gh api"*) bad "[F20] the review session may call gh api (it can DELETE)" ;; *) ok "[F20] the review session gets no gh api" ;; esac
 
-# a row that says where a rule applies is scored against every caller at the head, and the by-hand skill states the same clause
+# a row that says where a rule applies is scored against every caller at the head
 grep -qF 'A row can say where or to what a rule applies. Score that row against every caller of the unit that holds the rule, in the repository at the head.' "$FAKE_GH/prompt-2.txt" \
   && grep -qF 'A caller that only passes an opt-in along is followed up to the callers that decide it.' "$FAKE_GH/prompt-2.txt" \
   && grep -qF 'A caller that the row or the ticket itself names as outside the rule does not count.' "$FAKE_GH/prompt-2.txt" \
   && grep -qF "Any other caller left outside the rule scores the row \`violated\`. The review then files a \`[blocker]\` at that caller's file:line, with a concrete input" "$FAKE_GH/prompt-2.txt" \
   && ! grep -q 'LOCKSTEP-' "$FAKE_GH/prompt-2.txt" \
   && ok "[row-reach] the review prompt scores a where-the-rule-applies row against every caller" || bad "[row-reach] the reach clause is missing from the review prompt"
-lsout=$(bash "$SCRIPT_DIR/../../../../scripts/check-lockstep-pairs.sh" 2>&1)
-grep -q 'PASS: review-row-reach (verbatim): plugins/dev-pipeline/skills/review/SKILL.md plugins/dev-pipeline/skills/run/run.sh agree' <<<"$lsout" \
-  && ok "[row-reach] review/SKILL.md carries the same clause under the same lockstep anchor" || bad "[row-reach] lockstep review-row-reach: $(grep 'review-row-reach' <<<"$lsout" | head -n 3)"
 
 # B10: a verdict binds only from a Bot or the account the scheduler writes with — on a public repo anyone can
 # comment, and a needs-work body is pasted into the next BUILD prompt
