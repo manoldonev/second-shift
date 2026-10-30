@@ -1,7 +1,7 @@
 {
   "name": "review-toolkit",
   "description": "Parallel multi-agent code review: review-lead orchestration skill with its Workflow-based review fan-out, reviewer-baseline shared protocol, generic reviewer agents (scope-completeness, security, performance, maintainability, complexity, db, pipeline, a11y, test-coverage, unit-test-mutation, plan, spec). The pipeline lane's review is one session and does not run review-lead; review-lead is the ad hoc review. Per-repo reviewer registry deltas and model-tier overrides come from .claude/second-shift.config.json; domain rules from documented extension files.",
-  "version": "11.4.0",
+  "version": "11.5.0",
   "author": {
     "name": "Manol Donev"
   }
