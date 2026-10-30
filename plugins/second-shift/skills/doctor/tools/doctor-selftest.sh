@@ -175,6 +175,21 @@ scenario shadowed-caveat  plugin-list-shadowed.json settings-green.json    marke
 # take every repo on a user-scope machine non-zero for a condition whose remediation edits a
 # committed file.
 scenario shadowed-warn-only plugin-list-shadowed-aligned.json settings-green.json marketplace-list-pinned.json 0 "the project-scope record (2.1.0) is redundant"
+# A second-shift copy from another marketplace (the plugin directory) is unpinned. Beside a served
+# second-shift@second-shift it is a WARN naming the uninstall of that exact record, and exit 0.
+scenario directory-beside plugin-list-directory-beside.json settings-green.json marketplace-list-pinned.json 0 \
+  "WARN  second-shift: a copy from the claude-plugins-official marketplace is installed at user scope"
+scenario directory-beside-fix plugin-list-directory-beside.json settings-green.json marketplace-list-pinned.json 0 \
+  "Fix: claude plugin uninstall second-shift@claude-plugins-official --scope user"
+# A disabled project-scope record still counts, and its uninstall edits the committed settings.
+scenario directory-project plugin-list-directory-project.json settings-green.json marketplace-list-pinned.json 0 \
+  "Fix: claude plugin uninstall second-shift@claude-plugins-official --scope project — CAUTION: that also edits the committed .claude/settings.json"
+# With only the other copy installed, the not-installed FAIL orders the fix: the user-scope
+# marketplace install first, then the uninstall. No separate WARN.
+scenario directory-only   plugin-list-directory-only.json settings-green.json marketplace-list-pinned.json 1 \
+  "Fix: claude plugin marketplace add manoldonev/second-shift && claude plugin install second-shift@second-shift, at user scope, then claude plugin uninstall second-shift@claude-plugins-official --scope user"
+if grep -qF "WARN  second-shift:" <<< "$LAST_OUT"; then check "directory-only adds no WARN beside the FAIL" 1
+else check "directory-only adds no WARN beside the FAIL" 0; fi
 scenario ref-drift        plugin-list-green.json   settings-ref-drift.json marketplace-list-pinned.json  1 "settings ref (v9.8.0) and lockfile ref (v9.9.0) disagree"
 scenario refless-shadow   plugin-list-green.json   settings-green.json     marketplace-list-refless.json 0 "ref-less"
 # canary form: lockfile pins "latest" → presence-only; a DRIFTED install (behind fixture)

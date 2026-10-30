@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # scope-shadows.sh — which @second-shift plugins are served by a USER-scope install record,
-# and which project-scope records at a given repo root are therefore redundant.
+# and which project-scope records at a given repo root are therefore redundant. It also names each
+# second-shift record from another marketplace, such as the plugin directory: that copy is unpinned,
+# so the hand-off and doctor both print its uninstall.
 #
 # Three consumers share this one answer, because until it existed each of them decided the
 # question for itself and they disagreed: doctor.sh resolved a user-scope record as satisfying
@@ -33,6 +35,9 @@ usage() {
   echo "  Emits one TAB-separated row per classified plugin, ordered by plugin id:"
   echo "    shadowed<TAB><plugin><TAB><project-version><TAB><user-version>"
   echo "    user-served<TAB><plugin><TAB>-<TAB><user-version>"
+  echo "    other-marketplace<TAB>second-shift<TAB><marketplace><TAB><scope>"
+  echo "  An other-marketplace row is one second-shift record installed from another marketplace"
+  echo "  (a plugin-directory copy) that loads at the root, enabled or not."
   echo "  exit 0 = at least one shadowed record; 1 = none; 2 = usage/data error."
   echo "  With no <plugin> names, every @<marketplace> record is classified."
 }
@@ -65,21 +70,31 @@ if [[ $# -gt 0 ]]; then WANT="$(printf '%s\n' "$@" | jq -Rn '[inputs]')"; else W
 # so callers get a stable listing without a downstream sort. Within a scope the newest record by
 # `lastUpdated` wins — the tie-break only matters for a malformed list carrying two records of the
 # same scope for one id, which the resolver below must still answer deterministically.
+#
+# The other-marketplace rows use doctor's RESOLVE_RECORD filter for "loads at this root": a project
+# record of another checkout cannot be uninstalled from this one. sort_by is stable, so each
+# plugin's own row stays ahead of its other-marketplace rows.
 rows="$(jq -r --arg mkt "$MKT" --arg root "$ROOT" --argjson want "$WANT" '
-  [ .[] | select(.id | endswith("@" + $mkt)) ]
-  | group_by(.id)
-  | map(
-      (.[0].id | rtrimstr("@" + $mkt)) as $p
-      | select(($want | length) == 0 or ($p | IN($want[])))
-      | ((map(select(.scope == "user"))    | sort_by(.lastUpdated // "") | last) // null) as $u
-      | ((map(select(.scope == "project" and ((.projectPath // "") == $root)))
-                                           | sort_by(.lastUpdated // "") | last) // null) as $j
-      | if   $u == null then empty
-        elif $j != null then "shadowed\t\($p)\t\($j.version)\t\($u.version)"
-        else                 "user-served\t\($p)\t-\t\($u.version)"
-        end
-    )
-  | .[]' <<< "$PLUGLIST" 2>/dev/null)" || { echo "[scope-shadows] could not read the plugin list" >&2; exit 2; }
+  def wanted($p): ($want | length) == 0 or ($p | IN($want[]));
+  ( [ .[] | select(.id | endswith("@" + $mkt)) ]
+    | group_by(.id)
+    | map(
+        (.[0].id | rtrimstr("@" + $mkt)) as $p
+        | select(wanted($p))
+        | ((map(select(.scope == "user"))    | sort_by(.lastUpdated // "") | last) // null) as $u
+        | ((map(select(.scope == "project" and ((.projectPath // "") == $root)))
+                                             | sort_by(.lastUpdated // "") | last) // null) as $j
+        | if   $u == null then empty
+          elif $j != null then {p: $p, row: "shadowed\t\($p)\t\($j.version)\t\($u.version)"}
+          else                 {p: $p, row: "user-served\t\($p)\t-\t\($u.version)"}
+          end
+      ) ) as $own
+  | ( [ .[] | select((.id | startswith("second-shift@")) and .id != "second-shift@" + $mkt and wanted("second-shift")
+                     and ((.projectPath // "") == $root or .scope == "user" or .scope == "local"))
+            | {m: (.id | ltrimstr("second-shift@")), scope} ]
+      | sort_by(.m, .scope)
+      | map({p: "second-shift", row: "other-marketplace\tsecond-shift\t\(.m)\t\(.scope)"}) ) as $other
+  | $own + $other | sort_by(.p) | .[].row' <<< "$PLUGLIST" 2>/dev/null)" || { echo "[scope-shadows] could not read the plugin list" >&2; exit 2; }
 
 [[ -n "$rows" ]] && printf '%s\n' "$rows"
 # `cut -f1` (TAB is its default delimiter) rather than a pattern carrying a literal tab, which

@@ -396,6 +396,19 @@ review screen for deletion: they read a verdict record the lane no longer writes
    plugin's install line. A user-scope record already satisfies the lockfile, so the install
    would only mint a per-repo record that then rots behind it. Say it rather than skipping
    silently: a silent skip is indistinguishable from "nothing was missing".
+
+   The same run reports `other-marketplace<TAB>second-shift<TAB><marketplace><TAB><scope>` for
+   each `second-shift` record installed from another marketplace, such as the plugin directory's
+   `second-shift@claude-plugins-official`. When it reports one:
+   - If `second-shift@second-shift` is missing, print its install at user scope, as the README's
+     hand setup does, **instead of** its `--scope project` line:
+     `claude plugin marketplace add manoldonev/second-shift`, then
+     `claude plugin install second-shift@second-shift`. The other plugins keep `--scope project`.
+   - After the `second-shift` line (its install, or its "served at user scope" line), print one
+     `claude plugin uninstall second-shift@<marketplace> --scope <scope>` per row, saying why:
+     the marketplace copy is the one the lockfile pins, and the other copy updates outside that
+     pin. On a `project`-scope row, add that the uninstall also edits the committed
+     `.claude/settings.json`, so review `git diff -- .claude/settings.json` before committing.
 3. Print the paste-ready CONTRIBUTING snippet:
        ## second-shift toolkit
        This repo uses the second-shift plugins (see .claude/second-shift.lock.json for
