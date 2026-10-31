@@ -27,3 +27,6 @@
 # second-shift: each engineer's own branch prefix and, in this repo, the bot's GitHub App keys
 # (tracker.bot.app — real ids that must never ship in the public marketplace). Never committed.
 .claude/second-shift.config.local.json
+
+# Python bytecode caches from eval runners.
+__pycache__/
