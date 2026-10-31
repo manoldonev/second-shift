@@ -4,6 +4,16 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.10.2
+
+### `second-shift` 13.6.1 → 13.6.2
+
+- **chore(second-shift): listing fields and links for the plugin directory (#1173)** (#1173)
+  the second-shift plugin's description is rewritten in plain words,
+  and it now declares a display name, keywords and homepage, repository,
+  documentation and support links.
+  Migration: none.
+
 ## v17.10.1
 
 ### `second-shift` 13.6.0 → 13.6.1
