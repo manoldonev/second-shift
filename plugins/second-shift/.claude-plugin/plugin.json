@@ -1,7 +1,7 @@
 {
   "name": "second-shift",
   "displayName": "second-shift",
-  "description": "Sets a repo up for second-shift, the dev team that works while you are away. It asks the open design questions before it builds, writes down who decided what, and has a separate session review each pull request. /second-shift:onboard detects your tracker and commands, writes the repo config and pins the plugins to a release; /second-shift:doctor checks the install and prints the fix for each problem.",
+  "description": "Sets up a repo for second-shift, Claude Code plugins that ask the open design questions before building, turn a ticket into a pull request, and have a separate session review it. /second-shift:onboard detects your tracker and commands, writes the repo config, and pins the second-shift plugins to a release in the repo settings. /second-shift:doctor checks the install against that pin and prints the fix for each problem. /second-shift:local-dev-refresh updates the second-shift plugins on this machine.",
   "version": "13.6.1",
   "author": {
     "name": "Manol Donev"
@@ -20,5 +20,6 @@
     "github",
     "jira",
     "onboarding"
-  ]
+  ],
+  "privacyPolicyUrl": "https://github.com/manoldonev/second-shift/blob/main/docs/privacy.md"
 }
