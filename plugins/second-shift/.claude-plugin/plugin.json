@@ -1,9 +1,24 @@
 {
   "name": "second-shift",
-  "description": "Marketplace onboarding + health: /second-shift:onboard writes a consumer repo's config, settings pin, and lockfile from provenance-first detection; /second-shift:doctor verifies install state against the lockfile; /second-shift:local-dev-refresh refreshes this machine's installed plugins. User-scope bootstrap plugin: zero agents, zero hooks, near-zero context cost.",
+  "displayName": "second-shift",
+  "description": "Sets a repo up for second-shift, the dev team that works while you are away. It asks the open design questions before it builds, writes down who decided what, and has a separate session review each pull request. /second-shift:onboard detects your tracker and commands, writes the repo config and pins the plugins to a release; /second-shift:doctor checks the install and prints the fix for each problem.",
   "version": "13.6.1",
   "author": {
     "name": "Manol Donev"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://github.com/manoldonev/second-shift",
+  "repository": "https://github.com/manoldonev/second-shift",
+  "documentationUrl": "https://github.com/manoldonev/second-shift#get-started",
+  "supportUrl": "https://github.com/manoldonev/second-shift/issues",
+  "keywords": [
+    "code-review",
+    "pull-requests",
+    "ticket-to-pr",
+    "design-questions",
+    "decision-record",
+    "github",
+    "jira",
+    "onboarding"
+  ]
 }
