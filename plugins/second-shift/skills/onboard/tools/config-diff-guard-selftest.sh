@@ -188,8 +188,8 @@ cat > "$TMP/d4.json" <<'EOF'
   "tracker": { "type": "jira" } }
 EOF
 run_guard "$TMP/e4.json" "$TMP/d4.json"
-SCHEMA_KEY="\$schema"   # the config's literal key name, not a shell expansion
-expect_no_delta "a rewritten \$schema never fires" "$SCHEMA_KEY"
+SCHEMA_FIELD="\$schema"   # the config's literal key name, not a shell expansion
+expect_no_delta "a rewritten \$schema never fires" "$SCHEMA_FIELD"
 expect_delta "a sibling key in the same document still fires" tracker.type changed '"github"' '"jira"'
 expect_count "the exclusion is one key, not a document-wide mute" 1
 

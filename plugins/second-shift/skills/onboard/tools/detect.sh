@@ -78,8 +78,8 @@ elif [[ -z "${DETECT_SKIP_LSREMOTE:-}" ]]; then
 fi
 
 # --- tracker ---------------------------------------------------------------
-GH_AUTH=no
-if [[ -z "${DETECT_SKIP_GH:-}" ]] && gh auth status >/dev/null 2>&1; then GH_AUTH=yes; fi
+GH_LOGGED_IN=no
+if [[ -z "${DETECT_SKIP_GH:-}" ]] && gh auth status >/dev/null 2>&1; then GH_LOGGED_IN=yes; fi
 JIRA_EVIDENCE="[]"
 # `claude` ABSENT is a genuine "no Atlassian MCP" — nothing to read, and MCP_PROBE stays
 # "skipped". `claude mcp list` PRESENT but FAILING is a third state: the old pipeline recorded
@@ -100,7 +100,7 @@ if [[ "$MCP_PROBE" == "unreadable" ]]; then
   TRACKER_SRC="$TRACKER_SRC; 'claude mcp list' exited $CHECKED_MATCH_RC — Atlassian MCP evidence is UNKNOWN, not absent, so the tracker stays ambiguous for the skill to ask about"
 elif [[ "$ORIGIN_HOST" == "github.com" && "$JIRA_EVIDENCE" == "[]" ]]; then
   TRACKER="github"; TRACKER_SRC="origin host github.com"
-  [[ "$GH_AUTH" == yes ]] && TRACKER_SRC="$TRACKER_SRC + gh auth ok"
+  [[ "$GH_LOGGED_IN" == yes ]] && TRACKER_SRC="$TRACKER_SRC + gh auth ok"
 elif [[ "$ORIGIN_HOST" != "github.com" && "$JIRA_EVIDENCE" != "[]" ]]; then
   TRACKER="jira"; TRACKER_SRC="non-github origin (${ORIGIN_HOST:-none}) + Atlassian MCP configured"
 fi

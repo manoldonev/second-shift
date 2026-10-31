@@ -14,6 +14,8 @@ The directory copy is the way in, not the copy a repo runs on. Each repo pins it
 
 It runs `git`, `jq`, `gh` and the `claude plugin` commands on your machine. `gh` reads the second-shift releases on GitHub to pick a pin and, if you say yes, creates the tracker labels in your repo. Nothing is sent anywhere else. It has no hooks and no agents.
 
+It reads no credentials. `gh` uses its own login, and onboard only checks whether `gh auth status` succeeds. When doctor prints the repo config for a bug report, it masks the value of every key named like a secret (token, password, API key and similar).
+
 ## More
 
 Setup walkthrough: [the second-shift README](https://github.com/manoldonev/second-shift#get-started). License: MIT.
