@@ -4,6 +4,22 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.10.0
+
+### `intake-toolkit` 8.5.0 → 8.6.0
+
+- **feat(second-shift): ready the second-shift plugin for Anthropic's plugin directory (#1169)** (#1169)
+  each plugin ships a README and declares its MIT license in
+  plugin.json; a `stable` tag now marks the latest release.
+  Migration: none.
+
+### `second-shift` 13.5.0 → 13.6.0
+
+- **feat(second-shift): ready the second-shift plugin for Anthropic's plugin directory (#1169)** (#1169)
+  each plugin ships a README and declares its MIT license in
+  plugin.json; a `stable` tag now marks the latest release.
+  Migration: none.
+
 ## v17.9.0
 
 ### `dev-pipeline` 17.8.0 → 17.9.0
