@@ -4,6 +4,14 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.10.1
+
+### `second-shift` 13.6.0 → 13.6.1
+
+- **chore(second-shift): ready the directory listing — icon and credential-hold fixes (#1171)** (#1171)
+  the second-shift plugin ships an icon.
+  Migration: none.
+
 ## v17.10.0
 
 ### `intake-toolkit` 8.5.0 → 8.6.0
