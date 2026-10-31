@@ -64,6 +64,8 @@ EOF
 git add -A
 git commit -qm "release: v1.0.0"
 git tag v1.0.0
+# The moving `stable` tag shares the release commit; tag discovery must still name v1.0.0.
+git tag stable
 
 # --- commit series since the tag ---
 
