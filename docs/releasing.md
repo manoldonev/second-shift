@@ -49,7 +49,10 @@ and changed paths, and land on an accumulating **release PR**.
    assembled from `BREAKING CHANGE:`/`Changelog:` trailers ("Nothing breaks." rendered
    explicitly when there are none) plus the consumer upgrade recipe.
    `/second-shift:onboard` resolves `releases/latest` — cutting the Release IS the publish
-   step.
+   step. The same job then force-moves the `stable` tag to the release commit: Anthropic's
+   plugin directory follows `stable`, so it picks up releases and never unreleased `main`.
+   Release-tag discovery in the scripts matches `v[0-9]*` only, so `stable` is never read
+   as the previous release.
 
 There is no `/release` skill — the derivation is automated and the human checklist is
 rendered into the release PR body, so a runbook skill would only be a third copy of this

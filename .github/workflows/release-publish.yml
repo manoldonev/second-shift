@@ -45,11 +45,20 @@ jobs:
           VERSION="$(jq -r '.metadata.version' .claude-plugin/marketplace.json)"
           if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
             echo "tag v$VERSION already exists — nothing to publish."
-            exit 0
+          else
+            NOTES="$(mktemp)"
+            bash scripts/derive-release.sh release-notes > "$NOTES"
+            gh release create "v$VERSION" \
+              --target "${{ github.event.pull_request.merge_commit_sha }}" \
+              --title "v$VERSION" --notes-file "$NOTES"
+            echo "published v$VERSION"
+            git fetch -q origin "refs/tags/v$VERSION:refs/tags/v$VERSION"
           fi
-          NOTES="$(mktemp)"
-          bash scripts/derive-release.sh release-notes > "$NOTES"
-          gh release create "v$VERSION" \
-            --target "${{ github.event.pull_request.merge_commit_sha }}" \
-            --title "v$VERSION" --notes-file "$NOTES"
-          echo "published v$VERSION"
+
+      # The plugin directory follows `stable`, so it ships releases and never unreleased main.
+      - name: move the stable tag
+        run: |
+          set -euo pipefail
+          VERSION="$(jq -r '.metadata.version' .claude-plugin/marketplace.json)"
+          git push --force origin "$(git rev-parse "v$VERSION^{commit}"):refs/tags/stable"
+          echo "stable -> v$VERSION"

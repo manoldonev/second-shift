@@ -26,8 +26,8 @@ cd "$(git rev-parse --show-toplevel)" || { echo "not in a git repo" >&2; exit 2;
 BASE="${1:-}"
 if [[ -z "$BASE" ]]; then
   # Latest tag strictly before HEAD; empty if none exists yet.
-  BASE="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
-  [[ -z "$BASE" ]] && BASE="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  BASE="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^ 2>/dev/null || true)"
+  [[ -z "$BASE" ]] && BASE="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
 fi
 
 if [[ -z "$BASE" ]]; then

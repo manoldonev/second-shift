@@ -149,6 +149,18 @@ else
   bad "(v5) expected rc=1 comparing against v1.0.0, got: $out"
 fi
 
+# (v6) a non-release tag on the release commit (the moving `stable` tag) is never the base.
+R="$(newrepo v6)"
+(cd "$R" && git tag stable) >/dev/null 2>&1
+printf 'alpha v2\n' > "$R/plugins/alpha/README.md"
+commit_in "$R" "fix(alpha): unbumped change"
+out="$(run_gate "$R")"
+if [[ "$(rc_of "$out")" == "1" && "$out" == *"against v1.0.0"* ]]; then
+  ok "(v6) tag discovery skips a non-release tag sharing the release commit"
+else
+  bad "(v6) expected rc=1 comparing against v1.0.0, got: $out"
+fi
+
 # ---------------------------------------------------------------------------
 # CHARACTERIZED DEGRADATIONS (#215 D-1: pinned, not blessed).
 # Each of these PASSES today while masking a real condition. The assertions lock

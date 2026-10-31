@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$LAST_TAG" ]]; then
-  LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  LAST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
 fi
 if [[ -z "$LAST_TAG" ]]; then
   echo "derive-release: no release tag found (first release must be cut manually)" >&2

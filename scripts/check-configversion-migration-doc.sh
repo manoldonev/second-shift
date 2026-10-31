@@ -19,7 +19,7 @@ cd "$(git rev-parse --show-toplevel)" || { echo "not in a git repo" >&2; exit 2;
 SCHEMA="schema/second-shift.config.schema.json"
 BASE="${1:-}"
 if [[ -z "$BASE" ]]; then
-  BASE="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  BASE="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
 fi
 if [[ -z "$BASE" ]]; then
   echo "[configversion] no prior release tag — nothing to compare. PASS."
