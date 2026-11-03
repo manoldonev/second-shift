@@ -23,7 +23,7 @@ terminal() { echo "[lane] terminal: $1 — $2" >&2; exit 2; }
 TOOLS="$(cd "$HERE/../../../../dev-pipeline/tools" && pwd)" || exit 2
 TRACKER=github; GH=gh; GH_READ=gh; BOT_OK=0; MCP_ALLOW=""; RENDER_CMD=""; DESIGN_PROVIDER=""
 case "${JOINED:-}" in true|false) : ;; *) echo "lane-render: JOINED must be true or false" >&2; exit 2 ;; esac
-LANE_DRAFT="$SCRATCH/verdict-draft-1.md"; DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"; MAIN_ROOT="$WT"
+LANE_DRAFT="$SCRATCH/verdict-draft-1.md"; DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"; ATLASSIAN_WRITES=""; MAIN_ROOT="$WT"
 PLAIN_PROMPT_FILE="$HERE/../../../../dev-pipeline/skills/run/plain-review.md"; REVIEW_BASH_MS="$(inner_ms 3600 120)"
 PLANS_DIR=docs/plans
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"; PLAN_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-plan.md"

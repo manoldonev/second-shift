@@ -407,11 +407,11 @@ cmd_grants() { # cmd_grants <command> [xargs]: one ',Bash(...)' rule per command
 }
 # -- session flags (rows F2, F4-F10) --
 DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"
-if [ "$TRACKER_WRITES" = false ]; then # the 14 Atlassian write tools under every namespace they are served under
-  for _tool in addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue editJiraIssue transitionJiraIssue createConfluencePage updateConfluencePage createConfluenceFooterComment createConfluenceInlineComment createCompassComponent createCompassComponentRelationship createCompassCustomFieldDefinition addTeamworkGraphContext; do
-    for _ns in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do DISALLOWED="$DISALLOWED,$_ns$_tool"; done
-  done
-fi
+ATLASSIAN_WRITES=""   # the 14 Atlassian write tools under every namespace they are served under
+for _tool in addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue editJiraIssue transitionJiraIssue createConfluencePage updateConfluencePage createConfluenceFooterComment createConfluenceInlineComment createCompassComponent createCompassComponentRelationship createCompassCustomFieldDefinition addTeamworkGraphContext; do
+  for _ns in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do ATLASSIAN_WRITES="$ATLASSIAN_WRITES,$_ns$_tool"; done
+done
+[ "$TRACKER_WRITES" = true ] || DISALLOWED="$DISALLOWED$ATLASSIAN_WRITES"
 MCP_ALLOW=""; [ "$TRACKER" = jira ] && MCP_ALLOW=",mcp__atlassian,mcp__plugin_atlassian_atlassian,mcp__claude_ai_Atlassian_Rovo"
 # No session is granted the config's directory: by default it is the main checkout's .claude/, which holds the config,
 # this run's $STATE and every other ticket's receipt. A session reads the config from a copy in its scratch dir (spawn).
@@ -1248,12 +1248,20 @@ review_allowlist() { # row F20: Agent is for the design-fidelity reviewer alone
 # -- the joined review: a record-blind plain review in parallel with the lane review; the scheduler joins the two drafts
 # into one verdict and posts it. The plain session's prompt is plain-review.md beside this file, and nowhere else --
 plain_disallowed() { # plain_disallowed <lane scratch>: deny rules win over any allow, and Read's also bind Grep and Glob
-  local wt; wt="$(cd "$WT" 2>/dev/null && pwd -P)" || wt="$WT"   # physical, as $MAIN_ROOT and the scratch dir are
-  printf '%s,Agent,Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(/%s/**),Read(/%s/**),Read(/%s/**)' "$DISALLOWED" "$MAIN_ROOT" "$wt" "$1"
+  # The Atlassian write tools are denied whatever tracker.writes says: user settings can pre-allow them, and this session
+  # reads untrusted PR content. Session transcripts are denied too: the lane session's own quotes the record.
+  # A Read path is //<absolute path>, physical, and each transcript dir is named as it exists, never as a glob
+  local wt d deny=""; wt="$(cd "$WT" 2>/dev/null && pwd -P)" || wt="$WT"
+  for d in "$MAIN_ROOT" "$wt" "$1"; do deny="$deny,Read(/$d/**)"; done
+  for d in "$HOME"/.claude "$HOME"/.claude-* ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR"}; do
+    [ -d "$d/projects" ] && deny="$deny,Read(/$(cd "$d/projects" && pwd -P)/**)"
+  done
+  printf '%s,Agent,Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch%s%s' "$DISALLOWED" "$ATLASSIAN_WRITES" "$deny"
 }
-plain_tree() { # plain_tree <dir>: the head as files, with no .git and no plans dir, so no history and no record is in reach
+plain_tree() { # plain_tree <dir>: the head as files, with no .git and no plans dir, so no history and no record is in reach;
+  # and without the PR's own Claude settings, MCP config and local instructions, which a headless session would load
   mkdir -p "$1" || return 1
-  git -C "$WT" archive --format=tar "$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" | tar -x -C "$1"
+  git -C "$WT" archive --format=tar "$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" ":(exclude).claude" ":(exclude).mcp.json" ":(exclude)CLAUDE.local.md" | tar -x -C "$1"
 }
 PLAIN_JIRA_READ="mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue"
 plain_ticket() { # plain_ticket <out>: under github, the ticket's title and body, less every line that names the plans dir or the

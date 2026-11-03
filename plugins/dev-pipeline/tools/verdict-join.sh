@@ -91,8 +91,9 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v lc="$(num "$lc")" -v pc=
   { sub(/\r$/, ""); line[++n] = $0
     if ($0 ~ /^## /) { sec = $0; sub(/[ \t]+$/, "", sec) }
     else if (sec == "## Findings" && match($0, /^- \[blocker\] B[0-9]+ /)) {
-      nb++; bline[nb] = n; bid[nb] = substr($0, 13, RLENGTH - 13); bloc[nb] = loc(substr($0, RLENGTH + 1))
-      id = substr($0, 14, RLENGTH - 14) + 0; if (id > maxb) maxb = id
+      r = RLENGTH; nb++; bline[nb] = n; bid[nb] = substr($0, 13, r - 13)
+      id = substr($0, 14, r - 14) + 0; if (id > maxb) maxb = id
+      bloc[nb] = loc(substr($0, r + 1))
     }
   }
   END {

@@ -140,6 +140,36 @@ devblock_last 1 && jq -e '.ticket == false and .plain_returned == true and .plai
   && ok "(j8u) the ticket-unavailable note sets the dev block's ticket to false" || bad "(j8u) dev=$(devjson 1)"
 fixture j9; RUN_JOINED_REVIEW=maybe run_case "$d"; expect env-config-run "(j9) a switch that is not true or false"
 
+# (j10) ids stay unique: plain's B1 at another site than the lane's B1 is renumbered after the lane's
+fixture j10; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-blocker-new\nplain-approve\n' > "$FAKE_PLAIN_PLAN"
+run_case "$d"; expect approved "(j10) a lane B1 and a plain B1 at different sites, then approve"
+posted 1 > "$d/v1.md"
+grep -qx -- '- \[blocker\] B1 src/a.ts:3 — mixed blocker' "$d/v1.md" && grep -qx -- '- \[blocker\] B2 \[plain\] src/other.ts:20 — a defect only plain saw' "$d/v1.md" \
+  && grep -q 'state=failure' "$FAKE_GH/statuses" && ! grep -q 'breaks the verdict grammar' <<<"$OUT" \
+  && ok "(j10) the lane keeps B1, plain's blocker becomes B2 [plain], and the joined verdict passes verdict-check.sh and binds" || bad "(j10) first verdict: $(grep '^- ' "$d/v1.md" | tr '\n' '|')"
+
+# (j11) jira with tracker writes on: the plain session is still denied every Atlassian write tool, under every namespace
+FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":true,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture j11
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"; jira_run j11
+dis="$(awk 'p { print; exit } $0 == "--disallowedTools" { p = 1 }' "$FAKE_GH/plain-args-1.txt")"; missing=""
+for t in addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue editJiraIssue transitionJiraIssue createConfluencePage updateConfluencePage createConfluenceFooterComment createConfluenceInlineComment createCompassComponent createCompassComponentRelationship createCompassCustomFieldDefinition addTeamworkGraphContext; do
+  for ns in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do [[ ",$dis," == *",$ns$t,"* ]] || missing="$missing $ns$t"; done
+done
+[ -z "$missing" ] && ! grep -q 'editJiraIssue' "$FAKE_GH/args-2.txt" \
+  && ok "(j11) all 42 write tools are in the plain session's deny list, though the lane review (writes on) is not denied them" || bad "(j11) missing:$missing"
+
+# (j12) the PR's own Claude settings, MCP config and local instructions never reach the plain tree; transcripts are denied
+FIXTURE_CONFIG="" fixture j12; printf 'build-pr-claude-files\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"; mkdir -p "$d/cfg/projects"
+CLAUDE_CONFIG_DIR="$d/cfg" run_case "$d"; expect approved "(j12) a PR that commits .claude/settings.json, .mcp.json and CLAUDE.local.md"
+pt="$FAKE_GH/plain-tree-1.txt"
+grep -qx './work.txt' "$pt" && ! grep -qE '^\./(\.claude|\.mcp\.json|CLAUDE\.local\.md)' "$pt" && git -C "$d/origin.git" cat-file -e second-shift/42:.mcp.json \
+  && ok "(j12) the head carries them, the plain tree does not" || bad "(j12) plain tree: $(tr '\n' ' ' < "$pt")"
+dis="$(awk 'p { print; exit } $0 == "--disallowedTools" { p = 1 }' "$FAKE_GH/plain-args-1.txt")"
+want="Read(/$(cd "$d/cfg/projects" && pwd -P)/**)"; home_ok=1
+for h in "$HOME"/.claude "$HOME"/.claude-*; do [ -d "$h/projects" ] && { [[ "$dis" == *"Read(/$(cd "$h/projects" && pwd -P)/**)"* ]] || home_ok=0; }; done
+[[ "$dis" == *"$want"* ]] && [ "$home_ok" -eq 1 ] \
+  && ok "(j12) reads of every transcript dir are denied: \$CLAUDE_CONFIG_DIR/projects and each ~/.claude*/projects that exists" || bad "(j12) deny list: $dis"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 exit $?

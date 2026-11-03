@@ -112,7 +112,7 @@ S="$FAKE_GH"
 prev=""; for a in "$@"; do [ "$prev" = -n ] && case "$a" in *-plain-*) PLAIN_SESSION=1 ;; esac; prev="$a"; done
 if [ -n "${PLAIN_SESSION:-}" ]; then
   k=$(cat "$S/plain-calls" 2>/dev/null || echo 0); k=$((k+1)); echo "$k" > "$S/plain-calls"; touch "$S/plain-running"
-  cat > "$S/plain-prompt-$k.txt"; printf '%s\n' "$@" > "$S/plain-args-$k.txt"; pwd -P > "$S/plain-cwd-$k.txt"
+  cat > "$S/plain-prompt-$k.txt"; printf '%s\n' "$@" > "$S/plain-args-$k.txt"; pwd -P > "$S/plain-cwd-$k.txt"; find . | sort > "$S/plain-tree-$k.txt"
   # what the session could open — its cwd and each --add-dir — searched for the record's own row, the record file and history
   { pwd -P; prev=""; for a in "$@"; do [ "$prev" = --add-dir ] && echo "$a"; prev="$a"; done; } > "$S/plain-dirs-$k.txt"
   : > "$S/plain-reach-$k.txt"
@@ -192,6 +192,8 @@ case "$plan" in
                    echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "fix: a change for $k"; git push -q origin "$branch"; openpr ;;
   build-pr-close)  push; openpr; echo CLOSED > "$S/state" ;;
   build-pr-dirty)  push; openpr; echo uncommitted >> work.txt ;;
+  build-pr-claude-files) mkdir -p .claude; echo '{"hooks":{}}' > .claude/settings.json; echo '{"mcpServers":{}}' > .mcp.json   # the PR's own Claude config,
+                   echo 'local' > CLAUDE.local.md; git add -f .claude/settings.json .mcp.json CLAUDE.local.md; push; openpr ;;          # forced: the fixture gitignores .claude/
   build-pr-chmod)  printf '#!/usr/bin/env bash\n' > new-selftest.sh; chmod +x new-selftest.sh; push; openpr ;;
   build-pr-update-index) printf '#!/usr/bin/env bash\n' > new-selftest.sh; git add new-selftest.sh; git update-index --chmod=+x new-selftest.sh   # the index's mode only:
                    git commit -qm "build $n"; git push -q origin "$branch"; openpr ;;                                                  # push's git add -A would copy 100644 back
