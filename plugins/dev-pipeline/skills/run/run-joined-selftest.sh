@@ -113,14 +113,31 @@ run_case "$d"; expect approved "(j7) run.joinedReview false"
   && ! jq -e '.[0].body | contains("dev: lane vs plain")' "$FAKE_GH/comments.json" >/dev/null \
   && ok "(j7) no plain session and no dev block; the lane review posts its own verdict" || bad "(j7) plain-calls=$(cat "$FAKE_GH/plain-calls" 2>/dev/null)"
 
-# (j8) jira, the default: the scheduler reads no Jira ticket, so the plain review runs on the diff alone and the joined verdict posts
-FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture j8
-printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
-OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
-expect approved "(j8) a jira run, joined by default"
-[ "$(jq length "$FAKE_GH/comments.json")" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" \
-  && ok "(j8) the scheduler posts and binds the joined verdict" || bad "(j8) comments=$(jq length "$FAKE_GH/comments.json") statuses=$(cat "$FAKE_GH/statuses" 2>/dev/null)"
-nt_ok j8
+# (j8) jira, the default: the scheduler reads no Jira ticket, so the plain session fetches it with the read-only getJiraIssue tool
+JIRACFG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}'
+jira_run() { # jira_run <label>: the fixture's run under the jira key GH-42
+  mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
+  OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+  expect approved "($1) a jira run, joined by default"
+}
+FIXTURE_CONFIG="$JIRACFG" fixture j8; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"; jira_run j8
+pa="$FAKE_GH/plain-args-1.txt"; pp="$FAKE_GH/plain-prompt-1.txt"
+allow="$(awk 'p { print; exit } $0 == "--allowedTools" { p = 1 }' "$pa")"
+[ "$allow" = 'Read,Grep,Glob,mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue' ] \
+  && ! grep -qx -- --strict-mcp-config "$pa" \
+  && ok "(j8) the plain session loads MCP servers and is allowed getJiraIssue alone, under each Atlassian namespace" || bad "(j8) allow=$allow strict=$(grep -cx -- --strict-mcp-config "$pa")"
+dis="$(awk 'p { print; exit } $0 == "--disallowedTools" { p = 1 }' "$pa")"
+[[ "$dis" == *mcp__atlassian__editJiraIssue* && "$dis" == *mcp__claude_ai_Atlassian_Rovo__createConfluencePage* ]] && ! grep -qE 'editJiraIssue|createJiraIssue|transitionJiraIssue|addCommentToJiraIssue|Confluence|search' <<<"$allow" \
+  && ok "(j8) no Atlassian write, Confluence or search tool is allowed, and the write tools are denied" || bad "(j8) allow=$allow"
+grep -qx 'Fetch ticket GH-42 with the getJiraIssue tool and read its summary and description. Ignore any link to a decision record or plan.' "$pp" \
+  && grep -q '^Also flag a requirement the ticket states' "$pp" && ! grep -q 'No ticket is available' "$pp" \
+  && ok "(j8) the prompt names the key and keeps the ticket-requirement paragraph" || bad "(j8) prompt: $(sed -n '/<ticket>/,/^Ignore style/p' "$pp" | tr '\n' '|')"
+[ "$(jq length "$FAKE_GH/comments.json")" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" && devblock_last 1 && jq -e '.ticket == true and .plain_returned == true' <<<"$(devjson 1)" >/dev/null \
+  && ok "(j8) the scheduler posts and binds the joined verdict; its dev block says plain had the ticket" || bad "(j8) comments=$(jq length "$FAKE_GH/comments.json") dev=$(devjson 1)"
+# (j8u) a plain session that cannot fetch its Jira ticket says so; the dev block records a review without the ticket
+FIXTURE_CONFIG="$JIRACFG" fixture j8u; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-no-jira\n' > "$FAKE_PLAIN_PLAN"; jira_run j8u
+devblock_last 1 && jq -e '.ticket == false and .plain_returned == true and .plain_notes_dropped == 0' <<<"$(devjson 1)" >/dev/null && has_posted 1 'returned, reviewed without a ticket\.$' \
+  && ok "(j8u) the ticket-unavailable note sets the dev block's ticket to false" || bad "(j8u) dev=$(devjson 1)"
 fixture j9; RUN_JOINED_REVIEW=maybe run_case "$d"; expect env-config-run "(j9) a switch that is not true or false"
 
 echo "[self-test] $PASS passed, $FAIL failed"

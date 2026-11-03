@@ -12,8 +12,8 @@
 # [plain] blockers. With no plain draft, `## Notes` says why and the lane's verdict stands as written.
 # The body ends with a folded `dev: lane vs plain` block under `## Notes`, which verdict-check.sh reads as prose:
 # the counts, the ids on each side, the verdict impact, each session's cost and wall time, whether plain had the
-# ticket (--ticket false: it reviewed the diff alone), and one `<!-- plain-vs-lane: {json} -->` line for scripts
-# that aggregate across PRs.
+# ticket (--ticket false, or a plain `ticket-unavailable` note: it reviewed the diff alone), and one
+# `<!-- plain-vs-lane: {json} -->` line for scripts that aggregate across PRs.
 #
 # Exit: 0 the joined verdict on stdout · 2 usage, or the lane draft cannot be read.
 set -uo pipefail
@@ -77,6 +77,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v lc="$(num "$lc")" -v pc=
       sub(/\r$/, "", l)
       if (l ~ /^## /) { psec = l; inb = 0; continue }
       if (psec !~ /^## Findings[ \t]*$/) continue
+      if (l ~ /^- \[note\] ([BNH][0-9]+ )?ticket-unavailable/) { ticket = "false"; inb = 0; continue }
       if (l ~ /^- \[note\] /) { pnotes++; inb = 0; continue }
       if (l ~ /^- \[blocker\] /) {
         np++; t = l; sub(/^- \[blocker\] /, "", t); pid[np] = "?"

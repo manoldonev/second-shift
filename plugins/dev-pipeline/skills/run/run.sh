@@ -295,7 +295,7 @@ cap COST_CEIL "${RUN_COST_CEILING:-}" .run.costCeilingUsd 100
 cap CHECKS_RED_MAX "${RUN_CHECKS_RED_MAX:-}" .run.checksRedMax 3 int
 cap LANE_TO "${RUN_LANE_TIMEOUT:-}" .run.laneTimeoutSeconds 1800 int
 # The joined review: a record-blind plain review beside the lane review, joined into one verdict. On by default under
-# every tracker; where the scheduler has no ticket body to hand it (jira), the plain review reviews the diff alone
+# every tracker; under jira the plain session fetches its own ticket (plain_ticket, plain_args)
 JOINED="${RUN_JOINED_REVIEW:-$(cfg_bool .run.joinedReview)}"; JOINED="${JOINED:-true}"
 case "$JOINED" in true|false) : ;; *) terminal env-config-run "run.joinedReview must be true or false, got '$JOINED'" ;; esac
 PLAIN_PROMPT_FILE="$SKILL_DIR/plain-review.md"
@@ -1255,11 +1255,18 @@ plain_tree() { # plain_tree <dir>: the head as files, with no .git and no plans 
   mkdir -p "$1" || return 1
   git -C "$WT" archive --format=tar "$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" | tar -x -C "$1"
 }
-plain_ticket() { # plain_ticket <out>: the ticket's title and body, less every line that names the plans dir or the record; with
-  # no body to read (jira, or a github read that failed) it writes the no-ticket line instead and returns 1
+PLAIN_JIRA_READ="mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue"
+plain_ticket() { # plain_ticket <out>: under github, the ticket's title and body, less every line that names the plans dir or the
+  # record; under jira, the instruction to fetch it, since this process reads no Jira ticket and the session can. A github
+  # read that fails writes the no-ticket line instead and returns 1. A session that cannot fetch its Jira ticket says so
+  # with a ticket-unavailable note, which verdict-join.sh reads
   local j
-  if [ "$TRACKER" = github ] && j="$("$GH_READ" issue view "$ISSUE" --json title,body 2>/dev/null)" \
-    && jq -er '"# " + .title, "", (.body // "")' <<<"$j" > "$1.raw" 2>/dev/null; then
+  if [ "$TRACKER" = jira ]; then
+    printf '%s\n' "Fetch ticket $ISSUE with the getJiraIssue tool and read its summary and description. Ignore any link to a decision record or plan." \
+      "If the tool cannot fetch it, review the diff alone and add the finding \`- [note] N0 ticket-unavailable — getJiraIssue could not fetch $ISSUE\`." > "$1"
+    return 0
+  fi
+  if j="$("$GH_READ" issue view "$ISSUE" --json title,body 2>/dev/null)" && jq -er '"# " + .title, "", (.body // "")' <<<"$j" > "$1.raw" 2>/dev/null; then
     awk -v a="$PLANS_DIR/" -v b="${RECORD_REL##*/}" 'index($0, a) == 0 && index($0, b) == 0' "$1.raw" > "$1"
     return 0
   fi
@@ -1278,12 +1285,16 @@ plain_prompt() { # plain_prompt <out> <ticket-file> <diff-file> <true|false: a t
     $0 == "{diff}" { while ((getline l < df) > 0) print l; next }
     { print fill($0, "{out}", out) }' "$PLAIN_PROMPT_FILE"
 }
-plain_args() { # plain_args <tree> <scratch>: the plain session's scope and permission flags, one per line
-  # MCP servers are dropped, so no tracker or code-host tool can fetch the record; only its own tree and scratch are added
-  local sets; sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms}}')" || return 1
+plain_args() { # plain_args <tree> <scratch>: the plain session's scope and permission flags, one per line; only its own tree and
+  # scratch are added. Under github no MCP server loads, so no tracker or code-host tool can fetch the record. Under jira the
+  # servers load as they do for the lane sessions, and the allowlist grants getJiraIssue alone: every other MCP tool
+  # needs a grant this session never gets, and --permission-prompts none denies it
+  local sets mcp=--strict-mcp-config allow="Read,Grep,Glob"
+  [ "$TRACKER" = jira ] && { mcp=""; allow="$allow,$PLAIN_JIRA_READ"; }
+  sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms}}')" || return 1
   printf '%s\n' --permission-mode acceptEdits --permission-prompts none --disallowedTools "$(plain_disallowed "$SCRATCH")" \
-    --setting-sources "user,project,local" --strict-mcp-config --add-dir "$1" --add-dir "$2" --output-format json \
-    --settings "$sets" --allowedTools "Read,Grep,Glob" --max-turns 150
+    --setting-sources "user,project,local" ${mcp:+"$mcp"} --add-dir "$1" --add-dir "$2" --output-format json \
+    --settings "$sets" --allowedTools "$allow" --max-turns 150
 }
 plain_draft() { # plain_draft <result json> <out>: the verdict the session's final message carries, fences dropped; 1 when there is none
   jq -r 'select(.subtype == "success") | .result // empty' "$1" 2>/dev/null \

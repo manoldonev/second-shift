@@ -126,6 +126,7 @@ if [ -n "${PLAIN_SESSION:-}" ]; then
     plain-approve)       r=$'verdict: approve\n## Findings\nNone.' ;;
     plain-blocker-agree) r=$'```\nverdict: needs-work\n## Findings\n- [blocker] B1 src/a.ts:4 — the defect the lane saw\n- [note] N1 src/a.ts:9 — a plain note\n```' ;;
     plain-blocker-new)   r=$'verdict: needs-work\n## Findings\n- [blocker] B1 src/other.ts:20 — a defect only plain saw\n  Scenario: an empty list → a crash' ;;
+    plain-no-jira)       r=$'verdict: approve\n## Findings\n- [note] N0 ticket-unavailable — getJiraIssue could not fetch GH-42' ;;
     plain-slow)          sleep 2; r=$'verdict: approve\n## Findings\nNone.' ;;
     plain-silent)        r="I looked around and have nothing to add." ;;
     plain-crash)         rm -f "$S/plain-running"; printf '{"subtype":"error_during_execution","total_cost_usd":0.5}\n'; exit 1 ;;
