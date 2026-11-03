@@ -4,7 +4,8 @@
 # composes them for the review skills (/dev-pipeline:review, /review-toolkit:review-lead).
 #
 # Usage:
-#   plain-review.sh enabled [<config>]   true|false: run.joinedReview, default true; exit 2 on any other value
+#   plain-review.sh enabled [<config>]   true|false: RUN_JOINED_REVIEW, else run.joinedReview, default true; exit 2 on
+#                                        any other value
 #   plain-review.sh tree <worktree> <head> <plans-dir> <dir>     the head as files, with no .git and no plans dir
 #   plain-review.sh strip <plans-dir> <record-name> < <ticket>   drops every line naming the plans dir or the record
 #   plain-review.sh ticket-text jira <KEY> | none                 the ticket block when the session fetches it, or has none
@@ -15,17 +16,18 @@
 #                       [--ticket <file> | --jira-key <KEY>] [--record <name>] [--model <m>] [--timeout <s>]
 #                       [--deny-read <path>]...
 #     Writes <out>/verdict.md, <out>/ticket (true|false), <out>/result.json, <out>/start and <out>/end (epoch
-#     seconds), and <out>/why on a failure. Exit 0 a draft · 1 no draft (<out>/why says why) · 2 usage.
+#     seconds), <out>/wall (whole seconds, only once the session has ended), and <out>/why on a failure.
+#     Exit 0 a draft · 1 no draft (<out>/why says why) · 2 usage.
 # Env: PLAIN_CLAUDE (default claude) is the session binary for `run`.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMPT_FILE_DEFAULT="$HERE/../skills/run/plain-review.md"
 JIRA_READ="mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue"
-usage() { sed -n '6,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '6,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
-enabled() {
-  local cfg="${1:-${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}}" v=""
-  [ -f "$cfg" ] && v="$(jq -r 'if .run.joinedReview == null then "" else (.run.joinedReview | tostring) end' "$cfg" 2>/dev/null)"
+enabled() { # RUN_JOINED_REVIEW beats the config, as in run.sh
+  local cfg="${1:-${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}}" v="${RUN_JOINED_REVIEW:-}"
+  [ -n "$v" ] || { [ -f "$cfg" ] && v="$(jq -r 'if .run.joinedReview == null then "" else (.run.joinedReview | tostring) end' "$cfg" 2>/dev/null)"; }
   case "$v" in
     ''|true) echo true ;;
     false) echo false ;;
@@ -87,6 +89,7 @@ physical() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
 run() {
   local wt="" base="" head="" out="" plans="" ticket="" jira="" record="" model="" secs=3600 deny=() d
   while [ $# -gt 0 ]; do
+    [ $# -ge 2 ] || usage
     case "$1" in
       --worktree) wt="${2-}" ;; --base) base="${2-}" ;; --head) head="${2-}" ;; --out) out="${2-}" ;;
       --plans-dir) plans="${2-}" ;; --ticket) ticket="${2-}" ;; --jira-key) jira="${2-}" ;; --record) record="${2-}" ;;
@@ -118,15 +121,16 @@ run() {
   ms=$((secs - 300)); [ "$ms" -ge 120 ] || ms=120; ms=$((ms * 1000)); [ "$ms" -le 2147483647 ] || ms=2147483647
   while IFS= read -r a; do flags+=("$a"); done < <(args "$out/tree" "$out/scratch" "$dis" "$ms" "$tracker")
   [ -z "$model" ] || flags+=(--model "$model")
-  date +%s > "$out/start"
+  local t0 pid t=0; t0="$(date +%s)"; echo "$t0" > "$out/start"; rm -f "$out/wall"
+  ended() { local t1; t1="$(date +%s)"; echo "$t1" > "$out/end"; echo $((t1 - t0)) > "$out/wall"; }
   ( cd "$out/tree" && exec env -u SECOND_SHIFT_CONFIG "${PLAIN_CLAUDE:-claude}" -p "${flags[@]}" ) < "$out/prompt.md" > "$out/result.json" 2> "$out/session.err" &
-  local pid=$! t=0
+  pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$t" -ge "$secs" ]; then kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
-      date +%s > "$out/end"; why "the plain review ran past ${secs}s"; return; fi
+      ended; why "the plain review ran past ${secs}s"; return; fi
     sleep 1; t=$((t + 1))
   done
-  wait "$pid"; date +%s > "$out/end"
+  wait "$pid"; ended
   draft "$out/result.json" "$out/verdict.md" || { why "the plain review returned no verdict"; return; }
 }
 

@@ -5,8 +5,9 @@
 # INVARIANTS GUARDED: `run` gives the session a tree of the head with no .git and no plans dir, a prompt with the diff
 # less the plans dir and the ticket less every line naming the record, Read/Grep/Glob only, and a deny on the
 # reviewed checkout and every --deny-read path; with no ticket the prompt says so; a final message carrying a verdict
-# is the draft; no verdict, or a session past --timeout, is exit 1 with the reason in <out>/why; `enabled` reads
-# run.joinedReview, defaults to true, and refuses any other value.
+# is the draft; no verdict, or a session past --timeout, is exit 1 with the reason in <out>/why; a flag with no value
+# is usage, never a hang; `enabled` reads RUN_JOINED_REVIEW, then run.joinedReview, defaults to true, and refuses any
+# other value.
 #
 # Operator-safe: no network, no real claude. Exit code = number of failed checks.
 set -uo pipefail
@@ -38,7 +39,7 @@ case "$FAKE_MODE" in
 esac
 EOF
 chmod +x "$T/claude"
-export PLAIN_CLAUDE="$T/claude" FAKE_DIR="$T"
+export PLAIN_CLAUDE="$T/claude" FAKE_DIR="$T"; unset RUN_JOINED_REVIEW
 
 FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o1" --plans-dir docs/plans \
   --ticket "$T/ticket.md" --record repo-7-decisions.md --deny-read "$T/lane-scratch" --model opus >/dev/null 2>&1; RC=$?
@@ -79,6 +80,10 @@ FAKE_MODE=none bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" -
 FAKE_MODE=slow bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o4" --plans-dir docs/plans --timeout 2 >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 1 ] && [ "$(cat "$T/o4/why")" = "the plain review ran past 2s" ] && [ -s "$T/o4/end" ] \
   && ok "(p10) a session past --timeout is stopped: exit 1, and why says so" || bad "(p10) rc=$RC why=$(cat "$T/o4/why" 2>/dev/null)"
+W1="$(cat "$T/o1/wall" 2>/dev/null)"; W4="$(cat "$T/o4/wall" 2>/dev/null)"
+case "$W1" in ''|*[!0-9]*) W1=-1 ;; esac; case "$W4" in ''|*[!0-9]*) W4=-1 ;; esac
+[ "$W1" -ge 0 ] && [ "$W4" -ge 2 ] && [ ! -e "$T/o6/wall" ] \
+  && ok "(p17) <out>/wall holds the session's whole seconds once it ends, and is absent when no session ran" || bad "(p17) o1=$W1 o4=$W4 o6=$(cat "$T/o6/wall" 2>/dev/null)"
 
 echo '{"run":{"joinedReview":false}}' > "$T/off.json"; echo '{"run":{"joinedReview":"yes"}}' > "$T/bad.json"; echo '{}' > "$T/none.json"
 [ "$(bash "$TOOL" enabled "$T/none.json")" = true ] && [ "$(bash "$TOOL" enabled "$T/off.json")" = false ] \
@@ -87,6 +92,18 @@ bash "$TOOL" enabled "$T/bad.json" >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 2 ] && ok "(p12) enabled refuses a value that is not a boolean: exit 2" || bad "(p12) rc=$RC"
 bash "$TOOL" run --worktree "$R" >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 2 ] && ok "(p13) run without its required flags is usage: exit 2" || bad "(p13) rc=$RC"
+
+echo '{"run":{"joinedReview":true}}' > "$T/on.json"
+[ "$(RUN_JOINED_REVIEW=false bash "$TOOL" enabled "$T/on.json")" = false ] && [ "$(RUN_JOINED_REVIEW=true bash "$TOOL" enabled "$T/off.json")" = true ] \
+  && [ "$(RUN_JOINED_REVIEW='' bash "$TOOL" enabled "$T/off.json")" = false ] \
+  && ok "(p14) RUN_JOINED_REVIEW beats the config both ways; empty falls through to the config" || bad "(p14)"
+RUN_JOINED_REVIEW=yes bash "$TOOL" enabled "$T/on.json" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 2 ] && ok "(p15) a RUN_JOINED_REVIEW that is not a boolean: exit 2" || bad "(p15) rc=$RC"
+
+bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o7" --deny-read >/dev/null 2>&1 & PID=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$PID" 2>/dev/null || break; sleep 1; done
+if kill -0 "$PID" 2>/dev/null; then kill -KILL "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; bad "(p16) a trailing flag with no value still runs after 10 s"
+else wait "$PID"; RC=$?; [ "$RC" -eq 2 ] && ok "(p16) a trailing flag with no value is usage: exit 2, not a hang" || bad "(p16) rc=$RC"; fi
 
 echo "plain-review-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

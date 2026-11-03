@@ -520,7 +520,7 @@ bash "$PT/verdict-join.sh" "$SCRATCHPAD/lead-report.md" "$P" --format report \
   --why "$(cat "$PLAIN_OUT/why" 2>/dev/null || echo 'the plain review did not return')" \
   --ticket "$(cat "$PLAIN_OUT/ticket" 2>/dev/null || echo false)" \
   --plain-cost "$(jq -r '.total_cost_usd | numbers' "$PLAIN_OUT/result.json" 2>/dev/null)" \
-  --plain-wall "$(( $(cat "$PLAIN_OUT/end" 2>/dev/null || echo 0) - $(cat "$PLAIN_OUT/start" 2>/dev/null || echo 0) ))"
+  --plain-wall "$(cat "$PLAIN_OUT/wall" 2>/dev/null)"
 ```
 
 Give its output as your report, unchanged. The script tags an agreed blocker `[lane+plain]`, adds a plain-only one

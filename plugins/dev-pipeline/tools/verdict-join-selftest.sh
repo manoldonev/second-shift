@@ -65,5 +65,9 @@ printf '%s\n' "$OUT" | grep -qxF 'Joined review: the plain review ran past 3600s
 bash "$TOOL" "$T/lead.md" "$T/plain.md" --format bogus >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 2 ] && ok "(r10) an unknown --format is usage: exit 2" || bad "(r10) rc=$RC"
 
+OUT="$(bash "$TOOL" "$T/lead.md" "$T/plain.md" --format report --plain-cost 0.3 --plain-wall '')"
+printf '%s\n' "$OUT" | grep -qF "Plain session: \$0.30, ? s, returned." && printf '%s\n' "$OUT" | grep -qF '"plain_wall_s":null' \
+  && ok "(r11) an empty --plain-wall is unknown: '? s' and null, never 0 or negative" || bad "(r11) $(printf '%s\n' "$OUT" | grep 'Plain session')"
+
 echo "verdict-join-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

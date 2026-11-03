@@ -241,7 +241,7 @@ review.
      --why "$(cat "$PLAIN_OUT/why" 2>/dev/null || echo 'the plain review did not return')" \
      --ticket "$(cat "$PLAIN_OUT/ticket" 2>/dev/null || echo false)" \
      --plain-cost "$(jq -r '.total_cost_usd | numbers' "$PLAIN_OUT/result.json" 2>/dev/null)" \
-     --plain-wall "$(( $(cat "$PLAIN_OUT/end" 2>/dev/null || echo 0) - $(cat "$PLAIN_OUT/start" 2>/dev/null || echo 0) ))" > <joined draft>
+     --plain-wall "$(cat "$PLAIN_OUT/wall" 2>/dev/null)" > <joined draft>
    ```
 
    The joined draft is the body you check and post, unchanged. The script merges plain's blockers
