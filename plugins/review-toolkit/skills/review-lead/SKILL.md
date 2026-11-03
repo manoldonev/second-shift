@@ -486,41 +486,53 @@ the head with no `.git` and no plans directory. It sees the diff and the ticket 
 joined into your report by a script, never by you. This is the same plain review and the same join that the lane's
 `run.sh` runs.
 
+**Shell variables do not survive from one Bash call to the next.** Each block below is self-contained. Before you
+run one, replace its three placeholders with values you hold literally:
+- `<skill dir>`: this skill's base directory, as the invocation states it;
+- `<head sha>`: the full sha that `git rev-parse HEAD` printed for the head you review;
+- `<scratch dir>`: a directory you hold by its path, such as this session's scratchpad. It is not inside the
+  checkout.
+
+The plain review's out dir is never written down: each block derives it again with `plain-review.sh out-dir
+<head sha>`.
+
 **When it runs.** In dispatch mode only. Skip it in synthesis-only mode: the pipeline that drove you runs its own.
-Skip it when `run.joinedReview` is `false`. Resolve the tools first. If the first command fails, skip the plain
-review and end the report with `## Notes` and one line saying why:
+Run this check. If it prints `false`, skip the plain review. If it fails, skip the plain review and end the report
+with `## Notes` and one line naming the error it printed:
 
 ```bash
-PT="$(bash "$SKILL_DIR/../../scripts/plain-review-tools.sh")"
-[ "$(bash "$PT/plain-review.sh" enabled)" = true ]
+PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" && bash "$PT/plain-review.sh" enabled
 ```
 
-**Start it (Process step 6).** When a GitHub issue number was given, write its title and body to a file
-(`gh issue view <N> --json title,body --jq '"# " + .title, "", (.body // "")' > "$SCRATCHPAD/plain-ticket.md"`)
-and pass `--ticket "$SCRATCHPAD/plain-ticket.md"`. When a Jira key was given, pass `--jira-key <KEY>`: the session
-may then read that issue with `getJiraIssue` and call nothing else. With neither, the plain review reviews the diff
-alone. Run this with `run_in_background`, never in the foreground:
+**Start it (Process step 6).** When a GitHub issue number was given, write its title and body to
+`<scratch dir>/plain-ticket.md`
+(`gh issue view <N> --json title,body --jq '"# " + .title, "", (.body // "")' > "<scratch dir>/plain-ticket.md"`)
+and pass `--ticket "<scratch dir>/plain-ticket.md"`. When a Jira key was given, pass `--jira-key <KEY>`: the
+session may then read that issue with `getJiraIssue` and call nothing else. With neither, the plain review reviews
+the diff alone. Pass `--record <name>` when a decision record was found in Process step 4, so a ticket line naming
+it is dropped. Run this with `run_in_background`, never in the foreground:
 
 ```bash
-PLAIN_OUT="$(mktemp -d "${TMPDIR:-/tmp}/plain-review.XXXXXX")"
-bash "$PT/plain-review.sh" run --worktree "$(git rev-parse --show-toplevel)" --base "origin/<base>" --head "$(git rev-parse HEAD)" \
-  --out "$PLAIN_OUT" [--ticket "$SCRATCHPAD/plain-ticket.md" | --jira-key <KEY>] \
-  --deny-read "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" --deny-read "$SCRATCHPAD"
+PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" && \
+bash "$PT/plain-review.sh" run --worktree "$(git rev-parse --show-toplevel)" --base "origin/<base>" --head <head sha> \
+  [--ticket "<scratch dir>/plain-ticket.md" | --jira-key <KEY>] [--record <name>] \
+  --deny-read "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" --deny-read "<scratch dir>"
 ```
 
-The out dir is never under `$SCRATCHPAD`: the session is denied reads there. Pass `--record <name>` when a
-decision record was found in Process step 4, so a ticket line naming it is dropped.
+With no `--out`, the run writes to `out-dir <head sha>` and first clears what an earlier run left there.
 
 **Join it (Process step 17).** Wait for the background run to finish. Never end the turn before it does. Write your
-synthesized report to `$SCRATCHPAD/lead-report.md` exactly as you would give it. Then:
+synthesized report to `<scratch dir>/lead-report.md` exactly as you would give it. Then:
 
 ```bash
-P=""; [ -s "$PLAIN_OUT/verdict.md" ] && P="$PLAIN_OUT/verdict.md"
-bash "$PT/verdict-join.sh" "$SCRATCHPAD/lead-report.md" "$P" --format report \
-  --why "$(cat "$PLAIN_OUT/why" 2>/dev/null || echo 'the plain review did not return')" \
-  --ticket "$(cat "$PLAIN_OUT/ticket" 2>/dev/null || echo false)" \
-  --plain-cost "$(jq -r '.total_cost_usd | numbers' "$PLAIN_OUT/result.json" 2>/dev/null)" \
-  --plain-wall "$(cat "$PLAIN_OUT/wall" 2>/dev/null)"
+PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" || exit 1
+O="$(bash "$PT/plain-review.sh" out-dir <head sha>)" || exit 1
+P=""; [ -s "$O/verdict.md" ] && P="$O/verdict.md"
+bash "$PT/verdict-join.sh" "<scratch dir>/lead-report.md" "$P" --format report \
+  --why "$(cat "$O/why" 2>/dev/null || echo 'the plain review did not return')" \
+  --ticket "$(cat "$O/ticket" 2>/dev/null || echo false)" \
+  --plain-cost "$(jq -r '.total_cost_usd | numbers' "$O/result.json" 2>/dev/null)" \
+  --plain-wall "$(cat "$O/wall" 2>/dev/null)"
 ```
 
 Give its output as your report, unchanged. The script tags an agreed blocker `[lane+plain]`, adds a plain-only one

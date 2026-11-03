@@ -43,7 +43,16 @@ num() { case "$1" in ''|*[!0-9.]*|.*) printf 'null' ;; *) printf '%s' "$1" ;; es
 
 # shellcheck disable=SC2016  # an awk program, not shell
 awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report ] && echo 1 || echo 0)" -v lc="$(num "$lc")" -v pc="$(num "$pc")" -v lw="$(num "$lw")" -v pw="$(num "$pw")" '
-  function loc(s,   m) { if (!match(s, /[A-Za-z0-9_@.\/-]+\.[A-Za-z0-9]+:[0-9]+/)) return ""; m = substr(s, RSTART, RLENGTH); sub(/^\.\//, "", m); return m }
+  # the first path:line in s: an extensionless path (Makefile:12) counts; a URL host:port, a bare id (B1:2) or a time does not
+  function loc(s,   m, p, pre) {
+    while (match(s, /[A-Za-z0-9_@.\/-]+:[0-9]+/)) {
+      m = substr(s, RSTART, RLENGTH); pre = RSTART > 1 ? substr(s, RSTART - 1, 1) : ""; s = substr(s, RSTART + RLENGTH)
+      p = m; sub(/:[0-9]+$/, "", p)
+      if (pre == ":" || index(m, "//") || p ~ /^[BNH][0-9]+$/ || p ~ /^[0-9.]+$/) continue
+      sub(/^\.\//, "", m); return m
+    }
+    return ""
+  }
   function near(a, b,   pa, pb, d) {
     if (a == "" || b == "") return 0
     pa = a; sub(/:[0-9]+$/, "", pa); pb = b; sub(/:[0-9]+$/, "", pb); if (pa != pb) return 0
@@ -127,8 +136,9 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
       else if (match($0, /^\*\*Ready to merge\?\*\*[ \t]*/)) { readyline = n; ready = substr($0, RLENGTH + 1); sub(/[ \t]+$/, "", ready) }
     }
     else if (sec == "## Findings" && match($0, /^- \[blocker\] B[0-9]+ /)) {
-      nb++; bline[nb] = n; bid[nb] = substr($0, 13, RLENGTH - 13); bloc[nb] = loc(substr($0, RLENGTH + 1))
-      id = substr($0, 14, RLENGTH - 14) + 0; if (id > maxb) maxb = id
+      r = RLENGTH; nb++; bline[nb] = n; bid[nb] = substr($0, 13, r - 13)
+      id = substr($0, 14, r - 14) + 0; if (id > maxb) maxb = id
+      bloc[nb] = loc(substr($0, r + 1))
     }
   }
   END {

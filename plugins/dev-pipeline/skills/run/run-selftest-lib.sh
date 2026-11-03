@@ -112,7 +112,7 @@ S="$FAKE_GH"
 prev=""; for a in "$@"; do [ "$prev" = -n ] && case "$a" in *-plain-*) PLAIN_SESSION=1 ;; esac; prev="$a"; done
 if [ -n "${PLAIN_SESSION:-}" ]; then
   k=$(cat "$S/plain-calls" 2>/dev/null || echo 0); k=$((k+1)); echo "$k" > "$S/plain-calls"; touch "$S/plain-running"
-  cat > "$S/plain-prompt-$k.txt"; printf '%s\n' "$@" > "$S/plain-args-$k.txt"; pwd -P > "$S/plain-cwd-$k.txt"
+  cat > "$S/plain-prompt-$k.txt"; printf '%s\n' "$@" > "$S/plain-args-$k.txt"; pwd -P > "$S/plain-cwd-$k.txt"; find . | sort > "$S/plain-tree-$k.txt"
   # what the session could open — its cwd and each --add-dir — searched for the record's own row, the record file and history
   { pwd -P; prev=""; for a in "$@"; do [ "$prev" = --add-dir ] && echo "$a"; prev="$a"; done; } > "$S/plain-dirs-$k.txt"
   : > "$S/plain-reach-$k.txt"
@@ -127,6 +127,7 @@ if [ -n "${PLAIN_SESSION:-}" ]; then
     plain-blocker-agree) r=$'```\nverdict: needs-work\n## Findings\n- [blocker] B1 src/a.ts:4 — the defect the lane saw\n- [note] N1 src/a.ts:9 — a plain note\n```' ;;
     plain-blocker-new)   r=$'verdict: needs-work\n## Findings\n- [blocker] B1 src/other.ts:20 — a defect only plain saw\n  Scenario: an empty list → a crash' ;;
     plain-no-jira)       r=$'verdict: approve\n## Findings\n- [note] N0 ticket-unavailable — getJiraIssue could not fetch GH-42' ;;
+    plain-makefile)      r=$'verdict: needs-work\n## Findings\n- [blocker] B1 Makefile:13 — the test target skips the new suite\n- [blocker] B2 the docs at https://ci.test:443 still name the old target' ;;
     plain-slow)          sleep 2; r=$'verdict: approve\n## Findings\nNone.' ;;
     plain-silent)        r="I looked around and have nothing to add." ;;
     plain-crash)         rm -f "$S/plain-running"; printf '{"subtype":"error_during_execution","total_cost_usd":0.5}\n'; exit 1 ;;
@@ -192,6 +193,8 @@ case "$plan" in
                    echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "fix: a change for $k"; git push -q origin "$branch"; openpr ;;
   build-pr-close)  push; openpr; echo CLOSED > "$S/state" ;;
   build-pr-dirty)  push; openpr; echo uncommitted >> work.txt ;;
+  build-pr-claude-files) mkdir -p .claude; echo '{"hooks":{}}' > .claude/settings.json; echo '{"mcpServers":{}}' > .mcp.json   # the PR's own Claude config,
+                   echo 'local' > CLAUDE.local.md; git add -f .claude/settings.json .mcp.json CLAUDE.local.md; push; openpr ;;          # forced: the fixture gitignores .claude/
   build-pr-chmod)  printf '#!/usr/bin/env bash\n' > new-selftest.sh; chmod +x new-selftest.sh; push; openpr ;;
   build-pr-update-index) printf '#!/usr/bin/env bash\n' > new-selftest.sh; git add new-selftest.sh; git update-index --chmod=+x new-selftest.sh   # the index's mode only:
                    git commit -qm "build $n"; git push -q origin "$branch"; openpr ;;                                                  # push's git add -A would copy 100644 back
@@ -259,6 +262,8 @@ case "$plan" in
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
     sha=$(git rev-parse "origin/$branch"); for v in ${FAKE_ORDER//,/ }; do post "$(vbody "$v" "$sha")"; done ;;
   review-silent)   : ;;
+  review-needs-work-makefile) # a blocker on an extensionless file
+    post "$(FINDINGS=$'- [blocker] B1 Makefile:12 — the test target skips the new suite\n  Scenario: make test → the suite never runs\n  Fix: add it to the target' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
   review-approve-summary) # an approve carrying a Summary, as a real review writes one
     post "$(printf 'verdict: approve\nreviewed: %s\n\n## Summary\n\nMergeable as it is.\nNothing to do.\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n| D-1 | honored | fake |\n\n## Findings\n\nNone.' "$(git rev-parse "origin/$branch")")" ;;
   review-approve-seeplain) # waits up to 3 s for the plain session to be running, and records whether it was

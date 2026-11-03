@@ -6,24 +6,28 @@
 # Usage:
 #   plain-review.sh enabled [<config>]   true|false: RUN_JOINED_REVIEW, else run.joinedReview, default true; exit 2 on
 #                                        any other value
+#   plain-review.sh atlassian-writes   the 14 Atlassian write tools under each namespace, as `,<tool>` items
+#   plain-review.sh deny <base-disallowed> <read-dir>...   the session's --disallowedTools
 #   plain-review.sh tree <worktree> <head> <plans-dir> <dir>     the head as files, with no .git and no plans dir
 #   plain-review.sh strip <plans-dir> <record-name> < <ticket>   drops every line naming the plans dir or the record
 #   plain-review.sh ticket-text jira <KEY> | none                 the ticket block when the session fetches it, or has none
 #   plain-review.sh prompt <draft> <ticket-file> <diff-file> <true|false: a ticket is given> [<prompt-file>]
 #   plain-review.sh args <tree> <scratch> <disallowed> <bash-ms> <tracker>   the session's flags, one per line
 #   plain-review.sh draft <result-json> <out>   the verdict the final message carries, fences dropped; 1 when none
-#   plain-review.sh run --worktree <dir> --base <ref> --head <sha> --out <dir> [--plans-dir <dir>]
+#   plain-review.sh out-dir <head-sha>   ${TMPDIR:-/tmp}/plain-review-<sha>: the out dir `run` uses with no --out, so a
+#                                        later shell that holds only the head sha finds it again
+#   plain-review.sh run --worktree <dir> --base <ref> --head <sha> [--out <dir>] [--plans-dir <dir>]
 #                       [--ticket <file> | --jira-key <KEY>] [--record <name>] [--model <m>] [--timeout <s>]
 #                       [--deny-read <path>]...
-#     Writes <out>/verdict.md, <out>/ticket (true|false), <out>/result.json, <out>/start and <out>/end (epoch
-#     seconds), <out>/wall (whole seconds, only once the session has ended), and <out>/why on a failure.
-#     Exit 0 a draft · 1 no draft (<out>/why says why) · 2 usage.
+#     Clears what an earlier run left in <out>, then writes <out>/verdict.md, <out>/ticket (true|false),
+#     <out>/result.json, <out>/start and <out>/end (epoch seconds), <out>/wall (whole seconds, only once the session
+#     has ended), and <out>/why on a failure. Exit 0 a draft · 1 no draft (<out>/why says why) · 2 usage.
 # Env: PLAIN_CLAUDE (default claude) is the session binary for `run`.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMPT_FILE_DEFAULT="$HERE/../skills/run/plain-review.md"
 JIRA_READ="mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue"
-usage() { sed -n '6,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '6,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 enabled() { # RUN_JOINED_REVIEW beats the config, as in run.sh
   local cfg="${1:-${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}}" v="${RUN_JOINED_REVIEW:-}"
@@ -35,9 +39,30 @@ enabled() { # RUN_JOINED_REVIEW beats the config, as in run.sh
   esac
 }
 
+atlassian_writes() {
+  local t n
+  for t in addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue editJiraIssue transitionJiraIssue createConfluencePage updateConfluencePage createConfluenceFooterComment createConfluenceInlineComment createCompassComponent createCompassComponentRelationship createCompassCustomFieldDefinition addTeamworkGraphContext; do
+    for n in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do printf ',%s%s' "$n" "$t"; done
+  done
+}
+
+# Deny rules win over any allow, and Read's also bind Grep and Glob. The Atlassian write tools are denied whatever
+# tracker.writes says: user settings can pre-allow them, and this session reads untrusted PR content. Session transcripts
+# are denied too: the lane session's own quotes the record. A Read path is //<absolute path>; each transcript dir is
+# named as it exists, physical, never as a glob. The read dirs are taken as given
+deny() {
+  local base="$1" d out=""; shift
+  for d in "$@"; do out="$out,Read(/$d/**)"; done
+  for d in "$HOME"/.claude "$HOME"/.claude-* ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR"}; do
+    [ -d "$d/projects" ] && out="$out,Read(/$(cd "$d/projects" && pwd -P)/**)"
+  done
+  printf '%s,Agent,Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch%s%s' "$base" "$(atlassian_writes)" "$out"
+}
+
+# Without the PR's own Claude settings, MCP config and local instructions, which a headless session would load
 tree() {
   mkdir -p "$4" || return 1
-  git -C "$1" archive --format=tar "$2" -- . ":(exclude)$3" | tar -x -C "$4"
+  git -C "$1" archive --format=tar "$2" -- . ":(exclude)$3" ":(exclude).claude" ":(exclude).mcp.json" ":(exclude)CLAUDE.local.md" | tar -x -C "$4"
 }
 
 strip() { awk -v a="$1/" -v b="$2" 'index($0, a) == 0 && (b == "" || index($0, b) == 0)'; }
@@ -86,6 +111,8 @@ draft() {
 
 physical() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
 
+out_dir() { case "$1" in ''|*[!0-9a-f]*) return 2 ;; esac; printf '%s\n' "${TMPDIR:-/tmp}/plain-review-$1"; }
+
 run() {
   local wt="" base="" head="" out="" plans="" ticket="" jira="" record="" model="" secs=3600 deny=() d
   while [ $# -gt 0 ]; do
@@ -98,7 +125,8 @@ run() {
     esac
     shift 2
   done
-  [ -n "$wt" ] && [ -n "$base" ] && [ -n "$head" ] && [ -n "$out" ] || usage
+  [ -n "$wt" ] && [ -n "$base" ] && [ -n "$head" ] || usage
+  [ -n "$out" ] || out="$(out_dir "$head")" || usage
   [ -z "$ticket" ] || [ -z "$jira" ] || usage
   case "$secs" in ''|*[!0-9]*) usage ;; esac
   case "$jira" in ''|[A-Za-z]*-[0-9]*) : ;; *) usage ;; esac
@@ -106,7 +134,9 @@ run() {
   plans="${plans:-docs/plans}"
   why() { printf '%s\n' "$1" > "$out/why"; return 1; }
   mkdir -p "$out/scratch" || { echo "plain-review: cannot create $out" >&2; return 2; }
-  out="$(physical "$out")"; rm -f "$out/why" "$out/verdict.md"
+  out="$(physical "$out")"
+  rm -rf "$out/tree" "$out/scratch"/* && rm -f "$out"/{why,verdict.md,ticket,ticket.md,diff.diff,prompt.md,result.json,session.err,start,end,wall} \
+    || { echo "plain-review: cannot clear $out" >&2; return 2; }
   tree "$wt" "$head" "$plans" "$out/tree" || { why "the plain review's tree could not be written"; return; }
   local has=true tracker=github
   if [ -n "$ticket" ]; then strip "$plans" "$record" < "$ticket" > "$out/ticket.md" || { why "the ticket could not be read for the plain review"; return; }
@@ -115,9 +145,9 @@ run() {
   echo "$has" > "$out/ticket"
   git -C "$wt" diff "$base...$head" -- . ":(exclude)$plans" > "$out/diff.diff" 2>/dev/null || { why "the diff could not be read for the plain review"; return; }
   prompt "$out/scratch/verdict.md" "$out/ticket.md" "$out/diff.diff" "$has" > "$out/prompt.md" || { why "the plain review's prompt could not be written"; return; }
-  local dis ms a flags=()
-  dis="AskUserQuestion,EnterWorktree,ExitWorktree,Agent,Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(/$(physical "$wt")/**)"
-  for d in ${deny[@]+"${deny[@]}"}; do dis="$dis,Read(/$(physical "$d")/**)"; done
+  local dis ms a flags=() reads=()
+  reads=("$(physical "$wt")"); for d in ${deny[@]+"${deny[@]}"}; do reads+=("$(physical "$d")"); done
+  dis="$(deny "AskUserQuestion,EnterWorktree,ExitWorktree" "${reads[@]}")"
   ms=$((secs - 300)); [ "$ms" -ge 120 ] || ms=120; ms=$((ms * 1000)); [ "$ms" -le 2147483647 ] || ms=2147483647
   while IFS= read -r a; do flags+=("$a"); done < <(args "$out/tree" "$out/scratch" "$dis" "$ms" "$tracker")
   [ -z "$model" ] || flags+=(--model "$model")
@@ -138,12 +168,15 @@ run() {
 cmd="$1"; shift
 case "$cmd" in
   enabled) enabled "$@" ;;
+  atlassian-writes) [ $# -eq 0 ] || usage; atlassian_writes ;;
+  deny) [ $# -ge 1 ] || usage; deny "$@" ;;
   tree) [ $# -eq 4 ] || usage; tree "$@" ;;
   strip) [ $# -eq 2 ] || usage; strip "$@" ;;
   ticket-text) [ $# -ge 1 ] || usage; ticket_text "$@" ;;
   prompt) [ $# -ge 4 ] && [ $# -le 5 ] || usage; prompt "$@" ;;
   args) [ $# -eq 5 ] || usage; args "$@" ;;
   draft) [ $# -eq 2 ] || usage; draft "$@" ;;
+  out-dir) [ $# -eq 1 ] || usage; out_dir "$1" || usage ;;
   run) run "$@" ;;
   *) usage ;;
 esac

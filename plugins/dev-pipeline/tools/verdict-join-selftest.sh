@@ -69,5 +69,14 @@ OUT="$(bash "$TOOL" "$T/lead.md" "$T/plain.md" --format report --plain-cost 0.3 
 printf '%s\n' "$OUT" | grep -qF "Plain session: \$0.30, ? s, returned." && printf '%s\n' "$OUT" | grep -qF '"plain_wall_s":null' \
   && ok "(r11) an empty --plain-wall is unknown: '? s' and null, never 0 or negative" || bad "(r11) $(printf '%s\n' "$OUT" | grep 'Plain session')"
 
+printf '%s\n' '## Critical (must fix before merge)' '- [Pipeline] Makefile:12 (confidence: 90) — the test target never runs' '' \
+  '**Ready to merge?** With fixes' > "$T/lead-make.md"
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B4 Makefile:13 — test target skipped' '- [blocker] B5 build/Dockerfile:2 — wrong base' > "$T/plain-make.md"
+OUT="$(bash "$TOOL" "$T/lead-make.md" "$T/plain-make.md" --format report)"
+printf '%s\n' "$OUT" | grep -qxF -- '- [lane+plain] [Pipeline] Makefile:12 (confidence: 90) — the test target never runs' \
+  && printf '%s\n' "$OUT" | grep -qxF -- '- [plain] build/Dockerfile:2 — wrong base' && printf '%s\n' "$OUT" | grep -qF -- '- Agreed: Makefile:12 ↔ plain B4' \
+  && printf '%s\n' "$OUT" | grep -qF -- '- Plain-only: plain B5 build/Dockerfile:2' \
+  && ok "(r12) an extensionless path (Makefile:12) is a Critical bullet's site: plain's Makefile:13 agrees with it, ids kept" || bad "(r12) $OUT"
+
 echo "verdict-join-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

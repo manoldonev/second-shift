@@ -49,14 +49,16 @@ review.
    `run_in_background`, never in the foreground:
 
    ```bash
-   PLAIN_OUT="$(mktemp -d "${TMPDIR:-/tmp}/plain-review.XXXXXX")"
    bash <this skill's base directory>/../../tools/plain-review.sh run --worktree "$(git rev-parse --show-toplevel)" \
-     --base "origin/<base>" --head <headRefOid> --out "$PLAIN_OUT" <--ticket <file> | --jira-key <KEY>> --record <record file name> \
+     --base "origin/<base>" --head <headRefOid> <--ticket <file> | --jira-key <KEY>> --record <record file name> \
      --deny-read "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" --deny-read <your scratch dir>
    ```
 
-   The session is denied reads of the checkout and of your scratch dir, so `$PLAIN_OUT` is never
-   under either. Do not read `$PLAIN_OUT` before step 8.
+   Shell variables do not survive from one Bash call to the next, so every block here names its
+   paths literally: put in this skill's base directory, the `headRefOid` sha and your scratch dir
+   as you hold them. With no `--out`, the run writes to
+   `plain-review.sh out-dir <headRefOid>`, which step 8 derives again from the same sha. The run
+   first clears what an earlier run left there. Do not read that dir before step 8.
 3. **Pass 1: review the diff from the ticket and the code alone.** Until step 4, do not open the
    decision record, the plan, the PR description, a PR comment or an earlier verdict. The diff is
    `origin/<base>...HEAD`, where `<base>` is the PR's base branch. Read it without the plans
@@ -236,13 +238,16 @@ review.
    plain review's background run to finish; never end the turn before it does. Then join the two:
 
    ```bash
-   P=""; [ -s "$PLAIN_OUT/verdict.md" ] && P="$PLAIN_OUT/verdict.md"
+   O="$(bash <this skill's base directory>/../../tools/plain-review.sh out-dir <headRefOid>)" || exit 1
+   P=""; [ -s "$O/verdict.md" ] && P="$O/verdict.md"
    bash <this skill's base directory>/../../tools/verdict-join.sh <your draft> "$P" \
-     --why "$(cat "$PLAIN_OUT/why" 2>/dev/null || echo 'the plain review did not return')" \
-     --ticket "$(cat "$PLAIN_OUT/ticket" 2>/dev/null || echo false)" \
-     --plain-cost "$(jq -r '.total_cost_usd | numbers' "$PLAIN_OUT/result.json" 2>/dev/null)" \
-     --plain-wall "$(cat "$PLAIN_OUT/wall" 2>/dev/null)" > <joined draft>
+     --why "$(cat "$O/why" 2>/dev/null || echo 'the plain review did not return')" \
+     --ticket "$(cat "$O/ticket" 2>/dev/null || echo false)" \
+     --plain-cost "$(jq -r '.total_cost_usd | numbers' "$O/result.json" 2>/dev/null)" \
+     --plain-wall "$(cat "$O/wall" 2>/dev/null)" > <joined draft>
    ```
+
+   Run the block as one Bash call, with every placeholder replaced by the literal value.
 
    The joined draft is the body you check and post, unchanged. The script merges plain's blockers
    by `run.sh`'s rules, makes a plain-only blocker turn an approve into a needs-work, and ends the

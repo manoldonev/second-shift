@@ -407,11 +407,8 @@ cmd_grants() { # cmd_grants <command> [xargs]: one ',Bash(...)' rule per command
 }
 # -- session flags (rows F2, F4-F10) --
 DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"
-if [ "$TRACKER_WRITES" = false ]; then # the 14 Atlassian write tools under every namespace they are served under
-  for _tool in addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue editJiraIssue transitionJiraIssue createConfluencePage updateConfluencePage createConfluenceFooterComment createConfluenceInlineComment createCompassComponent createCompassComponentRelationship createCompassCustomFieldDefinition addTeamworkGraphContext; do
-    for _ns in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do DISALLOWED="$DISALLOWED,$_ns$_tool"; done
-  done
-fi
+ATLASSIAN_WRITES="$(bash "$TOOLS/plain-review.sh" atlassian-writes)" || terminal env-session-flags "cannot read the Atlassian write tools from $TOOLS/plain-review.sh"
+[ "$TRACKER_WRITES" = true ] || DISALLOWED="$DISALLOWED$ATLASSIAN_WRITES"
 MCP_ALLOW=""; [ "$TRACKER" = jira ] && MCP_ALLOW=",mcp__atlassian,mcp__plugin_atlassian_atlassian,mcp__claude_ai_Atlassian_Rovo"
 # No session is granted the config's directory: by default it is the main checkout's .claude/, which holds the config,
 # this run's $STATE and every other ticket's receipt. A session reads the config from a copy in its scratch dir (spawn).
@@ -1247,11 +1244,11 @@ review_allowlist() { # row F20: Agent is for the design-fidelity reviewer alone
 }
 # -- the joined review: a record-blind plain review in parallel with the lane review; the scheduler joins the two drafts
 # into one verdict and posts it. The plain session's prompt is plain-review.md beside this file, and nowhere else --
-plain_disallowed() { # plain_disallowed <lane scratch>: deny rules win over any allow, and Read's also bind Grep and Glob
-  local wt; wt="$(cd "$WT" 2>/dev/null && pwd -P)" || wt="$WT"   # physical, as $MAIN_ROOT and the scratch dir are
-  printf '%s,Agent,Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(/%s/**),Read(/%s/**),Read(/%s/**)' "$DISALLOWED" "$MAIN_ROOT" "$wt" "$1"
-}
 # The plain session's parts are tools/plain-review.sh's alone; the review skills compose the same ones
+plain_disallowed() { # plain_disallowed <lane scratch>
+  local wt; wt="$(cd "$WT" 2>/dev/null && pwd -P)" || wt="$WT"
+  bash "$TOOLS/plain-review.sh" deny "$DISALLOWED" "$MAIN_ROOT" "$wt" "$1"
+}
 plain_tree() { bash "$TOOLS/plain-review.sh" tree "$WT" "$HEAD_SHA" "$PLANS_DIR" "$1"; }
 plain_ticket() { # plain_ticket <out>: under github, the ticket's title and body, less every line that names the plans dir or the
   # record; under jira, the instruction to fetch it, since this process reads no Jira ticket and the session can. A github

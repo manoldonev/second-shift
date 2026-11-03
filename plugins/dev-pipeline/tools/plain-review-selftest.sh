@@ -7,7 +7,8 @@
 # reviewed checkout and every --deny-read path; with no ticket the prompt says so; a final message carrying a verdict
 # is the draft; no verdict, or a session past --timeout, is exit 1 with the reason in <out>/why; a flag with no value
 # is usage, never a hang; `enabled` reads RUN_JOINED_REVIEW, then run.joinedReview, defaults to true, and refuses any
-# other value.
+# other value; the session is always denied the Atlassian write tools and each transcript dir, and its tree holds none
+# of the PR's Claude config; with no --out, `run` uses `out-dir <head>`, cleared of an earlier run's files.
 #
 # Operator-safe: no network, no real claude. Exit code = number of failed checks.
 set -uo pipefail
@@ -24,7 +25,9 @@ git -C "$R" init -q -b main && git -C "$R" config user.email t@example.com && gi
 echo 'one' > "$R/src/a.txt"; git -C "$R" add -A && git -C "$R" commit -qm base
 git -C "$R" checkout -qb feature
 echo 'two' >> "$R/src/a.txt"; echo '| D-1 | secret-record-row |' > "$R/docs/plans/repo-7-decisions.md"
+mkdir -p "$R/.claude"; echo '{"hooks":{}}' > "$R/.claude/settings.json"; echo '{"mcpServers":{}}' > "$R/.mcp.json"; echo 'local' > "$R/CLAUDE.local.md"
 git -C "$R" add -A && git -C "$R" commit -qm change
+mkdir -p "$T/home/.claude/projects" "$T/home/.claude-work/projects" "$T/home/.claude-bare" "$T/cfg/projects"
 HEAD_SHA="$(git -C "$R" rev-parse HEAD)"
 printf '%s\n' '# Add two' '' 'Append two to a.txt.' 'Record: docs/plans/repo-7-decisions.md' > "$T/ticket.md"
 
@@ -41,7 +44,7 @@ EOF
 chmod +x "$T/claude"
 export PLAIN_CLAUDE="$T/claude" FAKE_DIR="$T"; unset RUN_JOINED_REVIEW
 
-FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o1" --plans-dir docs/plans \
+HOME="$T/home" CLAUDE_CONFIG_DIR="$T/cfg" FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o1" --plans-dir docs/plans \
   --ticket "$T/ticket.md" --record repo-7-decisions.md --deny-read "$T/lane-scratch" --model opus >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 0 ] && [ "$(head -1 "$T/o1/verdict.md")" = "verdict: needs-work" ] && grep -qF -- '- [blocker] B1 src/a.txt:2 — bad' "$T/o1/verdict.md" \
   && ! grep -q '```' "$T/o1/verdict.md" && ok "(p1) the verdict in the final message is the draft, fences dropped" || bad "(p1) rc=$RC $(cat "$T/o1/verdict.md" "$T/o1/why" 2>/dev/null)"
@@ -55,6 +58,16 @@ ALW="$(awk 'p { print; exit } $0 == "--allowedTools" { p = 1 }' "$T/args")"
 [ "$ALW" = "Read,Grep,Glob" ] && case ",$DIS," in *",Bash,"*",Read(/$R/**),Read(/$T/lane-scratch/**),"*) true ;; *) false ;; esac \
   && grep -qx -- '--strict-mcp-config' "$T/args" && grep -qx opus "$T/args" \
   && ok "(p4) Read/Grep/Glob only, no MCP, and reads of the checkout and each --deny-read path denied" || bad "(p4) allow=$ALW deny=$DIS"
+NW="$(printf '%s' "$DIS" | tr ',' '\n' | grep -c '^mcp__\(atlassian\|plugin_atlassian_atlassian\|claude_ai_Atlassian_Rovo\)__\(add\|create\|edit\|transition\|update\)')"
+case ",$DIS," in *",mcp__atlassian__createJiraIssue,"*",mcp__claude_ai_Atlassian_Rovo__addTeamworkGraphContext,"*) [ "$NW" -eq 42 ] ;; *) false ;; esac \
+  && ok "(p18) the 14 Atlassian write tools are denied under all 3 namespaces, under github too" || bad "(p18) $NW write tools denied"
+case ",$DIS," in *",Read(/$T/home/.claude/projects/**),"*) true ;; *) false ;; esac \
+  && case ",$DIS," in *",Read(/$T/home/.claude-work/projects/**),"*) true ;; *) false ;; esac \
+  && case ",$DIS," in *",Read(/$T/cfg/projects/**),"*) true ;; *) false ;; esac \
+  && case "$DIS" in *"$T/home/.claude-bare"*) false ;; *) true ;; esac \
+  && ok "(p19) reads of each existing transcript dir are denied: ~/.claude, ~/.claude-*, \$CLAUDE_CONFIG_DIR" || bad "(p19) deny=$DIS"
+! grep -qx '.claude' "$T/tree" && ! grep -qx '.mcp.json' "$T/tree" && ! grep -qx 'CLAUDE.local.md' "$T/tree" \
+  && ok "(p20) the tree holds none of the PR's .claude/, .mcp.json or CLAUDE.local.md" || bad "(p20) tree=$(tr '\n' ' ' < "$T/tree")"
 
 grep -q '^Also flag a requirement the ticket states' "$T/prompt" && [ "$(cat "$T/o1/ticket")" = true ] \
   && ok "(p5) with a ticket the ticket-requirement paragraph stays, and <out>/ticket is true" || bad "(p5) ticket=$(cat "$T/o1/ticket" 2>/dev/null)"
@@ -84,6 +97,15 @@ W1="$(cat "$T/o1/wall" 2>/dev/null)"; W4="$(cat "$T/o4/wall" 2>/dev/null)"
 case "$W1" in ''|*[!0-9]*) W1=-1 ;; esac; case "$W4" in ''|*[!0-9]*) W4=-1 ;; esac
 [ "$W1" -ge 0 ] && [ "$W4" -ge 2 ] && [ ! -e "$T/o6/wall" ] \
   && ok "(p17) <out>/wall holds the session's whole seconds once it ends, and is absent when no session ran" || bad "(p17) o1=$W1 o4=$W4 o6=$(cat "$T/o6/wall" 2>/dev/null)"
+
+mkdir -p "$T/tmp"; D="$(TMPDIR="$T/tmp" bash "$TOOL" out-dir "$HEAD_SHA")"
+mkdir -p "$D/scratch"; echo stale > "$D/why"; echo 'verdict: approve' > "$D/verdict.md"; echo stale > "$D/scratch/old"
+TMPDIR="$T/tmp" FAKE_MODE=none bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --plans-dir docs/plans >/dev/null 2>&1; RC=$?
+[ "$D" = "$T/tmp/plain-review-$HEAD_SHA" ] && [ "$RC" -eq 1 ] && [ "$(cat "$D/why")" = "the plain review returned no verdict" ] \
+  && [ ! -s "$D/verdict.md" ] && [ ! -e "$D/scratch/old" ] \
+  && ok "(p21) with no --out, run uses out-dir <head>, after clearing what an earlier run left there" || bad "(p21) D=$D rc=$RC why=$(cat "$D/why" 2>/dev/null)"
+bash "$TOOL" out-dir 'not-a-sha' >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 2 ] && ok "(p22) out-dir refuses anything but a hex sha: exit 2" || bad "(p22) rc=$RC"
 
 echo '{"run":{"joinedReview":false}}' > "$T/off.json"; echo '{"run":{"joinedReview":"yes"}}' > "$T/bad.json"; echo '{}' > "$T/none.json"
 [ "$(bash "$TOOL" enabled "$T/none.json")" = true ] && [ "$(bash "$TOOL" enabled "$T/off.json")" = false ] \
