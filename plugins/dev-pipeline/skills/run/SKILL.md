@@ -9,7 +9,10 @@ You drive `run.sh` (`R`, here — it sits beside this file, in this skill's base
 the whole lane: claim → worktree on the lane branch → the intake record committed as the branch's
 first commit → up to `run.maxRounds` rounds of a fresh BUILD session, the scheduler's own checks
 (config lanes plus the record's `## Checks`, read from that first commit) and route smoke, then a
-fresh REVIEW session whose one PR comment is the verdict. `bash R -h` prints the header: usage,
+fresh REVIEW. By default the review is joined: a plain review runs in parallel, blind to the
+record, with the prompt in `plain-review.md` beside `R`. The scheduler joins the two drafts and
+posts the one verdict, which ends with a folded `dev: lane vs plain` block. `run.joinedReview:
+false` keeps the lane review alone, posting its own verdict. `bash R -h` prints the header: usage,
 env, phases and the exit table. It is the truth; this file only says what is yours to do.
 
 ## Checklist

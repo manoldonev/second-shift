@@ -6,6 +6,9 @@
 # Usage: lane-render.sh <functions.sh> <checkout> <state-dir> <scratch> <issue> <pr> <base-branch> <repo-slug> <branch>
 # Writes into <state-dir>: gates.txt (plan_coverage=<rc> fails_without_change=<rc>), review-input-1.md, review.prompt,
 # review.allow, and the gates' logs. Writes <scratch>/record-at-first.md, as run.sh does before a review.
+# Env JOINED (true|false, required) is run.sh's run.joinedReview. With true, the lane writes its draft to
+# <scratch>/verdict-draft-1.md, and the plain session's inputs are rendered too: its tree and scratch under $PLAIN_DIR,
+# and plain.prompt and plain.args in <state-dir>, the ticket read through the local gh at $GH_LOCAL_DIR.
 # Exit: 0 rendered · 1 a gate stopped the case (gates.txt says which; nothing else is rendered) · 2 usage or an
 # environment failure.
 # shellcheck disable=SC2034  # the globals below are read by the functions extracted from run.sh
@@ -19,6 +22,9 @@ say() { echo "[lane] $*" >&2; }
 terminal() { echo "[lane] terminal: $1 — $2" >&2; exit 2; }
 TOOLS="$(cd "$HERE/../../../../dev-pipeline/tools" && pwd)" || exit 2
 TRACKER=github; GH=gh; GH_READ=gh; BOT_OK=0; MCP_ALLOW=""; RENDER_CMD=""; DESIGN_PROVIDER=""
+case "${JOINED:-}" in true|false) : ;; *) echo "lane-render: JOINED must be true or false" >&2; exit 2 ;; esac
+LANE_DRAFT="$SCRATCH/verdict-draft-1.md"; DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"; MAIN_ROOT="$WT"
+PLAIN_PROMPT_FILE="$HERE/../../../../dev-pipeline/skills/run/plain-review.md"; REVIEW_BASH_MS="$(inner_ms 3600 120)"
 PLANS_DIR=docs/plans
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"; PLAN_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-plan.md"
 RECORD="$WT/$RECORD_REL"
@@ -39,3 +45,10 @@ review_input 1 || { echo "lane-render: cannot diff $FIRST..HEAD in $WT" >&2; exi
 record_at_first > "$SCRATCH/record-at-first.md" || exit 2
 review_prompt "$PR" "$STATE/review-input-1.md" > "$STATE/review.prompt" || exit 2
 review_allowlist > "$STATE/review.allow" || exit 2
+[ "$JOINED" = true ] || exit 0
+GH_READ="$HERE/gh"; PLAIN_DIR="${PLAIN_DIR:?lane-render: PLAIN_DIR is not set}"
+plain_tree "$PLAIN_DIR/tree" && mkdir -p "$PLAIN_DIR/scratch" || exit 2
+plain_ticket "$STATE/plain-ticket.md" || { echo "lane-render: the local gh could not serve the ticket" >&2; exit 2; }
+git -C "$WT" diff "origin/$BASE_NAME...$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" > "$STATE/plain-diff.diff" || exit 2
+plain_prompt "$PLAIN_DIR/scratch/verdict.md" "$STATE/plain-ticket.md" "$STATE/plain-diff.diff" > "$STATE/plain.prompt" || exit 2
+plain_args "$PLAIN_DIR/tree" "$PLAIN_DIR/scratch" > "$STATE/plain.args" || exit 2

@@ -17,6 +17,7 @@
     "costCeilingUsd": 0,
     "buildTimeoutSeconds": 600.5,
     "reviewTimeoutSeconds": 30,
-    "laneTimeoutSeconds": 10
+    "laneTimeoutSeconds": 10,
+    "joinedReview": "yes"
   }
 }

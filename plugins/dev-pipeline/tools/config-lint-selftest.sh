@@ -64,6 +64,7 @@ expect_violation invalid-bad-run-caps.json          "run.costCeilingUsd: must be
 expect_violation invalid-bad-run-caps.json          "run.buildTimeoutSeconds: must be an integer >= 60"
 expect_violation invalid-bad-run-caps.json          "run.reviewTimeoutSeconds: must be an integer >= 60"
 expect_violation invalid-bad-run-caps.json          "run.laneTimeoutSeconds: must be an integer >= 60"
+expect_violation invalid-bad-run-caps.json          "run.joinedReview: must be boolean"
 expect_violation invalid-bad-smokecommand.json      "design.liveRender.smokeCommand: must be string"
 expect_violation invalid-bad-tracker.json           "tracker.type must be github|jira"
 expect_violation invalid-bad-basebranch.json        "baseBranch: must be a bare branch name on origin"
