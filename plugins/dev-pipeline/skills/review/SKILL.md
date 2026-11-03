@@ -38,6 +38,25 @@ review.
    The filter is not a read of the build's account. Read no other part of the body before step 8.
 2. Check out the PR head. Confirm that `git rev-parse HEAD` equals `headRefOid`. You review that
    sha, and you name it.
+
+   **Start the plain review.** It is the record-blind review that `run.sh` runs beside the lane
+   review: one headless session with Read, Grep and Glob only, in a copy of the head with no `.git`
+   and no plans directory, given the diff and the ticket. Run it unless
+   `bash <this skill's base directory>/../../tools/plain-review.sh enabled` prints `false`. Under
+   github, write the ticket you read in step 1 to a file, as `# <title>`, a blank line, then the
+   body, and pass it as `--ticket <file>`. Under jira, pass `--jira-key <KEY>` instead: the session
+   may then read that issue with `getJiraIssue` and call nothing else. Then run this with
+   `run_in_background`, never in the foreground:
+
+   ```bash
+   PLAIN_OUT="$(mktemp -d "${TMPDIR:-/tmp}/plain-review.XXXXXX")"
+   bash <this skill's base directory>/../../tools/plain-review.sh run --worktree "$(git rev-parse --show-toplevel)" \
+     --base "origin/<base>" --head <headRefOid> --out "$PLAIN_OUT" <--ticket <file> | --jira-key <KEY>> --record <record file name> \
+     --deny-read "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" --deny-read <your scratch dir>
+   ```
+
+   The session is denied reads of the checkout and of your scratch dir, so `$PLAIN_OUT` is never
+   under either. Do not read `$PLAIN_OUT` before step 8.
 3. **Pass 1: review the diff from the ticket and the code alone.** Until step 4, do not open the
    decision record, the plan, the PR description, a PR comment or an earlier verdict. The diff is
    `origin/<base>...HEAD`, where `<base>` is the PR's base branch. Read it without the plans
@@ -212,6 +231,24 @@ review.
    - Keep `## Notes` under 150 words, not counting the knowledge-base block.
    A limit never removes a row, a finding or a knowledge-base proposal. If they do not fit, shorten the wording.
    <!-- LOCKSTEP-END verdict-style -->
+
+   **Join the plain review before the check.** Write your verdict to a draft file. Wait for the
+   plain review's background run to finish; never end the turn before it does. Then join the two:
+
+   ```bash
+   P=""; [ -s "$PLAIN_OUT/verdict.md" ] && P="$PLAIN_OUT/verdict.md"
+   bash <this skill's base directory>/../../tools/verdict-join.sh <your draft> "$P" \
+     --why "$(cat "$PLAIN_OUT/why" 2>/dev/null || echo 'the plain review did not return')" \
+     --ticket "$(cat "$PLAIN_OUT/ticket" 2>/dev/null || echo false)" \
+     --plain-cost "$(jq -r '.total_cost_usd | numbers' "$PLAIN_OUT/result.json" 2>/dev/null)" \
+     --plain-wall "$(( $(cat "$PLAIN_OUT/end" 2>/dev/null || echo 0) - $(cat "$PLAIN_OUT/start" 2>/dev/null || echo 0) ))" > <joined draft>
+   ```
+
+   The joined draft is the body you check and post, unchanged. The script merges plain's blockers
+   by `run.sh`'s rules, makes a plain-only blocker turn an approve into a needs-work, and ends the
+   body with a folded `dev: lane vs plain` block under `## Notes`. When the plain review did not
+   return, your verdict stands and `## Notes` says why. When the plain review is off, skip this
+   step and post your own draft.
 
    **Check the draft before you post it.** Write the body to a file. Write the record at `FIRST` to
    another file (`git show $FIRST:<record> > <file>`). Then run
