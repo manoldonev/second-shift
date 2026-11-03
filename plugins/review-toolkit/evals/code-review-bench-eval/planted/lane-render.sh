@@ -50,5 +50,5 @@ GH_READ="$HERE/gh"; PLAIN_DIR="${PLAIN_DIR:?lane-render: PLAIN_DIR is not set}"
 plain_tree "$PLAIN_DIR/tree" && mkdir -p "$PLAIN_DIR/scratch" || exit 2
 plain_ticket "$STATE/plain-ticket.md" || { echo "lane-render: the local gh could not serve the ticket" >&2; exit 2; }
 git -C "$WT" diff "origin/$BASE_NAME...$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" > "$STATE/plain-diff.diff" || exit 2
-plain_prompt "$PLAIN_DIR/scratch/verdict.md" "$STATE/plain-ticket.md" "$STATE/plain-diff.diff" > "$STATE/plain.prompt" || exit 2
+plain_prompt "$PLAIN_DIR/scratch/verdict.md" "$STATE/plain-ticket.md" "$STATE/plain-diff.diff" true > "$STATE/plain.prompt" || exit 2
 plain_args "$PLAIN_DIR/tree" "$PLAIN_DIR/scratch" > "$STATE/plain.args" || exit 2

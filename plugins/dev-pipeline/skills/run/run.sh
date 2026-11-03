@@ -20,7 +20,7 @@
 #                             own waits, 300 s inside the bound: both sessions run with background tasks off and
 #                             their Bash timeouts at that value (floor 120 s)
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
-#       RUN_JOINED_REVIEW     true|false (config run.joinedReview; default true, false under jira): a record-blind plain
+#       RUN_JOINED_REVIEW     true|false (config run.joinedReview; default true): a record-blind plain
 #                             review runs in parallel with the lane review, and the scheduler posts one joined verdict
 #       RUN_LANE_TIMEOUT      seconds (1800), a positive integer: the bound on each setup lane, check and smoke command
 #       SECOND_SHIFT_INTAKE_TOOLKIT_ROOT   the intake-toolkit whose ledger-lint.sh lints the receipt (default: the
@@ -294,14 +294,10 @@ cap REVIEW_TO "${RUN_REVIEW_TIMEOUT:-}" .run.reviewTimeoutSeconds 3600 int
 cap COST_CEIL "${RUN_COST_CEILING:-}" .run.costCeilingUsd 100
 cap CHECKS_RED_MAX "${RUN_CHECKS_RED_MAX:-}" .run.checksRedMax 3 int
 cap LANE_TO "${RUN_LANE_TIMEOUT:-}" .run.laneTimeoutSeconds 1800 int
-# The joined review: a record-blind plain review beside the lane review, joined into one verdict. On by default; under
-# jira it is off, because the scheduler reads no Jira ticket to hand the plain review, and an explicit true refuses
-JOINED="${RUN_JOINED_REVIEW:-$(cfg_bool .run.joinedReview)}"
-case "$JOINED" in
-  true|false) [ "$JOINED" = false ] || [ "$TRACKER" = github ] || terminal env-config-run "run.joinedReview is true, but the plain review needs the ticket body and the scheduler reads no Jira ticket: set it false or remove it" ;;
-  '') JOINED=true; [ "$TRACKER" = github ] || JOINED=false ;;
-  *) terminal env-config-run "run.joinedReview must be true or false, got '$JOINED'" ;;
-esac
+# The joined review: a record-blind plain review beside the lane review, joined into one verdict. On by default under
+# every tracker; where the scheduler has no ticket body to hand it (jira), the plain review reviews the diff alone
+JOINED="${RUN_JOINED_REVIEW:-$(cfg_bool .run.joinedReview)}"; JOINED="${JOINED:-true}"
+case "$JOINED" in true|false) : ;; *) terminal env-config-run "run.joinedReview must be true or false, got '$JOINED'" ;; esac
 PLAIN_PROMPT_FILE="$SKILL_DIR/plain-review.md"
 # F-env: a session's own waits end 5 minutes inside its bound, never below the harness's own 120 s / 600 s, so a hung
 # command or dispatch fails inside the session while it can still commit and report; capped at the JS timer maximum
@@ -1259,15 +1255,25 @@ plain_tree() { # plain_tree <dir>: the head as files, with no .git and no plans 
   mkdir -p "$1" || return 1
   git -C "$WT" archive --format=tar "$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" | tar -x -C "$1"
 }
-plain_ticket() { # plain_ticket <out>: the ticket's title and body, less every line that names the plans dir or the record
-  local j; j="$("$GH_READ" issue view "$ISSUE" --json title,body 2>/dev/null)" || return 1
-  jq -er '"# " + .title, "", (.body // "")' <<<"$j" > "$1.raw" 2>/dev/null || return 1
-  awk -v a="$PLANS_DIR/" -v b="${RECORD_REL##*/}" 'index($0, a) == 0 && index($0, b) == 0' "$1.raw" > "$1"
+plain_ticket() { # plain_ticket <out>: the ticket's title and body, less every line that names the plans dir or the record; with
+  # no body to read (jira, or a github read that failed) it writes the no-ticket line instead and returns 1
+  local j
+  if [ "$TRACKER" = github ] && j="$("$GH_READ" issue view "$ISSUE" --json title,body 2>/dev/null)" \
+    && jq -er '"# " + .title, "", (.body // "")' <<<"$j" > "$1.raw" 2>/dev/null; then
+    awk -v a="$PLANS_DIR/" -v b="${RECORD_REL##*/}" 'index($0, a) == 0 && index($0, b) == 0' "$1.raw" > "$1"
+    return 0
+  fi
+  echo "No ticket is available for this change." > "$1"; return 1
 }
-plain_prompt() { # plain_prompt <out> <ticket-file> <diff-file>: plain-review.md below its header, placeholders filled; index(), never a regex, so no text in a value is read as a pattern
-  awk -v out="$1" -v tf="$2" -v df="$3" '
+plain_prompt() { # plain_prompt <out> <ticket-file> <diff-file> <true|false: a ticket was read>: plain-review.md below its header,
+  # placeholders filled; with no ticket, each body line a header `ticket-only: <prefix>` names is dropped, with the blank
+  # line after it. index(), never a regex, so no text in a value is read as a pattern
+  awk -v out="$1" -v tf="$2" -v df="$3" -v ticket="$4" '
     function fill(s, k, v,   i, o) { o = ""; while ((i = index(s, k)) > 0) { o = o substr(s, 1, i - 1) v; s = substr(s, i + length(k)) } return o s }
-    !body { if ($0 == "---") body = 1; next }
+    !body { if ($0 == "---") body = 1; else if (index($0, "ticket-only: ") == 1) only[++no] = substr($0, 14); next }
+    skip && $0 == "" { skip = 0; next }
+    { skip = 0 }
+    ticket != "true" { for (k = 1; k <= no; k++) if (index($0, only[k]) == 1) { skip = 1; next } }
     $0 == "{ticket}" { while ((getline l < tf) > 0) print l; next }
     $0 == "{diff}" { while ((getline l < df) > 0) print l; next }
     { print fill($0, "{out}", out) }' "$PLAIN_PROMPT_FILE"
@@ -1286,11 +1292,11 @@ plain_draft() { # plain_draft <result json> <out>: the verdict the session's fin
 }
 plain_start() { # plain_start <attempt>: the plain session, in the background; 1 with PLAIN_WHY when its input cannot be made
   local r="$PLAIN_ROOT/$1" sid a args=()
-  PLAIN_WHY=""; PLAIN_OK=0
+  PLAIN_WHY=""; PLAIN_OK=0; PLAIN_TICKET=false
   plain_tree "$r/tree" && mkdir -p "$r/scratch" || { PLAIN_WHY="the plain review's tree could not be written"; return 1; }
-  plain_ticket "$STATE/plain-ticket-$1.md" || { PLAIN_WHY="the ticket could not be read for the plain review"; return 1; }
+  if plain_ticket "$STATE/plain-ticket-$1.md"; then PLAIN_TICKET=true; else PLAIN_TICKET=false; say "plain review: no ticket body to hand it — it reviews the diff alone"; fi
   git -C "$WT" diff "origin/$BASE_NAME...$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" > "$STATE/plain-diff-$1.diff" 2>/dev/null || { PLAIN_WHY="the diff could not be read for the plain review"; return 1; }
-  plain_prompt "$r/scratch/verdict.md" "$STATE/plain-ticket-$1.md" "$STATE/plain-diff-$1.diff" > "$STATE/plain-$1.prompt" || { PLAIN_WHY="the plain review's prompt could not be written"; return 1; }
+  plain_prompt "$r/scratch/verdict.md" "$STATE/plain-ticket-$1.md" "$STATE/plain-diff-$1.diff" "$PLAIN_TICKET" > "$STATE/plain-$1.prompt" || { PLAIN_WHY="the plain review's prompt could not be written"; return 1; }
   sid="$(new_uuid)" || { PLAIN_WHY="no session id for the plain review"; return 1; }
   plain_args "$r/tree" "$r/scratch" > "$STATE/plain-$1.args" || { PLAIN_WHY="the plain review's flags could not be written"; return 1; }
   while IFS= read -r a; do args+=("$a"); done < "$STATE/plain-$1.args"
@@ -1527,7 +1533,7 @@ joined_post() { # joined_post <attempt>: joins the lane draft with the plain one
   [ -s "$LANE_DRAFT" ] || { JOINED_MISS="the review session wrote no verdict draft to $LANE_DRAFT"; return 1; }
   [ "$PLAIN_OK" -eq 1 ] && p="$STATE/plain-verdict-$1.md"
   cp "$LANE_DRAFT" "$STATE/lane-verdict-$1.md" 2>/dev/null
-  join_verdicts "$LANE_DRAFT" "$p" "${PLAIN_WHY:-the plain review did not return}" \
+  join_verdicts "$LANE_DRAFT" "$p" "${PLAIN_WHY:-the plain review did not return}" --ticket "$PLAIN_TICKET" \
     --lane-cost "$(jq -r '.total_cost_usd | numbers' "$STATE/review-$1.json" 2>/dev/null)" --lane-wall "$(session_wall "$STATE/review-$1.start" "$STATE/review-$1.end")" \
     --plain-cost "$(jq -r '.total_cost_usd | numbers' "$STATE/plain-$1.json" 2>/dev/null)" --plain-wall "$(session_wall "$STATE/plain-$1.start" "$STATE/plain-$1.end")" \
     > "$j" || { JOINED_MISS="the lane and plain drafts could not be joined"; return 1; }
@@ -2020,7 +2026,7 @@ while :; do
       [ -z "$SCRATCH" ] || record_at_first > "$SCRATCH/record-at-first.md" || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL for the review"
       LANE_DRAFT="$SCRATCH/verdict-draft-$RA.md"
       review_prompt "$PR" "$INPUT" "$REJECTED" > "$STATE/review-$RA.prompt"
-      PLAIN_OK=0; PLAIN_WHY=""
+      PLAIN_OK=0; PLAIN_WHY=""; PLAIN_TICKET=false
       [ "$JOINED" = false ] || plain_start "$RA" || say "plain review: not started — $PLAIN_WHY"
       start="$(now)"; date +%s > "$STATE/review-$RA.start"
       spawn review "$REVIEW_MODEL" "$RA" "$(review_allowlist)" 300 "$STATE/review-$RA.prompt"; rrc=$?

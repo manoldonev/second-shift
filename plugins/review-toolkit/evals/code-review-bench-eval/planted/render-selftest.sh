@@ -101,7 +101,7 @@ grep -q "^Write your verdict to $T/joined/scratch/verdict-draft-1.md with the Wr
 PT="$T/joined/plain/tree"
 [ -f "$PT/src/sum.sh" ] && [ ! -e "$PT/docs/plans" ] && [ ! -e "$PT/.git" ] && ok "the plain tree is the head as files, with no plans dir and no .git" || bad "plain tree: $(find "$PT" -maxdepth 1 | tr '\n' ' ')"
 PJ="$J/plain.prompt"
-grep -q '^You are acting as a reviewer' "$PJ" && grep -qxF '# Sum subtracts' "$PJ" && grep -q '^+sum() {' "$PJ" && ! grep -q 'docs/plans\|decisions\|Adapted from' "$PJ" \
+grep -q '^You are acting as a reviewer' "$PJ" && grep -qxF '# Sum subtracts' "$PJ" && grep -q '^+sum() {' "$PJ" && ! grep -q 'docs/plans\|decisions\|Adapted from\|ticket-only:' "$PJ" && grep -q '^Also flag a requirement the ticket states' "$PJ" \
   && grep -qF "saved to \`$T/joined/plain/scratch/verdict.md\`" "$PJ" && ok "the plain prompt is run.sh's plain-review.md: the ticket, the diff without the record, and its draft path" || bad "plain prompt: $(head -c 400 "$PJ")"
 grep -qx 'Read,Grep,Glob' "$J/plain.args" && grep -qx -- --strict-mcp-config "$J/plain.args" && grep -q ',Agent,Bash,' "$J/plain.args" \
   && ok "the plain session's flags are run.sh's plain_args" || bad "plain args: $(tr '\n' ' ' < "$J/plain.args")"

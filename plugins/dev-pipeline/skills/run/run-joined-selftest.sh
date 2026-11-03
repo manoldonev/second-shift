@@ -11,6 +11,7 @@ unset RUN_JOINED_REVIEW
 echo "[run-joined-selftest] the joined review: plain beside the lane, one verdict posted by the scheduler"
 
 posted() { awk -v k="$1" '$0 == "<!-- end of comment -->" { c++; next } c == k - 1' "$FAKE_GH/pr-comment-bodies" 2>/dev/null; }   # the k-th body the scheduler posted
+has_posted() { local k="$1"; shift; posted "$k" > "$d/posted-$k.md"; grep -q "$@" "$d/posted-$k.md"; }   # has_posted <k> [-x] <pattern>
 devjson() { posted "$1" | sed -n 's/^<!-- plain-vs-lane: \(.*\) -->$/\1/p'; }   # the dev block's machine-readable line
 devblock_last() { posted "$1" | awk '/^<details><summary>dev: lane vs plain<\/summary>$/ { on = 1 } on { last = $0 } END { exit !(on && last == "</details>") }'; }
 OFFCFG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"run":{"joinedReview":false}}'
@@ -32,15 +33,15 @@ main_p="$(cd "$d/main" && pwd -P)"; wt_p="$(cd "$d" && pwd -P)/wt/42"
   && ok "(j1) no record row, decisions file or .git is reachable from the plain session's cwd and dirs" || bad "(j1) reachable: $(tr '\n' ' ' < "$FAKE_GH/plain-reach-1.txt")"
 pp="$FAKE_GH/plain-prompt-1.txt"
 grep -q '^# a change$' "$pp" && grep -q 'Do the thing in src/a.ts' "$pp" && ! grep -q 'docs/plans' "$pp" && grep -q '^+1$' "$pp" \
-  && ! grep -q '{out}\|{ticket}\|{diff}\|Adapted from\|^---$' "$pp" && grep -qF "saved to \`${tree%/tree}/scratch/verdict.md\`" "$pp" \
+  && ! grep -q '{out}\|{ticket}\|{diff}\|Adapted from\|ticket-only:\|^---$' "$pp" && grep -qF "saved to \`${tree%/tree}/scratch/verdict.md\`" "$pp" \
   && ok "(j1) its prompt is plain-review.md below its header: the ticket less the line linking the record, the diff without the plans dir, and its draft path" || bad "(j1) plain prompt: $(head -c 600 "$pp" | tr '\n' '|')"
 ! grep -qF 'Bash(gh pr comment' "$FAKE_GH/args-2.txt" && grep -q '^Write your verdict to .*/verdict-draft-1.1.md with the Write tool. Do not post it' "$FAKE_GH/prompt-2.txt" \
   && ok "(j1) the lane review may not comment and is told to write its draft" || bad "(j1) lane allowlist/prompt: $(grep -o 'Bash(gh pr comment[^,]*' "$FAKE_GH/args-2.txt")"
 [ "$(grep -c '^verdict: ' "$FAKE_GH/pr-comment-bodies" 2>/dev/null)" -eq 1 ] && [ "$(jq length "$FAKE_GH/comments.json")" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" \
   && ok "(j1) the scheduler posts one joined verdict, binds it and posts success" || bad "(j1) posted: $(tr '\n' '|' < "$FAKE_GH/pr-comment-bodies" 2>/dev/null)"
 devblock_last 1 && jq -e '.lane_blockers == 0 and .plain_blockers == 0 and .agreed == 0 and .flipped == false and .plain_returned == true
-    and .lane_cost_usd == 1 and .plain_cost_usd == 0.5 and (.lane_wall_s | type) == "number" and .plain_wall_s >= 2' <<<"$(devjson 1)" >/dev/null \
-  && posted 1 | grep -qx 'Verdict: the lane alone said approve; the joined verdict is approve.' && posted 1 | grep -q 'Plain session: [$]0.50, [0-9]* s, returned\.$' \
+    and .lane_cost_usd == 1 and .plain_cost_usd == 0.5 and (.lane_wall_s | type) == "number" and .plain_wall_s >= 2 and .ticket == true' <<<"$(devjson 1)" >/dev/null \
+  && has_posted 1 -x 'Verdict: the lane alone said approve; the joined verdict is approve.' && has_posted 1 'Plain session: [$]0.50, [0-9]* s, returned\.$' \
   && ok "(j1) [AC-10] the verdict ends with the folded dev block: no-flip counts, both sessions' cost and wall time, and its JSON line" || bad "(j1) dev block: $(devjson 1) $(posted 1 | tail -n 9 | tr '\n' '|')"
 grep -q '^cost_usd: 2.50$' "$FAKE_GH/issue-comments" && ok "(j1) the run's cost counts the plain session" || bad "(j1) cost: $(grep -o 'cost_usd: [0-9.]*' "$FAKE_GH/issue-comments")"
 
@@ -48,7 +49,7 @@ grep -q '^cost_usd: 2.50$' "$FAKE_GH/issue-comments" && ok "(j1) the run's cost 
 fixture j2; printf 'build-pr\nreview-approve-summary\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-blocker-new\nplain-approve\n' > "$FAKE_PLAIN_PLAN"
 run_case "$d"; expect approved "(j2) needs-work from a plain-only blocker, then approve"
 posted 1 > "$d/v1.md"
-head -n 1 "$d/v1.md" | grep -qx 'verdict: needs-work' && grep -qx 'Not mergeable yet.' "$d/v1.md" && ! grep -q 'Mergeable as it is.\|^Nothing to do.$\|^None.$' "$d/v1.md" \
+[ "$(head -n 1 "$d/v1.md")" = "verdict: needs-work" ] && grep -qx 'Not mergeable yet.' "$d/v1.md" && ! grep -q 'Mergeable as it is.\|^Nothing to do.$\|^None.$' "$d/v1.md" \
   && grep -qx -- '- \[blocker\] B1 \[plain\] src/other.ts:20 — a defect only plain saw' "$d/v1.md" && grep -qx '  Scenario: an empty list → a crash' "$d/v1.md" \
   && ok "(j2) line 1 and the Summary's first line are rewritten; the blocker is added as [plain] with its scenario" || bad "(j2) first verdict: $(tr '\n' '|' < "$d/v1.md")"
 grep -q 'state=failure' "$FAKE_GH/statuses" && grep -q '\[plain\] src/other.ts:20' "$FAKE_GH/prompt-3.txt" \
@@ -73,16 +74,24 @@ jq -e '.lane_blockers == 1 and .plain_blockers == 1 and .agreed == 1 and .lane_o
 for p in silent crash; do
   fixture "j4-$p"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-%s\n' "$p" > "$FAKE_PLAIN_PLAN"
   run_case "$d"; expect approved "(j4) plain-$p"
-  posted 1 | grep -qx 'Joined review: the plain review returned no verdict, so this verdict is the lane review alone.' && grep -q '^cost_usd: 2.50$' "$FAKE_GH/issue-comments" \
+  has_posted 1 -x 'Joined review: the plain review returned no verdict, so this verdict is the lane review alone.' && grep -q '^cost_usd: 2.50$' "$FAKE_GH/issue-comments" \
     && ok "(j4) plain-$p: the lane's verdict is posted with a Notes line saying plain did not return; its cost still counts" || bad "(j4) plain-$p: $(posted 1 | tr '\n' '|')"
   devblock_last 1 && jq -e '.plain_returned == false and .plain_blockers == 0 and .flipped == false and .plain_cost_usd == 0.5' <<<"$(devjson 1)" >/dev/null \
-    && posted 1 | grep -q 'Plain session: [$]0.50, [0-9]* s, did not return (the plain review returned no verdict)\.$' \
+    && has_posted 1 'Plain session: [$]0.50, [0-9]* s, did not return (the plain review returned no verdict)\.$' \
     && ok "(j4) [AC-10] plain-$p: the dev block says plain did not return" || bad "(j4) plain-$p dev block: $(devjson 1)"
 done
-fixture j4-ticket; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"; touch "$FAKE_GH/issue-unreadable"
-run_case "$d"; expect approved "(j4) the ticket cannot be read for the plain review"
-[ ! -f "$FAKE_GH/plain-calls" ] && posted 1 | grep -qx 'Joined review: the ticket could not be read for the plain review, so this verdict is the lane review alone.' \
-  && ok "(j4) no plain session is spawned, and the verdict says why" || bad "(j4) ticket: plain-calls=$(cat "$FAKE_GH/plain-calls" 2>/dev/null) $(posted 1 | tail -n 2 | tr '\n' '|')"
+# (j4t) an unreadable github ticket: the plain review still runs, on the diff alone, and the dev block says so
+nt_ok() { # nt_ok <label>: the plain prompt carries the no-ticket line and not the ticket-requirement paragraph; the dev block says no ticket
+  local pp="$FAKE_GH/plain-prompt-1.txt"
+  [ "$(cat "$FAKE_GH/plain-calls" 2>/dev/null)" = 1 ] && grep -qx 'No ticket is available for this change.' "$pp" && ! grep -q '^Also flag a requirement the ticket states' "$pp" \
+    && grep -q '^Ignore style, formatting' "$pp" && grep -q '^+1$' "$pp" \
+    && ok "($1) the plain session runs on the diff alone, without the ticket-requirement paragraph" || bad "($1) plain-calls=$(cat "$FAKE_GH/plain-calls" 2>/dev/null) prompt: $(sed -n '/<ticket>/,/^Ignore/p' "$pp" | tr '\n' '|')"
+  devblock_last 1 && jq -e '.ticket == false and .plain_returned == true' <<<"$(devjson 1)" >/dev/null && has_posted 1 'returned, reviewed without a ticket\.$' \
+    && ! has_posted 1 '^Joined review:' && ok "($1) [AC-10] the joined verdict posts, and its dev block says plain reviewed without a ticket" || bad "($1) dev block: $(devjson 1)"
+}
+fixture j4t; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"; touch "$FAKE_GH/issue-unreadable"
+run_case "$d"; expect approved "(j4t) the ticket cannot be read for the plain review"
+nt_ok j4t
 
 # (j5) a lane review that leaves no draft is a miss: both sessions re-spawn once, then the run ends review-unbound
 fixture j5; printf 'build-pr\nreview-silent\nreview-silent\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"
@@ -104,10 +113,14 @@ run_case "$d"; expect approved "(j7) run.joinedReview false"
   && ! jq -e '.[0].body | contains("dev: lane vs plain")' "$FAKE_GH/comments.json" >/dev/null \
   && ok "(j7) no plain session and no dev block; the lane review posts its own verdict" || bad "(j7) plain-calls=$(cat "$FAKE_GH/plain-calls" 2>/dev/null)"
 
-# (j8) jira: the scheduler reads no Jira ticket, so an explicit true refuses before anything is spawned
-FIXTURE_CONFIG='{"tracker":{"type":"jira","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"run":{"joinedReview":true}}' fixture j8
-printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-config-run "(j8) run.joinedReview true under jira"
-[ ! -f "$FAKE_GH/calls" ] && ok "(j8) nothing spawned" || bad "(j8) calls=$(cat "$FAKE_GH/calls")"
+# (j8) jira, the default: the scheduler reads no Jira ticket, so the plain review runs on the diff alone and the joined verdict posts
+FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture j8
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
+OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect approved "(j8) a jira run, joined by default"
+[ "$(jq length "$FAKE_GH/comments.json")" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" \
+  && ok "(j8) the scheduler posts and binds the joined verdict" || bad "(j8) comments=$(jq length "$FAKE_GH/comments.json") statuses=$(cat "$FAKE_GH/statuses" 2>/dev/null)"
+nt_ok j8
 fixture j9; RUN_JOINED_REVIEW=maybe run_case "$d"; expect env-config-run "(j9) a switch that is not true or false"
 
 echo "[self-test] $PASS passed, $FAIL failed"

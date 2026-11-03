@@ -3,7 +3,7 @@
 #
 # Usage:
 #   verdict-join.sh <lane-draft> <plain-draft or ''> [--why <why plain is missing>]
-#                   [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>]
+#                   [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>] [--ticket true|false]
 #
 # Plain contributes blockers only; its notes are dropped. A plain blocker at the file of a lane blocker, within 3
 # lines of it, is that blocker, tagged [lane+plain]. Any other is added after the lane's blockers as [plain],
@@ -11,18 +11,20 @@
 # `verdict: needs-work`, the Summary's first line `Not mergeable yet.`, and a `Nothing to do.` line names the
 # [plain] blockers. With no plain draft, `## Notes` says why and the lane's verdict stands as written.
 # The body ends with a folded `dev: lane vs plain` block under `## Notes`, which verdict-check.sh reads as prose:
-# the counts, the ids on each side, the verdict impact, each session's cost and wall time, and one
-# `<!-- plain-vs-lane: {json} -->` line for scripts that aggregate across PRs.
+# the counts, the ids on each side, the verdict impact, each session's cost and wall time, whether plain had the
+# ticket (--ticket false: it reviewed the diff alone), and one `<!-- plain-vs-lane: {json} -->` line for scripts
+# that aggregate across PRs.
 #
 # Exit: 0 the joined verdict on stdout · 2 usage, or the lane draft cannot be read.
 set -uo pipefail
-usage() { echo "usage: verdict-join.sh <lane-draft> <plain-draft or ''> [--why <text>] [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>]" >&2; exit 2; }
+usage() { echo "usage: verdict-join.sh <lane-draft> <plain-draft or ''> [--why <text>] [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>] [--ticket true|false]" >&2; exit 2; }
 [ $# -ge 2 ] || usage
 lane="$1" plain="$2"; shift 2
-why="the plain review did not return" lc="" pc="" lw="" pw=""
+why="the plain review did not return" lc="" pc="" lw="" pw="" ticket=true
 while [ $# -gt 0 ]; do
   case "$1" in
     --why) why="${2-}"; shift 2 ;;
+    --ticket) ticket="${2-}"; shift 2; case "$ticket" in true|false) : ;; *) usage ;; esac ;;
     --lane-cost) lc="${2-}"; shift 2 ;;
     --plain-cost) pc="${2-}"; shift 2 ;;
     --lane-wall) lw="${2-}"; shift 2 ;;
@@ -35,7 +37,7 @@ done
 num() { case "$1" in ''|*[!0-9.]*|.*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
 
 # shellcheck disable=SC2016  # an awk program, not shell
-awk -v pf="$plain" -v why="$why" -v lc="$(num "$lc")" -v pc="$(num "$pc")" -v lw="$(num "$lw")" -v pw="$(num "$pw")" '
+awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v lc="$(num "$lc")" -v pc="$(num "$pc")" -v lw="$(num "$lw")" -v pw="$(num "$pw")" '
   function loc(s,   m) { if (!match(s, /[A-Za-z0-9_@.\/-]+\.[A-Za-z0-9]+:[0-9]+/)) return ""; m = substr(s, RSTART, RLENGTH); sub(/^\.\//, "", m); return m }
   function near(a, b,   pa, pb, d) {
     if (a == "" || b == "") return 0
@@ -64,9 +66,9 @@ awk -v pf="$plain" -v why="$why" -v lc="$(num "$lc")" -v pc="$(num "$pc")" -v lw
     print "- Agreed: " (pairs == "" ? "none" : pairs)
     s = substr(line[1], 10)
     print "Verdict: the lane alone said " s "; the joined verdict is " (flip ? "needs-work (plain flipped approve → needs-work)" : s) "."
-    print "Lane session: " usd(lc) ", " secs(lw) ". Plain session: " usd(pc) ", " secs(pw) ", " (pf == "" ? "did not return (" why ")" : "returned") "."
+    print "Lane session: " usd(lc) ", " secs(lw) ". Plain session: " usd(pc) ", " secs(pw) ", " (pf == "" ? "did not return (" why ")" : "returned") (ticket == "true" ? "" : ", reviewed without a ticket") "."
     print ""
-    printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s} -->\n", nb, np, na, nb - na, nadd, pnotes, (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw
+    printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s} -->\n", nb, np, na, nb - na, nadd, pnotes, (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
     print ""
     print "</details>"
   }

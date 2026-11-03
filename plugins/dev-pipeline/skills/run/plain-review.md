@@ -1,4 +1,5 @@
 <!-- Adapted from openai/codex codex-rs/prompts/templates/review/rubric.md @81de4f25, Apache-2.0 -->
+ticket-only: Also flag a requirement the ticket states
 ---
 You are acting as a reviewer for a proposed code change made by another engineer, before it merges.
 

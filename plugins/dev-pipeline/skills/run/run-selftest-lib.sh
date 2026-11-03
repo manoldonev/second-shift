@@ -77,7 +77,7 @@ case "$sub" in
                  prev=""; for a in "$@"; do [ "$prev" = --body-file ] && { cat "$a"; echo '<!-- end of comment -->'; } >> "$S/pr-comment-bodies"; prev="$a"; done
                  # a verdict the scheduler posts itself (the joined review) lands among the PR's comments, as the operator
                  prev=""; for a in "$@"; do
-                   if [ "$prev" = --body-file ] && head -n 1 "$a" | grep -qE '^verdict: '; then
+                   if [ "$prev" = --body-file ] && grep -qE '^verdict: ' <<<"$(head -n 1 "$a")"; then
                      jq --rawfile b "$a" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + [{id:(length+1),node_id:"N\(length+1)",body:($b|rtrimstr("\n")),user:{login:"tester",type:"User"},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
                    fi; prev="$a"
                  done ;;
