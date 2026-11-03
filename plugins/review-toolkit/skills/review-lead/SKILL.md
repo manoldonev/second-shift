@@ -117,7 +117,7 @@ The Scope Completeness Gate (see Synthesis Rules) is the one exception — its F
 3. Read 2-3 existing files in the same directory to understand current patterns
 4. Check for plan/spec awareness (see below) and for an issue number in the invocation (used to dispatch scope-completeness-reviewer)
 5. Determine which reviewers to spawn based on change size + file routing
-6. Run the **lead pass** over the diff yourself (see below) — the four collapsed dimensions, plus security whenever its conditional did not fire
+6. Start the **plain review** in the background (see "The plain review" below), so it runs while steps 6–16 do. Then run the **lead pass** over the diff yourself (see below) — the four collapsed dimensions, plus security whenever its conditional did not fire
 7. Run the fan-out by invoking `code-review.mjs` via the `Workflow` tool with the selected `reviewers` (the script issues them in parallel via `agent()`) — do NOT run them sequentially. **When step 5 selected nothing, skip this step and step 8 entirely**: the script rejects an empty `reviewers[]`, and the round is the lead pass plus synthesis
 8. Wait for the script to return the structured findings
 9. If this is round 2+ of a multi-round review, apply prior round context (see below)
@@ -128,6 +128,7 @@ The Scope Completeness Gate (see Synthesis Rules) is the one exception — its F
 14. Cross-reviewer self-check (see below)
 15. Write the knowledge-base contributions, when the repo declares a sink (see Knowledge-base contributions below)
 16. Synthesize report
+17. Join the plain review's blockers into the report (see "The plain review" below), and give the joined report
 
 ## Review Depth Routing
 
@@ -477,6 +478,67 @@ What the dispatch prompt MUST NOT contain:
 - No summary of the diff ("the change does Y") — the subagent reads the diff itself.
 
 If the user's invocation prompt contains scope assertions (e.g., "this is the BE half, the UI part is out of scope"), strip them from the dispatch prompt. They are not evidence and must not reach the subagent — that independence is the whole reason this gate exists.
+
+## The plain review
+
+A second, record-blind review runs beside yours: one headless session with Read, Grep and Glob only, in a copy of
+the head with no `.git` and no plans directory. It sees the diff and the ticket and nothing else. Its blockers are
+joined into your report by a script, never by you. This is the same plain review and the same join that the lane's
+`run.sh` runs.
+
+**Shell variables do not survive from one Bash call to the next.** Each block below is self-contained. Before you
+run one, replace its three placeholders with values you hold literally:
+- `<skill dir>`: this skill's base directory, as the invocation states it;
+- `<head sha>`: the full sha that `git rev-parse HEAD` printed for the head you review;
+- `<scratch dir>`: a directory you hold by its path, such as this session's scratchpad. It is not inside the
+  checkout.
+
+The plain review's out dir is never written down: each block derives it again with `plain-review.sh out-dir
+<head sha>`.
+
+**When it runs.** In dispatch mode only. Skip it in synthesis-only mode: the pipeline that drove you runs its own.
+Run this check. If it prints `false`, skip the plain review. If it fails, skip the plain review and end the report
+with `## Notes` and one line naming the error it printed:
+
+```bash
+PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" && bash "$PT/plain-review.sh" enabled
+```
+
+**Start it (Process step 6).** When a GitHub issue number was given, write its title and body to
+`<scratch dir>/plain-ticket.md`
+(`gh issue view <N> --json title,body --jq '"# " + .title, "", (.body // "")' > "<scratch dir>/plain-ticket.md"`)
+and pass `--ticket "<scratch dir>/plain-ticket.md"`. When a Jira key was given, pass `--jira-key <KEY>`: the
+session may then read that issue with `getJiraIssue` and call nothing else. With neither, the plain review reviews
+the diff alone. Pass `--record <name>` when a decision record was found in Process step 4, so a ticket line naming
+it is dropped. Run this with `run_in_background`, never in the foreground:
+
+```bash
+PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" && \
+bash "$PT/plain-review.sh" run --worktree "$(git rev-parse --show-toplevel)" --base "origin/<base>" --head <head sha> \
+  [--ticket "<scratch dir>/plain-ticket.md" | --jira-key <KEY>] [--record <name>] \
+  --deny-read "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" --deny-read "<scratch dir>"
+```
+
+With no `--out`, the run writes to `out-dir <head sha>` and first clears what an earlier run left there.
+
+**Join it (Process step 17).** Wait for the background run to finish. Never end the turn before it does. Write your
+synthesized report to `<scratch dir>/lead-report.md` exactly as you would give it. Then:
+
+```bash
+PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" || exit 1
+O="$(bash "$PT/plain-review.sh" out-dir <head sha>)" || exit 1
+P=""; [ -s "$O/verdict.md" ] && P="$O/verdict.md"
+bash "$PT/verdict-join.sh" "<scratch dir>/lead-report.md" "$P" --format report \
+  --why "$(cat "$O/why" 2>/dev/null || echo 'the plain review did not return')" \
+  --ticket "$(cat "$O/ticket" 2>/dev/null || echo false)" \
+  --plain-cost "$(jq -r '.total_cost_usd | numbers' "$O/result.json" 2>/dev/null)" \
+  --plain-wall "$(cat "$O/wall" 2>/dev/null)"
+```
+
+Give its output as your report, unchanged. The script tags an agreed blocker `[lane+plain]`, adds a plain-only one
+under `## Critical` as `[plain]`, and turns `Ready to merge?` to `No` when it adds one. It ends the report with a
+folded `dev: lane vs plain` block. When the plain review did not return, the report stands as you wrote it and its
+`## Notes` says why. Never edit, drop or soften a `[plain]` blocker after the join.
 
 ## Synthesis Rules
 
