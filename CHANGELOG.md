@@ -4,6 +4,100 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.11.0
+
+### `dev-pipeline` 17.9.0 → 17.10.0
+
+- **feat(dev-pipeline): the lane review runs a record-blind plain review beside it and posts one joined verdict (#1177)** (#1177)
+  /dev-pipeline:run's review is now joined by default. A plain
+  review, blind to the decision record, runs in parallel with the lane
+  review. The scheduler posts one verdict that merges their blockers and ends
+  with a folded lane-vs-plain summary. Each review spends one more session,
+  about +1 plain review's cost, with no added wall time beyond the longer of
+  the two. verdict-check.sh rejects a verdict that repeats a finding id.
+  Under tracker.type jira the joined review stays off.
+  Migration: to keep the lane-only review, set `"run": { "joinedReview": false }`
+  in .claude/second-shift.config.json (or RUN_JOINED_REVIEW=false).
+  the joined review is no longer off under tracker.type jira. With
+  no ticket body to hand it, the plain review reviews the diff alone, and the
+  verdict's lane-vs-plain block says so.
+  Migration: none.
+  under tracker.type jira, the joined review's plain session reads
+  the ticket itself through the read-only getJiraIssue tool instead of
+  reviewing the diff alone.
+  Migration: none.
+  the joined review's plain session is always denied Atlassian
+  write tools and reads of Claude Code transcripts, and it no longer loads
+  the PR's own .claude/, .mcp.json or CLAUDE.local.md. A plain blocker no
+  longer reuses a lane blocker's id.
+  Migration: none.
+  the joined review merges a lane and a plain blocker on an
+  extensionless file (Makefile:12, Dockerfile:3) into one finding.
+  Migration: none.
+- **feat(review): review-lead and /dev-pipeline:review run the plain review beside them (#1178)** (#1178)
+  /review-toolkit:review-lead and /dev-pipeline:review run a
+  record-blind plain review in parallel and join its blockers into the report
+  or verdict, with a folded dev: lane vs plain block, on by default.
+  review-lead needs the dev-pipeline plugin installed for it; without it the
+  report says so and stands alone.
+  Migration: set "run": { "joinedReview": false } in
+  .claude/second-shift.config.json to keep both skills as they were.
+  the review skills' plain review obeys RUN_JOINED_REVIEW like the
+  lane, and its dev block reports an unknown wall time as "? s".
+  Migration: none.
+  /review-toolkit:review-lead and /dev-pipeline:review now really
+  run their plain review: the skills' steps no longer depend on shell
+  variables, which the Bash tool does not keep between calls. Their plain
+  session is denied the Atlassian write tools and Claude transcript dirs, and
+  never loads the PR's own .claude/, .mcp.json or CLAUDE.local.md.
+  Migration: none.
+
+### `review-toolkit` 11.5.0 → 11.6.0
+
+- **feat(dev-pipeline): the lane review runs a record-blind plain review beside it and posts one joined verdict (#1177)** (#1177)
+  /dev-pipeline:run's review is now joined by default. A plain
+  review, blind to the decision record, runs in parallel with the lane
+  review. The scheduler posts one verdict that merges their blockers and ends
+  with a folded lane-vs-plain summary. Each review spends one more session,
+  about +1 plain review's cost, with no added wall time beyond the longer of
+  the two. verdict-check.sh rejects a verdict that repeats a finding id.
+  Under tracker.type jira the joined review stays off.
+  Migration: to keep the lane-only review, set `"run": { "joinedReview": false }`
+  in .claude/second-shift.config.json (or RUN_JOINED_REVIEW=false).
+  the joined review is no longer off under tracker.type jira. With
+  no ticket body to hand it, the plain review reviews the diff alone, and the
+  verdict's lane-vs-plain block says so.
+  Migration: none.
+  under tracker.type jira, the joined review's plain session reads
+  the ticket itself through the read-only getJiraIssue tool instead of
+  reviewing the diff alone.
+  Migration: none.
+  the joined review's plain session is always denied Atlassian
+  write tools and reads of Claude Code transcripts, and it no longer loads
+  the PR's own .claude/, .mcp.json or CLAUDE.local.md. A plain blocker no
+  longer reuses a lane blocker's id.
+  Migration: none.
+  the joined review merges a lane and a plain blocker on an
+  extensionless file (Makefile:12, Dockerfile:3) into one finding.
+  Migration: none.
+- **feat(review): review-lead and /dev-pipeline:review run the plain review beside them (#1178)** (#1178)
+  /review-toolkit:review-lead and /dev-pipeline:review run a
+  record-blind plain review in parallel and join its blockers into the report
+  or verdict, with a folded dev: lane vs plain block, on by default.
+  review-lead needs the dev-pipeline plugin installed for it; without it the
+  report says so and stands alone.
+  Migration: set "run": { "joinedReview": false } in
+  .claude/second-shift.config.json to keep both skills as they were.
+  the review skills' plain review obeys RUN_JOINED_REVIEW like the
+  lane, and its dev block reports an unknown wall time as "? s".
+  Migration: none.
+  /review-toolkit:review-lead and /dev-pipeline:review now really
+  run their plain review: the skills' steps no longer depend on shell
+  variables, which the Bash tool does not keep between calls. Their plain
+  session is denied the Atlassian write tools and Claude transcript dirs, and
+  never loads the PR's own .claude/, .mcp.json or CLAUDE.local.md.
+  Migration: none.
+
 ## v17.10.2
 
 ### `second-shift` 13.6.1 → 13.6.2
