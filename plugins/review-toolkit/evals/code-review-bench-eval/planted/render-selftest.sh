@@ -91,6 +91,21 @@ cmp -s "$T/lane/scratch/record-at-first.md" "$R/cases/abc123/record.md" && ok "t
 git -C "$CO" log -p > "$T/lane-log.txt"
 if leaks "$P" "$T/lane-log.txt" "$T/lane/gh/issue.json" "$T/lane/gh/pr.json" > "$T/lane-leaks.txt"; then bad "a marker in the lane arm: $(head -n 3 "$T/lane-leaks.txt")"; else ok "no marker in the lane's prompt, commits, diff, ticket or PR"; fi
 
+echo "== the joined arm =="
+py render --case abc123 --arm joined --dest "$T/joined" --clones "$T/clones" > "$T/joined.json" 2> "$T/joined.err"; rc=$?
+[ "$rc" -eq 0 ] && ok "render --arm joined exits 0" || bad "render --arm joined rc=$rc: $(tail -n 5 "$T/joined.err")"
+J="$T/joined/state"
+grep -q "^Write your verdict to $T/joined/scratch/verdict-draft-1.md with the Write tool. Do not post it" "$J/review.prompt" && ! grep -qF 'gh pr comment' "$J/review.allow" \
+  && grep -q '^Post ONE PR comment' "$P" && grep -qF 'Bash(gh pr comment*)' "$T/lane/state/review.allow" \
+  && ok "the joined arm's lane review drafts its verdict and may not comment; the lane arm renders with the switch off" || bad "joined lane: $(grep -c 'Write your verdict' "$J/review.prompt") allow=$(cat "$J/review.allow")"
+PT="$T/joined/plain/tree"
+[ -f "$PT/src/sum.sh" ] && [ ! -e "$PT/docs/plans" ] && [ ! -e "$PT/.git" ] && ok "the plain tree is the head as files, with no plans dir and no .git" || bad "plain tree: $(find "$PT" -maxdepth 1 | tr '\n' ' ')"
+PJ="$J/plain.prompt"
+grep -q '^You are acting as a reviewer' "$PJ" && grep -qxF '# Sum subtracts' "$PJ" && grep -q '^+sum() {' "$PJ" && ! grep -q 'docs/plans\|decisions\|Adapted from\|ticket-only:' "$PJ" && grep -q '^Also flag a requirement the ticket states' "$PJ" \
+  && grep -qF "saved to \`$T/joined/plain/scratch/verdict.md\`" "$PJ" && ok "the plain prompt is run.sh's plain-review.md: the ticket, the diff without the record, and its draft path" || bad "plain prompt: $(head -c 400 "$PJ")"
+grep -qx 'Read,Grep,Glob' "$J/plain.args" && grep -qx -- --strict-mcp-config "$J/plain.args" && grep -q ',Agent,Bash,' "$J/plain.args" \
+  && ok "the plain session's flags are run.sh's plain_args" || bad "plain args: $(tr '\n' ' ' < "$J/plain.args")"
+
 echo "== the local gh =="
 lgh() { (cd "$CO" && env PATH="$T/lane/bin:$PATH" GH_LOCAL_DIR="$T/lane/gh" gh "$@"); }
 [ "$(lgh issue view 41 --json title,body,comments --jq .title)" = "Sum subtracts" ] && ok "issue view serves the case's ticket" || bad "issue view: $(lgh issue view 41 --json title 2>&1)"
@@ -146,7 +161,11 @@ fi
 if grep -q '^You review PR #' <<<"$prompt"; then
   d="$(mktemp -d)"
   printf 'verdict: approve\nreviewed: %s\n\n## Summary\nMergeable as it is.\nNothing to do.\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n| D-1 | honored | src/sum.sh:1 adds its arguments. |\n\n## Findings\n\nNone.\n' "$(git rev-parse HEAD)" > "$d/v.md"
-  gh pr comment 42 --body-file "$d/v.md" >/dev/null; rm -rf "$d"
+  draft="$(sed -n 's/^Write your verdict to \(.*\) with the Write tool\. Do not post it.*/\1/p' <<<"$prompt")"
+  if [ -n "$draft" ]; then cp "$d/v.md" "$draft"; else gh pr comment 42 --body-file "$d/v.md" >/dev/null; fi; rm -rf "$d"
+elif grep -q '^You are acting as a reviewer' <<<"$prompt"; then
+  jq -n '{type: "result", subtype: "success", result: "verdict: needs-work\n## Findings\n- [blocker] B1 src/sum.sh:1 — sum still subtracts.\n  Scenario: sum 2 3 → -1", total_cost_usd: 0.25, num_turns: 2}'
+  exit 0
 else
   out="$(sed -n 's/^Output: write your verdict to `\(.*\)` in this form and nothing else:$/\1/p' <<<"$prompt")"
   printf 'verdict: needs-work\n## Findings\n- [blocker] B1 src/sum.sh:1 — sum still subtracts.\n  Scenario: sum 2 3 → -1\n' > "$out"
@@ -158,6 +177,12 @@ if [ -n "$HAVE_LANE" ]; then
 PATH="$T/fakebin:$PATH" py review --case abc123 --arm lane --dest "$T/rv-lane" --clones "$T/clones" --reviewer-model fake --no-bench > "$T/rv-lane.json" 2> "$T/rv-lane.err"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(field "$T/rv-lane.json" status)" = ok ] && [ "$(field "$T/rv-lane.json" verdict)" = approve ] && [ "$(field "$T/rv-lane.json" rows D-1)" = honored ] \
   && ok "the lane's posted verdict is captured through the local gh and passes verdict-check.sh" || bad "lane review: rc=$rc $(head -c 600 "$T/rv-lane.json") $(tail -n 3 "$T/rv-lane.err")"
+PATH="$T/fakebin:$PATH" py review --case abc123 --arm joined --dest "$T/rv-joined" --clones "$T/clones" --reviewer-model fake --no-bench > "$T/rv-joined.json" 2> "$T/rv-joined.err"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(field "$T/rv-joined.json" status)" = ok ] && [ "$(field "$T/rv-joined.json" verdict)" = needs-work ] \
+  && [ "$(field "$T/rv-joined.json" findings 0 path)" = src/sum.sh ] && grep -q '^- \[blocker\] B1 \[plain\] src/sum.sh:1' <<<"$(field "$T/rv-joined.json" text)" \
+  && ok "joined: run.sh's join adds plain's blocker to the lane's approve, and the joined verdict passes verdict-check.sh" || bad "joined review: rc=$rc $(head -c 800 "$T/rv-joined.json") $(tail -n 3 "$T/rv-joined.err")"
+[ "$(field "$T/rv-joined.json" cost_usd)" = 0.75 ] && [ "$(field "$T/rv-joined.json" plain_status)" = returned ] && [ "$(jq length "$T/rv-joined/work/gh/comments.json" 2>/dev/null)" = 0 ] \
+  && ok "joined: the record sums both sessions' cost, and the lane session posted nothing" || bad "joined record: cost=$(field "$T/rv-joined.json" cost_usd) plain=$(field "$T/rv-joined.json" plain_status)"
 fi
 PATH="$T/fakebin:$PATH" py review --case abc123 --arm plain --dest "$T/rv-plain" --clones "$T/clones" --reviewer-model fake --no-bench > "$T/rv-plain.json" 2> "$T/rv-plain.err"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(field "$T/rv-plain.json" status)" = ok ] && [ "$(field "$T/rv-plain.json" findings 0 path)" = src/sum.sh ] && [ "$(field "$T/rv-plain.json" findings 0 line)" = 1 ] \

@@ -83,6 +83,8 @@ PM1_LEAD = 6
 NO_PILOT = "--pilot: there are no pilot cases; PILOT is empty"
 ARMS = ("plain", "lane")
 BLIND_PROVE = "blind-prove"
+# run.sh's default review: the lane review and its record-blind plain review in parallel, joined into one verdict
+JOINED = "joined"
 STAGES = ("hunt", "prove", "intent")
 MAX_COST_USD = 3.0
 MAX_PROBES = 8
@@ -102,7 +104,8 @@ LANE_BLIND_RE = re.compile(
 FUNC_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) \{")
 RUN_VARS = ("TEST_PATH_ERE", "FWC_TIMEOUT_DEFAULT", "FWC_GRACE", "FWC_TIMED_OUT", "FWC_TMP", "FWC_JUDGE",
             "PLAN_NOTES", "FWC_NOTES", "SEAM_SCRUB", "SCRUB_ENV")
-RUN_NEEDS = ("plan_coverage", "fails_without_change", "review_input", "review_prompt", "review_allowlist", "inner_ms")
+RUN_NEEDS = ("plan_coverage", "fails_without_change", "review_input", "review_prompt", "review_allowlist", "inner_ms",
+             "plain_disallowed", "plain_tree", "plain_ticket", "plain_prompt", "plain_args", "plain_draft", "join_verdicts")
 REVIEW_TIMEOUT_S = 3600
 REVIEW_MAX_TURNS = 300
 DISALLOWED = "AskUserQuestion,EnterWorktree,ExitWorktree"
@@ -954,10 +957,10 @@ def install_gh(bindir: Path) -> Path:
 def render(case: dict, arm: str, work: Path, clones: Path, root: Path) -> dict:
     """Build the case under <work>/checkout and render the arm's prompt into <work>/state/review.prompt. For
     the lane, its gates run first; a gate that stops the case renders no prompt. Model-free."""
-    state, scratch, ghdir = work / "state", work / "scratch", work / "gh"
+    state, scratch, ghdir, plain_dir = work / "state", work / "scratch", work / "gh", work / "plain"
     for d in (state, scratch):
         d.mkdir(parents=True, exist_ok=True)
-    b = build(case, arm, work / "checkout", clones, root)
+    b = build(case, "lane" if arm == JOINED else arm, work / "checkout", clones, root)
     out = {**b, "case": case["id"], "state": str(state), "scratch": str(scratch), "ghdir": str(ghdir),
            "prompt": str(state / "review.prompt"), "stopped": False, "gates": {}}
     if arm == "plain":
@@ -971,9 +974,11 @@ def render(case: dict, arm: str, work: Path, clones: Path, root: Path) -> dict:
     write_gh_state(case, b, ghdir)
     funcs = state / "run-functions.sh"
     funcs.write_text(extract_run_functions(RUN_SH.read_text()))
+    # the lane arm is the stored lane-only baseline, so it renders with the joined review switched off
+    env = {**os.environ, "JOINED": "true" if arm == JOINED else "false", "PLAIN_DIR": str(plain_dir), "GH_LOCAL_DIR": str(ghdir)}
     r = subprocess.run(["bash", str(HERE / "lane-render.sh"), str(funcs), b["checkout"], str(state), str(scratch),
                         str(case["issue"]), str(case["pr"]), case["base_branch"], repo_slug(case), b["branch"]],
-                       text=True, capture_output=True)
+                       text=True, capture_output=True, env=env)
     (state / "lane-render.log").write_text(r.stdout + r.stderr)
     gates = dict(kv.split("=", 1) for kv in (state / "gates.txt").read_text().split()) if (state / "gates.txt").exists() else {}
     out["gates"] = {k: int(v) for k, v in gates.items()}
@@ -984,6 +989,10 @@ def render(case: dict, arm: str, work: Path, clones: Path, root: Path) -> dict:
         raise BuildError(f"{case['id']}: lane-render.sh exited {r.returncode}: {(r.stdout + r.stderr)[-600:]}")
     shutil.copyfile(Path(b["checkout"]) / ".claude" / "second-shift.config.json", scratch / "second-shift.config.json")
     out.update(allow=(state / "review.allow").read_text().strip(), bash_ms=lane_bash_ms(funcs))
+    if arm == JOINED:
+        out.update(funcs=str(funcs), draft=str(scratch / "verdict-draft-1.md"), plain_prompt=str(state / "plain.prompt"),
+                   plain_args=(state / "plain.args").read_text().splitlines(), plain_tree=str(plain_dir / "tree"),
+                   plain_scratch=str(plain_dir / "scratch"))
     return out
 
 
@@ -1191,7 +1200,7 @@ def collect(arm: str, text: str | None, record_head: Path | None, record_first: 
     if text is None:
         return {"status": "no-verdict", "problems": ["no verdict was written"]}
     v = parse_verdict(text)
-    problems = lane_problems_text(text, record_head, record_first) if arm == "lane" else plain_problems(v)
+    problems = lane_problems_text(text, record_head, record_first) if arm in ("lane", JOINED) else plain_problems(v)
     return {"status": "unscorable" if problems else "ok", "problems": problems, "verdict": v["verdict"],
             "rows": v["rows"], "findings": v["findings"], "text": text}
 
@@ -1309,7 +1318,7 @@ def session_args(arm: str, r: dict, sid: str, model: str) -> list[str]:
     common = ["claude", "-p", "--session-id", sid, "-n", f"bench-{arm}-{r['case']}", "--model", model,
               "--permission-mode", "acceptEdits", "--permission-prompts", "none", "--setting-sources", "user,project,local",
               "--add-dir", r["checkout"], "--add-dir", r["scratch"], "--output-format", "json"]
-    if arm == "lane":
+    if arm in ("lane", JOINED):
         sets = {"env": {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1", "BASH_DEFAULT_TIMEOUT_MS": r["bash_ms"], "BASH_MAX_TIMEOUT_MS": r["bash_ms"]}}
         return [*common, "--disallowedTools", DISALLOWED, "--settings", json.dumps(sets),
                 "--allowedTools", r["allow"], "--max-turns", str(REVIEW_MAX_TURNS)]
@@ -1371,6 +1380,8 @@ async def review_one(case: dict, arm: str, run_no: int, work: Path, clones: Path
         base = {"arm": arm, "case": case["id"], "run": run_no, "gates": r["gates"], "checkout": r["checkout"]}
         if r["stopped"]:
             return {**base, "status": "gate-stop"}
+        if arm == JOINED:
+            return {**base, **await joined_review(case, r, root, bindir, model, timeout_s, bench)}
         sid = str(uuid.uuid4())
         env = {**os.environ}
         if arm == "lane":
@@ -1399,6 +1410,71 @@ async def review_one(case: dict, arm: str, run_no: int, work: Path, clones: Path
         return {**base, **rec, "session": sid, "wall_s": wall, "cost_usd": envelope.get("total_cost_usd"),
                 "num_turns": envelope.get("num_turns"), "violations": viol, "dirt": dirt[:20],
                 "resolved_model": bench.resolved_model(envelope, model) if bench else model}
+
+
+def run_function(funcs: str, *argv: str) -> subprocess.CompletedProcess:
+    """One of run.sh's extracted functions, called with argv; its stdout is the result."""
+    return subprocess.run(["bash", "-c", '. "$1"; shift; "$@"', "_", funcs, *argv], text=True, capture_output=True,
+                          env={**os.environ, "TOOLS": str(TOOLS)})
+
+
+async def joined_review(case: dict, r: dict, root: Path, bindir: Path, model: str, timeout_s: int, bench) -> dict:
+    """run.sh's default review: the lane session writes its draft, the plain session runs beside it in its own tree,
+    and run.sh's join_verdicts makes the one verdict. Cost is both sessions'; wall time is the longer, as they overlap."""
+    state, scratch = Path(r["state"]), Path(r["scratch"])
+    sid, psid = str(uuid.uuid4()), str(uuid.uuid4())
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", "GH_LOCAL_DIR": r["ghdir"],
+           "SECOND_SHIFT_CONFIG": str(scratch / "second-shift.config.json")}
+    penv = {k: v for k, v in os.environ.items() if k != "SECOND_SHIFT_CONFIG"}
+    pargv = ["claude", "-p", "--session-id", psid, "-n", f"bench-{JOINED}-plain-{case['id']}", "--model", model, *r["plain_args"]]
+    out_path, err_path = state / "session.stdout", state / "session.stderr"
+    pout, perr = state / "plain-session.stdout", state / "plain-session.stderr"
+    async def timed(*a) -> tuple[bool, int]:
+        t0 = dt.datetime.now(dt.timezone.utc)
+        ok = await spawn_session(*a)
+        return ok, round((dt.datetime.now(dt.timezone.utc) - t0).total_seconds())
+
+    (lane_ok, lane_wall), (plain_ok, plain_wall) = await asyncio.gather(
+        timed(session_args(JOINED, r, sid, model), Path(r["prompt"]), r["checkout"], env, out_path, err_path, timeout_s),
+        timed(pargv, Path(r["plain_prompt"]), r["plain_tree"], penv, pout, perr, timeout_s))
+    wall = max(lane_wall, plain_wall)
+    rec = {"session": sid, "plain_session": psid, "session_stdout": str(out_path), "session_stderr": str(err_path),
+           "plain_session_stdout": str(pout), "wall_s": wall}
+    if not lane_ok:
+        return {**rec, "status": "timeout"}
+    _, envelope = session_result(out_path.read_bytes(), bench, f"{JOINED}/{case['id']}")
+    _, penvelope = session_result(pout.read_bytes(), bench, f"{JOINED}-plain/{case['id']}") if plain_ok else ("", {})
+    costs = [envelope.get("total_cost_usd"), penvelope.get("total_cost_usd")]
+    pdraft, why = Path(r["plain_scratch"]) / "verdict.md", ""
+    if not plain_ok:
+        why = "the plain review ran past its timeout"
+    else:
+        pout_json = state / "plain-result.json"
+        pout_json.write_text(json.dumps(penvelope))
+        if run_function(r["funcs"], "plain_draft", str(pout_json), str(pdraft)).returncode != 0:
+            why = "the plain review returned no verdict"
+    draft = Path(r["draft"])
+    text = None
+    if draft.exists():
+        cost = lambda c: "" if c is None else str(c)
+        j = run_function(r["funcs"], "join_verdicts", str(draft), "" if why else str(pdraft), why or "-",
+                         "--lane-cost", cost(costs[0]), "--plain-cost", cost(costs[1]),
+                         "--lane-wall", str(lane_wall), "--plain-wall", str(plain_wall))
+        text = j.stdout if j.returncode == 0 else None
+    co = Path(r["checkout"])
+    rec.update(collect(JOINED, text, co / record_rel(case), scratch / "record-at-first.md"))
+    viol = []
+    if bench:
+        viol = (bench.blindness_violations(sid, root, scratch, LANE_BLIND_RE)
+                + bench.blindness_violations(psid, root, Path(r["plain_scratch"]), bench.BLIND_RE))
+    dirt = checkout_dirt(co)
+    if dirt:
+        rec["status"] = "modified-checkout"
+    elif viol:
+        rec["status"] = "voided-blindness"
+    return {**rec, "plain_status": why or "returned", "violations": viol, "dirt": dirt[:20],
+            "cost_usd": None if None in costs else sum(costs), "num_turns": envelope.get("num_turns"),
+            "resolved_model": bench.resolved_model(envelope, model) if bench else model}
 
 
 # --- the blind-prove arm ---------------------------------------------------------------------
@@ -1779,7 +1855,7 @@ def run_arms(arms: list[str], pilot: bool) -> list[str]:
         raise ValueError("--arm blind-prove runs alone; drop --arm plain and --arm lane")
     if not pilot:
         return arms
-    for arm in ("lane", BLIND_PROVE):
+    for arm in ("lane", JOINED, BLIND_PROVE):
         if arm in arms:
             raise ValueError(f"--pilot reviews with the plain arm only; drop --arm {arm}")
     return ["plain"]
@@ -1957,7 +2033,7 @@ def find_case(root: Path, cid: str) -> dict:
 def cmd_render(args) -> int:
     root = Path(args.root)
     out = render(find_case(root, args.case), args.arm, Path(args.dest), Path(args.clones), root)
-    if args.arm == "lane":
+    if args.arm in ("lane", JOINED):
         install_gh(Path(args.dest) / "bin")
         out["bin"] = str(Path(args.dest) / "bin")
     print(json.dumps(out, indent=1))
@@ -2106,7 +2182,7 @@ def main() -> int:
     for name in ("render", "review"):
         s = sub.add_parser(name)
         s.add_argument("--case", required=True)
-        s.add_argument("--arm", choices=ARMS, required=True)
+        s.add_argument("--arm", choices=(*ARMS, JOINED), required=True)
         s.add_argument("--dest", required=True)
         s.add_argument("--clones", default=os.path.expanduser(os.path.join(cache_default, "bases")))
         if name == "review":
@@ -2132,7 +2208,7 @@ def main() -> int:
     s.add_argument("--cmd", dest="command", required=True, help="a bash string, run with bash -c in each side's checkout")
     s.add_argument("--files", help="a JSON object of file name to text, written into the dir the command reads as $PROBE_DIR")
     s = sub.add_parser("run")
-    s.add_argument("--arm", action="append", choices=(*ARMS, BLIND_PROVE), default=[])
+    s.add_argument("--arm", action="append", choices=(*ARMS, JOINED, BLIND_PROVE), default=[])
     for stage in STAGES:
         s.add_argument(f"--{stage}-model", default=os.environ.get(f"{stage.upper()}_MODEL"), help=f"the {BLIND_PROVE} arm's {stage} stage")
     s.add_argument("--max-cost", type=float, default=MAX_COST_USD, help=f"USD per {BLIND_PROVE} case-run, summed over its stages")

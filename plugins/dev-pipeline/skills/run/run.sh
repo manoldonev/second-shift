@@ -20,6 +20,8 @@
 #                             own waits, 300 s inside the bound: both sessions run with background tasks off and
 #                             their Bash timeouts at that value (floor 120 s)
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
+#       RUN_JOINED_REVIEW     true|false (config run.joinedReview; default true): a record-blind plain
+#                             review runs in parallel with the lane review, and the scheduler posts one joined verdict
 #       RUN_LANE_TIMEOUT      seconds (1800), a positive integer: the bound on each setup lane, check and smoke command
 #       SECOND_SHIFT_INTAKE_TOOLKIT_ROOT   the intake-toolkit whose ledger-lint.sh lints the receipt (default: the
 #                             installPath of the enabled intake-toolkit record in `claude plugin list --json`)
@@ -47,7 +49,9 @@
 #                 reporting runner — each named test must fail there; a pending one, and each
 #                 selected case, must then pass at the head);
 #                 route smoke; review input;
-#                 REVIEW in a fresh session, re-spawned once when dark; verdict bound to the
+#                 REVIEW in a fresh session, re-spawned once when dark; joined by default: a plain
+#                 session beside it, blind to the record, and the two drafts joined by tools/verdict-join.sh
+#                 into one verdict the scheduler checks and posts; verdict bound to the
 #                 review window, unedited, naming the current head, its body backing its own
 #                 verdict line (tools/verdict-check.sh); the bound verdict posted as the
 #                 `second-shift/review` commit status on that head)
@@ -161,8 +165,11 @@ terminal() { # terminal <slug> <detail> — rows B1, B21, B22, K9: the run block
 # #964 D-1 D-2: the run's scratch dir (logs, probes, PR/comment/verdict bodies), outside .claude/ and the worktree.
 # Created once $STATE exists; at every exit, the traps' included, it is archived to $STATE/scratch.tar and then
 # removed, so /tmp is left clean and a blocked run's probes survive as evidence. A failed archive keeps the dir.
-SCRATCH=""
+SCRATCH=""; PLAIN_ROOT=""
 scratch_close() {
+  # the plain review's trees are exports of a pushed head, and its drafts are copied into $STATE as they are read
+  if [ -n "${PLAIN_PID:-}" ]; then pkill -TERM -P "$PLAIN_PID" 2>/dev/null; kill -TERM "$PLAIN_PID" 2>/dev/null; PLAIN_PID=""; fi
+  [ -z "$PLAIN_ROOT" ] || { rm -rf -- "$PLAIN_ROOT"; PLAIN_ROOT=""; }
   [ -n "$SCRATCH" ] && [ -d "$SCRATCH" ] || return 0
   local d="$SCRATCH" err; SCRATCH=""
   if err="$(tar -C "$d" -cf "$STATE/scratch.tar" . 2>&1)" && tar -tf "$STATE/scratch.tar" >/dev/null 2>&1; then
@@ -287,6 +294,11 @@ cap REVIEW_TO "${RUN_REVIEW_TIMEOUT:-}" .run.reviewTimeoutSeconds 3600 int
 cap COST_CEIL "${RUN_COST_CEILING:-}" .run.costCeilingUsd 100
 cap CHECKS_RED_MAX "${RUN_CHECKS_RED_MAX:-}" .run.checksRedMax 3 int
 cap LANE_TO "${RUN_LANE_TIMEOUT:-}" .run.laneTimeoutSeconds 1800 int
+# The joined review: a record-blind plain review beside the lane review, joined into one verdict. On by default under
+# every tracker; under jira the plain session fetches its own ticket (plain_ticket, plain_args)
+JOINED="${RUN_JOINED_REVIEW:-$(cfg_bool .run.joinedReview)}"; JOINED="${JOINED:-true}"
+case "$JOINED" in true|false) : ;; *) terminal env-config-run "run.joinedReview must be true or false, got '$JOINED'" ;; esac
+PLAIN_PROMPT_FILE="$SKILL_DIR/plain-review.md"
 # F-env: a session's own waits end 5 minutes inside its bound, never below the harness's own 120 s / 600 s, so a hung
 # command or dispatch fails inside the session while it can still commit and report; capped at the JS timer maximum
 inner_ms() { local s=$(($1-300)); [ "$s" -ge "$2" ] || s="$2"; s=$((s*1000)); [ "$s" -le 2147483647 ] || s=2147483647; printf '%s' "$s"; }
@@ -321,7 +333,9 @@ command -v perl >/dev/null 2>&1 || terminal env-perl "the lanes need perl for se
 # -- processes (rows B18, F11-F13) --
 # shellcheck disable=SC2329  # invoked from the traps
 CHILD_GROUP=0   # 1 while $CHILD leads its own process group (the watch call): reaped as a group, so no descendant survives
+PLAIN_PID=""   # the plain review's background subshell while it runs; its session is that subshell's direct child
 reap() {
+  if [ -n "$PLAIN_PID" ]; then pkill -TERM -P "$PLAIN_PID" 2>/dev/null; kill -TERM "$PLAIN_PID" 2>/dev/null; fi
   [ -n "$CHILD" ] || return 0
   if [ "$CHILD_GROUP" -eq 1 ]; then kill -TERM -- "-$CHILD" 2>/dev/null; sleep 0.2; kill -KILL -- "-$CHILD" 2>/dev/null; fi
   pkill -TERM -P "$CHILD" 2>/dev/null; kill -TERM "$CHILD" 2>/dev/null
@@ -331,7 +345,7 @@ trap 'reap; scratch_close; say "interrupted; claim left in place"; exit 130' INT
 trap 'reap; scratch_close; say "terminated; claim left in place"; exit 143' TERM
 bounded() { # bounded <secs> <logfile> <cmd...> — a bash watchdog (macOS ships no `timeout`); TERM, then KILL after 10s: the cap is a bound
   local secs="$1" log="$2"; shift 2
-  ( cd "$WT" && exec "$@" ) > "$log" 2>"$log.err" < "${BOUNDED_STDIN:-/dev/null}" & CHILD=$!; CHILD_GROUP=0
+  ( cd "${BOUNDED_CWD:-$WT}" && exec "$@" ) > "$log" 2>"$log.err" < "${BOUNDED_STDIN:-/dev/null}" & CHILD=$!; CHILD_GROUP=0
   local t=0
   while kill -0 "$CHILD" 2>/dev/null; do
     if [ "$t" -ge "$secs" ]; then
@@ -393,11 +407,11 @@ cmd_grants() { # cmd_grants <command> [xargs]: one ',Bash(...)' rule per command
 }
 # -- session flags (rows F2, F4-F10) --
 DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"
-if [ "$TRACKER_WRITES" = false ]; then # the 14 Atlassian write tools under every namespace they are served under
-  for _tool in addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue editJiraIssue transitionJiraIssue createConfluencePage updateConfluencePage createConfluenceFooterComment createConfluenceInlineComment createCompassComponent createCompassComponentRelationship createCompassCustomFieldDefinition addTeamworkGraphContext; do
-    for _ns in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do DISALLOWED="$DISALLOWED,$_ns$_tool"; done
-  done
-fi
+ATLASSIAN_WRITES=""   # the 14 Atlassian write tools under every namespace they are served under
+for _tool in addCommentToJiraIssue addWorklogToJiraIssue createIssueLink createJiraIssue editJiraIssue transitionJiraIssue createConfluencePage updateConfluencePage createConfluenceFooterComment createConfluenceInlineComment createCompassComponent createCompassComponentRelationship createCompassCustomFieldDefinition addTeamworkGraphContext; do
+  for _ns in mcp__atlassian__ mcp__plugin_atlassian_atlassian__ mcp__claude_ai_Atlassian_Rovo__; do ATLASSIAN_WRITES="$ATLASSIAN_WRITES,$_ns$_tool"; done
+done
+[ "$TRACKER_WRITES" = true ] || DISALLOWED="$DISALLOWED$ATLASSIAN_WRITES"
 MCP_ALLOW=""; [ "$TRACKER" = jira ] && MCP_ALLOW=",mcp__atlassian,mcp__plugin_atlassian_atlassian,mcp__claude_ai_Atlassian_Rovo"
 # No session is granted the config's directory: by default it is the main checkout's .claude/, which holds the config,
 # this run's $STATE and every other ticket's receipt. A session reads the config from a copy in its scratch dir (spawn).
@@ -1136,7 +1150,11 @@ REACH
   echo; echo "## The build's account"
   echo "Read the build's own account last, after pass 2. Only then read the PR description and the build's PR comments. Use them to reconcile the departures and rebuttals they state. Measurements show that an author's framing lowers what a reviewer finds. If that reading changes a score or a finding, say so in the verdict's '## Notes' with a line 'revised after reading the build's account: <what changed>'."
   local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
-  echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its body follows the verdict grammar below exactly. Never edit that comment afterwards."
+  if [ "$JOINED" = true ]; then
+    echo; echo "Write your verdict to $LANE_DRAFT with the Write tool. Do not post it: the scheduler posts it on the PR. Wherever this prompt says to post a verdict, write it to that file instead. Its body follows the verdict grammar below exactly."
+  else
+    echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its body follows the verdict grammar below exactly. Never edit that comment afterwards."
+  fi
   echo "Before you post, check your draft: run 'bash $TOOLS/verdict-check.sh <your draft in $SCRATCH> $WT/$RECORD_REL $SCRATCH/record-at-first.md' (the record at the head, then at $FIRST). It prints every rule the draft breaks. Fix the draft until it exits 0. The scheduler runs the same check on the comment you post. A comment that fails the check does not count: the scheduler posts no status and starts a new review."
   echo
   # #991: the verdict grammar, stated once here and once in review/SKILL.md step 8; tools/verdict-check.sh enforces it
@@ -1147,7 +1165,7 @@ The verdict comment has these parts, in this order and nothing else:
 - `## Summary`, right after line 2, or line 3 when it is present. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
 - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
 - Fold the rows table. Put the line `<details><summary><N> rows: <k> honored, <k> departed, <k> violated, <k> undeterminable</summary>` and a blank line before the table, and the line `</details>` after it. N is the number of rows in the table, and each k is the number of rows with that score. Keep the scores in that order and leave out a score with no rows. Always write `rows`. Never write `<details open>`. A verdict that folds the table has a `## Summary`, so every row that is not honored stays visible. A table without the fold also passes.
-- `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. A section with no findings holds the single line `None.`.
+- `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. Each finding id appears once in the verdict. A section with no findings holds the single line `None.`.
 - After its id and one space, a finding names its file:line and its defect: `- [blocker] B1 path:line — <defect>`. Its first continuation line is `Scenario: <input or state> → <wrong outcome>`. A finding that a dispatched reviewer raised names that reviewer in brackets before its file:line: `- [blocker] B1 [Reviewer] path:line — <defect>`. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) or as a process note names its rule, and its file:line only where it has one. No finding carries a confidence number.
 - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. Nothing in it counts toward the verdict.
 
@@ -1219,11 +1237,110 @@ EOF
   printf '%s' "$allow"
 }
 review_allowlist() { # row F20: Agent is for the design-fidelity reviewer alone
-  local allow="Read,Grep,Glob,Agent,Bash(jq *),Bash(bash *verdict-check.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
+  local allow="Read,Grep,Glob,Agent,Bash(jq *),Bash(bash *verdict-check.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
+  [ "$JOINED" = true ] || allow="$allow,Bash(gh pr comment*)"   # joined, the scheduler posts the verdict
   [ -n "$RENDER_CMD" ] && allow="$allow$(cmd_grants "$RENDER_CMD")"
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
-  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH pr comment*),Bash($GH pr view*)"   # never the wrapper whole: it takes api -X DELETE
+  [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH pr view*)"   # never the wrapper whole: it takes api -X DELETE
+  [ "$BOT_OK" -eq 1 ] && [ "$JOINED" = false ] && allow="$allow,Bash($GH pr comment*)"
   printf '%s' "$allow"
+}
+# -- the joined review: a record-blind plain review in parallel with the lane review; the scheduler joins the two drafts
+# into one verdict and posts it. The plain session's prompt is plain-review.md beside this file, and nowhere else --
+plain_disallowed() { # plain_disallowed <lane scratch>: deny rules win over any allow, and Read's also bind Grep and Glob
+  # The Atlassian write tools are denied whatever tracker.writes says: user settings can pre-allow them, and this session
+  # reads untrusted PR content. Session transcripts are denied too: the lane session's own quotes the record.
+  # A Read path is //<absolute path>, physical, and each transcript dir is named as it exists, never as a glob
+  local wt d deny=""; wt="$(cd "$WT" 2>/dev/null && pwd -P)" || wt="$WT"
+  for d in "$MAIN_ROOT" "$wt" "$1"; do deny="$deny,Read(/$d/**)"; done
+  for d in "$HOME"/.claude "$HOME"/.claude-* ${CLAUDE_CONFIG_DIR:+"$CLAUDE_CONFIG_DIR"}; do
+    [ -d "$d/projects" ] && deny="$deny,Read(/$(cd "$d/projects" && pwd -P)/**)"
+  done
+  printf '%s,Agent,Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch%s%s' "$DISALLOWED" "$ATLASSIAN_WRITES" "$deny"
+}
+plain_tree() { # plain_tree <dir>: the head as files, with no .git and no plans dir, so no history and no record is in reach;
+  # and without the PR's own Claude settings, MCP config and local instructions, which a headless session would load
+  mkdir -p "$1" || return 1
+  git -C "$WT" archive --format=tar "$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" ":(exclude).claude" ":(exclude).mcp.json" ":(exclude)CLAUDE.local.md" | tar -x -C "$1"
+}
+PLAIN_JIRA_READ="mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue"
+plain_ticket() { # plain_ticket <out>: under github, the ticket's title and body, less every line that names the plans dir or the
+  # record; under jira, the instruction to fetch it, since this process reads no Jira ticket and the session can. A github
+  # read that fails writes the no-ticket line instead and returns 1. A session that cannot fetch its Jira ticket says so
+  # with a ticket-unavailable note, which verdict-join.sh reads
+  local j
+  if [ "$TRACKER" = jira ]; then
+    printf '%s\n' "Fetch ticket $ISSUE with the getJiraIssue tool and read its summary and description. Ignore any link to a decision record or plan." \
+      "If the tool cannot fetch it, review the diff alone and add the finding \`- [note] N0 ticket-unavailable — getJiraIssue could not fetch $ISSUE\`." > "$1"
+    return 0
+  fi
+  if j="$("$GH_READ" issue view "$ISSUE" --json title,body 2>/dev/null)" && jq -er '"# " + .title, "", (.body // "")' <<<"$j" > "$1.raw" 2>/dev/null; then
+    awk -v a="$PLANS_DIR/" -v b="${RECORD_REL##*/}" 'index($0, a) == 0 && index($0, b) == 0' "$1.raw" > "$1"
+    return 0
+  fi
+  echo "No ticket is available for this change." > "$1"; return 1
+}
+plain_prompt() { # plain_prompt <out> <ticket-file> <diff-file> <true|false: a ticket was read>: plain-review.md below its header,
+  # placeholders filled; with no ticket, each body line a header `ticket-only: <prefix>` names is dropped, with the blank
+  # line after it. index(), never a regex, so no text in a value is read as a pattern
+  awk -v out="$1" -v tf="$2" -v df="$3" -v ticket="$4" '
+    function fill(s, k, v,   i, o) { o = ""; while ((i = index(s, k)) > 0) { o = o substr(s, 1, i - 1) v; s = substr(s, i + length(k)) } return o s }
+    !body { if ($0 == "---") body = 1; else if (index($0, "ticket-only: ") == 1) only[++no] = substr($0, 14); next }
+    skip && $0 == "" { skip = 0; next }
+    { skip = 0 }
+    ticket != "true" { for (k = 1; k <= no; k++) if (index($0, only[k]) == 1) { skip = 1; next } }
+    $0 == "{ticket}" { while ((getline l < tf) > 0) print l; next }
+    $0 == "{diff}" { while ((getline l < df) > 0) print l; next }
+    { print fill($0, "{out}", out) }' "$PLAIN_PROMPT_FILE"
+}
+plain_args() { # plain_args <tree> <scratch>: the plain session's scope and permission flags, one per line; only its own tree and
+  # scratch are added. Under github no MCP server loads, so no tracker or code-host tool can fetch the record. Under jira the
+  # servers load as they do for the lane sessions, and the allowlist grants getJiraIssue alone: every other MCP tool
+  # needs a grant this session never gets, and --permission-prompts none denies it
+  local sets mcp=--strict-mcp-config allow="Read,Grep,Glob"
+  [ "$TRACKER" = jira ] && { mcp=""; allow="$allow,$PLAIN_JIRA_READ"; }
+  sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms}}')" || return 1
+  printf '%s\n' --permission-mode acceptEdits --permission-prompts none --disallowedTools "$(plain_disallowed "$SCRATCH")" \
+    --setting-sources "user,project,local" ${mcp:+"$mcp"} --add-dir "$1" --add-dir "$2" --output-format json \
+    --settings "$sets" --allowedTools "$allow" --max-turns 150
+}
+plain_draft() { # plain_draft <result json> <out>: the verdict the session's final message carries, fences dropped; 1 when there is none
+  jq -r 'select(.subtype == "success") | .result // empty' "$1" 2>/dev/null \
+    | awk '/^```/ { next } !on && /^verdict: (approve|needs-work)[ \t]*$/ { on = 1 } on' > "$2"
+  [ -s "$2" ]
+}
+plain_start() { # plain_start <attempt>: the plain session, in the background; 1 with PLAIN_WHY when its input cannot be made
+  local r="$PLAIN_ROOT/$1" sid a args=()
+  PLAIN_WHY=""; PLAIN_OK=0; PLAIN_TICKET=false
+  plain_tree "$r/tree" && mkdir -p "$r/scratch" || { PLAIN_WHY="the plain review's tree could not be written"; return 1; }
+  if plain_ticket "$STATE/plain-ticket-$1.md"; then PLAIN_TICKET=true; else PLAIN_TICKET=false; say "plain review: no ticket body to hand it — it reviews the diff alone"; fi
+  git -C "$WT" diff "origin/$BASE_NAME...$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" > "$STATE/plain-diff-$1.diff" 2>/dev/null || { PLAIN_WHY="the diff could not be read for the plain review"; return 1; }
+  plain_prompt "$r/scratch/verdict.md" "$STATE/plain-ticket-$1.md" "$STATE/plain-diff-$1.diff" "$PLAIN_TICKET" > "$STATE/plain-$1.prompt" || { PLAIN_WHY="the plain review's prompt could not be written"; return 1; }
+  sid="$(new_uuid)" || { PLAIN_WHY="no session id for the plain review"; return 1; }
+  plain_args "$r/tree" "$r/scratch" > "$STATE/plain-$1.args" || { PLAIN_WHY="the plain review's flags could not be written"; return 1; }
+  while IFS= read -r a; do args+=("$a"); done < "$STATE/plain-$1.args"
+  say "session: plain $1 $sid ~/.claude*/projects/*/$sid.jsonl"
+  date +%s > "$STATE/plain-$1.start"
+  ( BOUNDED_CWD="$r/tree"; BOUNDED_STDIN="$STATE/plain-$1.prompt"
+    bounded "$REVIEW_TO" "$STATE/plain-$1.json" env ${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"} -u SECOND_SHIFT_CONFIG "$CLAUDE" -p --session-id "$sid" \
+      -n "$ISSUE-plain-$(printf '%s' "$1" | tr -c 'A-Za-z0-9-' '-')" --model "$REVIEW_MODEL" "${args[@]}"; rc=$?
+    date +%s > "$STATE/plain-$1.end"; exit "$rc" ) & PLAIN_PID=$!
+}
+session_wall() { # session_wall <start file> <end file>: whole seconds between the two epochs, or nothing
+  local a b; a="$(cat "$1" 2>/dev/null)" && b="$(cat "$2" 2>/dev/null)" && [ -n "$a" ] && [ -n "$b" ] && echo $((b - a))
+}
+plain_collect() { # plain_collect <attempt>: waits for the plain session and counts its cost; 0 with its verdict at $STATE/plain-verdict-<attempt>.md, 1 with PLAIN_WHY
+  local rc d="$PLAIN_ROOT/$1/scratch/verdict.md"
+  [ -n "$PLAIN_PID" ] || return 1
+  wait "$PLAIN_PID"; rc=$?; PLAIN_PID=""
+  add_cost "$STATE/plain-$1.json"
+  [ "$rc" -ne 124 ] || { PLAIN_WHY="the plain review ran past ${REVIEW_TO}s"; return 1; }
+  plain_draft "$STATE/plain-$1.json" "$d" || { PLAIN_WHY="the plain review returned no verdict"; return 1; }
+  cp "$d" "$STATE/plain-verdict-$1.md" && PLAIN_OK=1
+}
+join_verdicts() { # join_verdicts <lane draft> <plain draft or ''> <why plain is missing> [verdict-join.sh flags]: the joined verdict on stdout
+  local l="$1" p="$2" w="$3"; shift 3
+  bash "$TOOLS/verdict-join.sh" "$l" "$p" --why "$w" "$@"
 }
 
 # -- the worktree (rows E17-E21, J6) --
@@ -1429,6 +1546,24 @@ verdict_notice() { # verdict_notice <attempt> <verdict url>: one plain PR commen
     echo "The scheduler never edits a verdict. After the first failed verdict, it starts one new review. After the second, the run ends as review-unbound. Then run /dev-pipeline:review $PR by hand."; } > "$f"
   err="$("$GH" pr comment "$PR" --body-file "$f" 2>&1 >/dev/null)" && { say "verdict: the notice naming the failed rules is posted on PR #$PR"; return 0; }
   STATUS_NOTES="${STATUS_NOTES}verdict notice: NOT posted — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"$'\n'; say "verdict: could not post the notice on PR #$PR"
+}
+joined_post() { # joined_post <attempt>: joins the lane draft with the plain one, checks the result and posts it once; 1 a miss, in JOINED_MISS
+  local j="$STATE/joined-verdict-$1.md" p="" err
+  [ -s "$LANE_DRAFT" ] || { JOINED_MISS="the review session wrote no verdict draft to $LANE_DRAFT"; return 1; }
+  [ "$PLAIN_OK" -eq 1 ] && p="$STATE/plain-verdict-$1.md"
+  cp "$LANE_DRAFT" "$STATE/lane-verdict-$1.md" 2>/dev/null
+  join_verdicts "$LANE_DRAFT" "$p" "${PLAIN_WHY:-the plain review did not return}" --ticket "$PLAIN_TICKET" \
+    --lane-cost "$(jq -r '.total_cost_usd | numbers' "$STATE/review-$1.json" 2>/dev/null)" --lane-wall "$(session_wall "$STATE/review-$1.start" "$STATE/review-$1.end")" \
+    --plain-cost "$(jq -r '.total_cost_usd | numbers' "$STATE/plain-$1.json" 2>/dev/null)" --plain-wall "$(session_wall "$STATE/plain-$1.start" "$STATE/plain-$1.end")" \
+    > "$j" || { JOINED_MISS="the lane and plain drafts could not be joined"; return 1; }
+  cp "$j" "$STATE/verdict-body.md" || { JOINED_MISS="the joined verdict could not be staged for its check"; return 1; }
+  verdict_check "$1"; case $? in
+    0) : ;;
+    1) JOINED_MISS="the joined verdict breaks the verdict grammar: $(paste -sd ';' "$STATE/verdict-check-$1.txt" | sed 's/;/; /g' | cut -c1-600)"; REJECTED="$STATE/verdict-check-$1.txt"; return 1 ;;
+    *) terminal verdict-uncheckable "the joined verdict could not be checked against the record ($(tr '\n' ' ' < "$STATE/verdict-check-$1.txt" | cut -c1-300)) — a check that cannot run is not one that passed; nothing posted" ;;
+  esac
+  err="$("$GH" pr comment "$PR" --body-file "$j" 2>&1 >/dev/null)" || { JOINED_MISS="the joined verdict could not be posted on PR #$PR: $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"; return 1; }
+  say "verdict: the joined verdict is posted on PR #$PR"
 }
 # -- the review status (#915 D-1 D-3 D-4 D-5 D-7): the BOUND verdict as a commit status on the sha it names. Called only
 # after the head-moved check, so a voided verdict posts nothing; a failed post is reported in the run block, never fatal --
@@ -1674,6 +1809,10 @@ if [ "$HANDOFF" -eq 0 ]; then
   SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/second-shift-$ISSUE-scratch.XXXXXX")" || terminal env-scratch-dir "cannot create a scratch dir under ${TMPDIR:-/tmp}"
   SCRATCH="$(cd "$SCRATCH" && pwd -P)"   # the physical path: a session's --add-dir and the prompt must name the same dir
   say "scratch: $SCRATCH (both sessions; archived to $STATE/scratch.tar at exit)"
+  if [ "$JOINED" = true ]; then
+    PLAIN_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/second-shift-$ISSUE-plain.XXXXXX")" || terminal env-scratch-dir "cannot create the plain review's dir under ${TMPDIR:-/tmp}"
+    PLAIN_ROOT="$(cd "$PLAIN_ROOT" && pwd -P)"
+  fi
 fi
 
 # ============================ 5. baseline (rows E3-E6, E17, E18, G7, H6, J6, J11) ============================
@@ -1904,9 +2043,14 @@ while :; do
     if [ -z "$miss" ]; then
       # the record at FIRST, where the review's own draft check reads it (the head's is in the worktree it reviews)
       [ -z "$SCRATCH" ] || record_at_first > "$SCRATCH/record-at-first.md" || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL for the review"
+      LANE_DRAFT="$SCRATCH/verdict-draft-$RA.md"
       review_prompt "$PR" "$INPUT" "$REJECTED" > "$STATE/review-$RA.prompt"
-      start="$(now)"
+      PLAIN_OK=0; PLAIN_WHY=""; PLAIN_TICKET=false
+      [ "$JOINED" = false ] || plain_start "$RA" || say "plain review: not started — $PLAIN_WHY"
+      start="$(now)"; date +%s > "$STATE/review-$RA.start"
       spawn review "$REVIEW_MODEL" "$RA" "$(review_allowlist)" 300 "$STATE/review-$RA.prompt"; rrc=$?
+      date +%s > "$STATE/review-$RA.end"
+      [ "$JOINED" = false ] || [ -z "$PLAIN_PID" ] || plain_collect "$RA" || say "plain review: $PLAIN_WHY"
       end="$(now)"
       # #964 D-4: the review's denials, read as the build's are. Known gap: a denial inside the review's Workflow
       # subagents is not in this result JSON, so it is not counted here
@@ -1914,7 +2058,9 @@ while :; do
       rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$RA.json" 2>/dev/null)"
       if [ "$rrc" -eq 124 ]; then miss="the review session exceeded ${REVIEW_TO}s"
       elif [ "$rsub" != success ]; then miss="the review session ended $rsub (rc=$rrc)"
+      elif [ "$JOINED" = true ] && ! joined_post "$RA"; then miss="$JOINED_MISS"
       else
+        [ "$JOINED" = false ] || end="$(now)"
         VERDICT="$(verdict "$start" "$end")"; vrc=$?
         [ "$vrc" -ne 2 ] || terminal env-tracker-unreadable "the PR's comments could not be read after the review — an environment refusal, not a verdict; --resume"
         # a review reads the head as it is when it starts, so one that names a head the checks never ran on is a moved head, not a

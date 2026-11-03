@@ -22,7 +22,7 @@
 #   a `## Summary`, which names every row that is not honored;
 #   `## Findings`: each finding starts `- [blocker] B<n> ` or `- [note] N<n> `, continuation lines are
 #   indented two or more spaces, and a section with no findings holds the single line `None.`; the
-#   rest of a finding's line is free text;
+#   rest of a finding's line is free text, and no finding id appears twice;
 #   `## Panel` (optional, not parsed: earlier verdicts carry one) and `## Notes` (optional, free prose).
 # `Ready to merge?` anywhere fails. An approve has no [blocker], no violated or undeterminable score
 # and no reason line; a needs-work has a [blocker], a violated or undeterminable score, or a reason
@@ -119,6 +119,10 @@ sec == 2 {
 sec == 3 {
   if ($0 ~ /^[ \t]*$/) next
   if ($0 == "None.") { nones++; next }
+  if (match($0, /^- \[(blocker|note)\] [BN][0-9]+ /)) {
+    fid = substr($0, 1, RLENGTH - 1); sub(/^.* /, "", fid)
+    if (fid in fids) fail("finding id repeated", fid); fids[fid] = 1
+  }
   if ($0 ~ /^- \[blocker\] B[0-9]+ /) { blockers++; finds++; infind = 1; next }
   if ($0 ~ /^- \[note\] N[0-9]+ /) { finds++; infind = 1; next }
   if (infind && $0 ~ /^  /) next

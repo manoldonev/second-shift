@@ -52,6 +52,8 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@x GIT_COMMITTER_NAME=t GIT_COMMITTER
 unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS BASH_DEFAULT_TIMEOUT_MS BASH_MAX_TIMEOUT_MS CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS RUN_BUILD_TIMEOUT RUN_REVIEW_TIMEOUT
 # ...and an operator's shell may be a herdr pane with a watch configured (#939): the cases set these themselves
 for _v in $(compgen -e HERDR_) RUN_WATCH_CMD RUN_WATCH_EDITOR RUN_DETACHED_LOG; do unset "$_v"; done
+# every slice but run-joined-selftest.sh drives the switched-off review, the lane review alone; that suite unsets this
+export RUN_JOINED_REVIEW=false
 
 # ---- fakes ----
 # build-sleep's child names its fixture: the sweep runs suites concurrently, and a bare 'sleep 60' matches a sibling's
@@ -63,14 +65,22 @@ cat > "$T/bin/gh" <<'EOF'
 # state dir: $FAKE_GH — files: state, labels, prs, comments.json (array), cost-comments, statuses (commit-status posts), minimized (minimizeComment calls)
 S="$FAKE_GH"; sub="$1 $2"; path="${2:-}"; shift 2
 case "$sub" in
-  "issue view")  case "$*" in *state*) cat "$S/state" ;; *labels*) cat "$S/labels" 2>/dev/null ;; esac ;;
+  "issue view")  case "$*" in *state*) cat "$S/state" ;; *labels*) cat "$S/labels" 2>/dev/null ;;
+                   *body*) [ -f "$S/issue-unreadable" ] && exit 1   # the joined review's ticket read; its second line links the record
+                           jq -n '{title:"a change",body:"Do the thing in src/a.ts.\nSee docs/plans/main-42-decisions.md for the record."}' ;; esac ;;
   "issue edit")  add=""; rm=""; while [ $# -gt 0 ]; do case "$1" in --add-label) add="$2"; shift 2;; --remove-label) rm="$2"; shift 2;; *) shift;; esac; done
                  [ -n "$add" ] && echo "$add" >> "$S/labels"; [ -n "$rm" ] && { grep -vx "$rm" "$S/labels" > "$S/l.tmp"; mv "$S/l.tmp" "$S/labels"; } ;;
   "issue comment") echo "$*" >> "$S/issue-comments" ;;
   "pr list")     cat "$S/prs" 2>/dev/null ;;
   "pr checks")   [ -f "$S/ci-red" ] && echo '[{"name":"ci","state":"FAILURE"}]' || echo '[]' ;;
   "pr comment")  echo "$*" >> "$S/cost-comments"   # a --body-file's text goes to pr-comment-bodies, one comment after another
-                 prev=""; for a in "$@"; do [ "$prev" = --body-file ] && { cat "$a"; echo '<!-- end of comment -->'; } >> "$S/pr-comment-bodies"; prev="$a"; done ;;
+                 prev=""; for a in "$@"; do [ "$prev" = --body-file ] && { cat "$a"; echo '<!-- end of comment -->'; } >> "$S/pr-comment-bodies"; prev="$a"; done
+                 # a verdict the scheduler posts itself (the joined review) lands among the PR's comments, as the operator
+                 prev=""; for a in "$@"; do
+                   if [ "$prev" = --body-file ] && grep -qE '^verdict: ' <<<"$(head -n 1 "$a")"; then
+                     jq --rawfile b "$a" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + [{id:(length+1),node_id:"N\(length+1)",body:($b|rtrimstr("\n")),user:{login:"tester",type:"User"},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
+                   fi; prev="$a"
+                 done ;;
   "pr ready")    [ -f "$S/ready-fail" ] && { cat "$S/ready-fail" >&2; exit 1; }   # one line per flip, in order: who, which way
                  case "$*" in *--undo*) touch "$S/draft"; w=undo ;; *) rm -f "$S/draft"; w=ready ;; esac; echo "${FAKE_GH_AS:-operator} $w" >> "$S/ready-calls" ;;
   "pr view")     case "$*" in *body*) jq -n --rawfile b "$S/pr-created-body.txt" --arg t "$(cat "$S/pr-created-title.txt" 2>/dev/null || echo 'fix: a change')" --argjson d "$([ -f "$S/draft" ] && echo true || echo false)" '{body:$b, title:$t, isDraft:$d}' ;; *) echo "https://x/pr/7" ;; esac ;;
@@ -96,7 +106,36 @@ EOF
 cat > "$T/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 # behaviors come one per line from $FAKE_CLAUDE_PLAN, consumed in order; cwd is the worktree.
-S="$FAKE_GH"; n=$(cat "$S/calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/calls"
+S="$FAKE_GH"
+# the joined review's plain session runs in parallel with the lane review: it keeps its own counter and plan
+# ($FAKE_PLAIN_PLAN, default plain-approve), so the lane's call numbers never race it
+prev=""; for a in "$@"; do [ "$prev" = -n ] && case "$a" in *-plain-*) PLAIN_SESSION=1 ;; esac; prev="$a"; done
+if [ -n "${PLAIN_SESSION:-}" ]; then
+  k=$(cat "$S/plain-calls" 2>/dev/null || echo 0); k=$((k+1)); echo "$k" > "$S/plain-calls"; touch "$S/plain-running"
+  cat > "$S/plain-prompt-$k.txt"; printf '%s\n' "$@" > "$S/plain-args-$k.txt"; pwd -P > "$S/plain-cwd-$k.txt"; find . | sort > "$S/plain-tree-$k.txt"
+  # what the session could open — its cwd and each --add-dir — searched for the record's own row, the record file and history
+  { pwd -P; prev=""; for a in "$@"; do [ "$prev" = --add-dir ] && echo "$a"; prev="$a"; done; } > "$S/plain-dirs-$k.txt"
+  : > "$S/plain-reach-$k.txt"
+  while IFS= read -r dd; do
+    grep -rlF '| D-1 | a | b | user-answered' "$dd" >> "$S/plain-reach-$k.txt" 2>/dev/null
+    find "$dd" -name .git -o -name '*-decisions.md' >> "$S/plain-reach-$k.txt" 2>/dev/null
+  done < "$S/plain-dirs-$k.txt"
+  plan=$(sed -n "${k}p" "${FAKE_PLAIN_PLAN:-/dev/null}" 2>/dev/null); [ -n "$plan" ] || plan=plain-approve
+  r=""
+  case "$plan" in
+    plain-approve)       r=$'verdict: approve\n## Findings\nNone.' ;;
+    plain-blocker-agree) r=$'```\nverdict: needs-work\n## Findings\n- [blocker] B1 src/a.ts:4 — the defect the lane saw\n- [note] N1 src/a.ts:9 — a plain note\n```' ;;
+    plain-blocker-new)   r=$'verdict: needs-work\n## Findings\n- [blocker] B1 src/other.ts:20 — a defect only plain saw\n  Scenario: an empty list → a crash' ;;
+    plain-no-jira)       r=$'verdict: approve\n## Findings\n- [note] N0 ticket-unavailable — getJiraIssue could not fetch GH-42' ;;
+    plain-makefile)      r=$'verdict: needs-work\n## Findings\n- [blocker] B1 Makefile:13 — the test target skips the new suite\n- [blocker] B2 the docs at https://ci.test:443 still name the old target' ;;
+    plain-slow)          sleep 2; r=$'verdict: approve\n## Findings\nNone.' ;;
+    plain-silent)        r="I looked around and have nothing to add." ;;
+    plain-crash)         rm -f "$S/plain-running"; printf '{"subtype":"error_during_execution","total_cost_usd":0.5}\n'; exit 1 ;;
+  esac
+  rm -f "$S/plain-running"
+  jq -n --arg r "$r" '{subtype:"success",result:$r,total_cost_usd:0.5,num_turns:2}'; exit 0
+fi
+n=$(cat "$S/calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/calls"
 plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="$(cat)"; [ -n "$prompt" ] || prompt="${@: -1}"   # stdin is the contract; the argv fallback lets (q12) fail for the real reason against an argv-passing run.sh
 printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
 # #964: each --add-dir that exists while the session runs is recorded, and a probe is left in the run's scratch dir
@@ -127,7 +166,9 @@ vbody() { # vbody <verdict> <sha> [<text after the findings>]
   local f="None."; [ "$1" = needs-work ] && f="- [blocker] B1 fake finding"
   printf 'verdict: %s\nreviewed: %s\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n%s\n\n## Findings\n\n%s\n%s' "$1" "$2" "${ROWS-| D-1 | honored | fake |}" "${FINDINGS:-$f}" "${3:-}"
 }
-post() { # post <body>: one comment by the verdict author, created and updated now
+post() { # post <body>: one comment by the verdict author, created and updated now; under the joined review, its draft file instead
+  local draft; draft="$(sed -n 's/^Write your verdict to \(.*\) with the Write tool\. Do not post it.*/\1/p' "$S/prompt-$n.txt" | head -n 1)"
+  [ -z "$draft" ] || { printf '%s\n' "$1" > "$draft"; return 0; }
   jq --arg b "$1" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg u "${FAKE_VERDICT_AUTHOR:-tester}" --arg ut "${FAKE_VERDICT_AUTHOR_TYPE:-User}" '. + [{id:(length+1),node_id:"N\(length+1)",body:$b,user:{login:$u,type:$ut},created_at:$t,updated_at:$t,html_url:"https://x/pr/7#verdict"}]' "$S/comments.json" > "$S/c.tmp" && mv "$S/c.tmp" "$S/comments.json"
 }
 case "$plan" in
@@ -152,6 +193,8 @@ case "$plan" in
                    echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "fix: a change for $k"; git push -q origin "$branch"; openpr ;;
   build-pr-close)  push; openpr; echo CLOSED > "$S/state" ;;
   build-pr-dirty)  push; openpr; echo uncommitted >> work.txt ;;
+  build-pr-claude-files) mkdir -p .claude; echo '{"hooks":{}}' > .claude/settings.json; echo '{"mcpServers":{}}' > .mcp.json   # the PR's own Claude config,
+                   echo 'local' > CLAUDE.local.md; git add -f .claude/settings.json .mcp.json CLAUDE.local.md; push; openpr ;;          # forced: the fixture gitignores .claude/
   build-pr-chmod)  printf '#!/usr/bin/env bash\n' > new-selftest.sh; chmod +x new-selftest.sh; push; openpr ;;
   build-pr-update-index) printf '#!/usr/bin/env bash\n' > new-selftest.sh; git add new-selftest.sh; git update-index --chmod=+x new-selftest.sh   # the index's mode only:
                    git commit -qm "build $n"; git push -q origin "$branch"; openpr ;;                                                  # push's git add -A would copy 100644 back
@@ -219,6 +262,13 @@ case "$plan" in
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
     sha=$(git rev-parse "origin/$branch"); for v in ${FAKE_ORDER//,/ }; do post "$(vbody "$v" "$sha")"; done ;;
   review-silent)   : ;;
+  review-needs-work-makefile) # a blocker on an extensionless file
+    post "$(FINDINGS=$'- [blocker] B1 Makefile:12 — the test target skips the new suite\n  Scenario: make test → the suite never runs\n  Fix: add it to the target' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
+  review-approve-summary) # an approve carrying a Summary, as a real review writes one
+    post "$(printf 'verdict: approve\nreviewed: %s\n\n## Summary\n\nMergeable as it is.\nNothing to do.\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n| D-1 | honored | fake |\n\n## Findings\n\nNone.' "$(git rev-parse "origin/$branch")")" ;;
+  review-approve-seeplain) # waits up to 3 s for the plain session to be running, and records whether it was
+    for _ in 1 2 3 4 5 6; do [ -f "$S/plain-running" ] && { touch "$S/saw-plain-running"; break; }; sleep 0.5; done
+    post "$(vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-detach)   git checkout -q --detach "origin/$branch"; post "$(vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
 esac
 printf '{"subtype":"success","total_cost_usd":%s,"num_turns":3,"permission_denials":[{"tool_name":"Bash","tool_input":{"command":"ls /"}}]}\n' "$cost"
