@@ -1251,56 +1251,22 @@ plain_disallowed() { # plain_disallowed <lane scratch>: deny rules win over any 
   local wt; wt="$(cd "$WT" 2>/dev/null && pwd -P)" || wt="$WT"   # physical, as $MAIN_ROOT and the scratch dir are
   printf '%s,Agent,Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(/%s/**),Read(/%s/**),Read(/%s/**)' "$DISALLOWED" "$MAIN_ROOT" "$wt" "$1"
 }
-plain_tree() { # plain_tree <dir>: the head as files, with no .git and no plans dir, so no history and no record is in reach
-  mkdir -p "$1" || return 1
-  git -C "$WT" archive --format=tar "$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" | tar -x -C "$1"
-}
-PLAIN_JIRA_READ="mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue"
+# The plain session's parts are tools/plain-review.sh's alone; the review skills compose the same ones
+plain_tree() { bash "$TOOLS/plain-review.sh" tree "$WT" "$HEAD_SHA" "$PLANS_DIR" "$1"; }
 plain_ticket() { # plain_ticket <out>: under github, the ticket's title and body, less every line that names the plans dir or the
   # record; under jira, the instruction to fetch it, since this process reads no Jira ticket and the session can. A github
-  # read that fails writes the no-ticket line instead and returns 1. A session that cannot fetch its Jira ticket says so
-  # with a ticket-unavailable note, which verdict-join.sh reads
+  # read that fails writes the no-ticket line instead and returns 1
   local j
-  if [ "$TRACKER" = jira ]; then
-    printf '%s\n' "Fetch ticket $ISSUE with the getJiraIssue tool and read its summary and description. Ignore any link to a decision record or plan." \
-      "If the tool cannot fetch it, review the diff alone and add the finding \`- [note] N0 ticket-unavailable — getJiraIssue could not fetch $ISSUE\`." > "$1"
-    return 0
-  fi
+  if [ "$TRACKER" = jira ]; then bash "$TOOLS/plain-review.sh" ticket-text jira "$ISSUE" > "$1"; return 0; fi
   if j="$("$GH_READ" issue view "$ISSUE" --json title,body 2>/dev/null)" && jq -er '"# " + .title, "", (.body // "")' <<<"$j" > "$1.raw" 2>/dev/null; then
-    awk -v a="$PLANS_DIR/" -v b="${RECORD_REL##*/}" 'index($0, a) == 0 && index($0, b) == 0' "$1.raw" > "$1"
+    bash "$TOOLS/plain-review.sh" strip "$PLANS_DIR" "${RECORD_REL##*/}" < "$1.raw" > "$1"
     return 0
   fi
-  echo "No ticket is available for this change." > "$1"; return 1
+  bash "$TOOLS/plain-review.sh" ticket-text none > "$1"; return 1
 }
-plain_prompt() { # plain_prompt <out> <ticket-file> <diff-file> <true|false: a ticket was read>: plain-review.md below its header,
-  # placeholders filled; with no ticket, each body line a header `ticket-only: <prefix>` names is dropped, with the blank
-  # line after it. index(), never a regex, so no text in a value is read as a pattern
-  awk -v out="$1" -v tf="$2" -v df="$3" -v ticket="$4" '
-    function fill(s, k, v,   i, o) { o = ""; while ((i = index(s, k)) > 0) { o = o substr(s, 1, i - 1) v; s = substr(s, i + length(k)) } return o s }
-    !body { if ($0 == "---") body = 1; else if (index($0, "ticket-only: ") == 1) only[++no] = substr($0, 14); next }
-    skip && $0 == "" { skip = 0; next }
-    { skip = 0 }
-    ticket != "true" { for (k = 1; k <= no; k++) if (index($0, only[k]) == 1) { skip = 1; next } }
-    $0 == "{ticket}" { while ((getline l < tf) > 0) print l; next }
-    $0 == "{diff}" { while ((getline l < df) > 0) print l; next }
-    { print fill($0, "{out}", out) }' "$PLAIN_PROMPT_FILE"
-}
-plain_args() { # plain_args <tree> <scratch>: the plain session's scope and permission flags, one per line; only its own tree and
-  # scratch are added. Under github no MCP server loads, so no tracker or code-host tool can fetch the record. Under jira the
-  # servers load as they do for the lane sessions, and the allowlist grants getJiraIssue alone: every other MCP tool
-  # needs a grant this session never gets, and --permission-prompts none denies it
-  local sets mcp=--strict-mcp-config allow="Read,Grep,Glob"
-  [ "$TRACKER" = jira ] && { mcp=""; allow="$allow,$PLAIN_JIRA_READ"; }
-  sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms}}')" || return 1
-  printf '%s\n' --permission-mode acceptEdits --permission-prompts none --disallowedTools "$(plain_disallowed "$SCRATCH")" \
-    --setting-sources "user,project,local" ${mcp:+"$mcp"} --add-dir "$1" --add-dir "$2" --output-format json \
-    --settings "$sets" --allowedTools "$allow" --max-turns 150
-}
-plain_draft() { # plain_draft <result json> <out>: the verdict the session's final message carries, fences dropped; 1 when there is none
-  jq -r 'select(.subtype == "success") | .result // empty' "$1" 2>/dev/null \
-    | awk '/^```/ { next } !on && /^verdict: (approve|needs-work)[ \t]*$/ { on = 1 } on' > "$2"
-  [ -s "$2" ]
-}
+plain_prompt() { bash "$TOOLS/plain-review.sh" prompt "$1" "$2" "$3" "$4" "$PLAIN_PROMPT_FILE"; }
+plain_args() { bash "$TOOLS/plain-review.sh" args "$1" "$2" "$(plain_disallowed "$SCRATCH")" "$REVIEW_BASH_MS" "$TRACKER"; }
+plain_draft() { bash "$TOOLS/plain-review.sh" draft "$1" "$2"; }
 plain_start() { # plain_start <attempt>: the plain session, in the background; 1 with PLAIN_WHY when its input cannot be made
   local r="$PLAIN_ROOT/$1" sid a args=()
   PLAIN_WHY=""; PLAIN_OK=0; PLAIN_TICKET=false
