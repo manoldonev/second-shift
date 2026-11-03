@@ -127,6 +127,7 @@ if [ -n "${PLAIN_SESSION:-}" ]; then
     plain-blocker-agree) r=$'```\nverdict: needs-work\n## Findings\n- [blocker] B1 src/a.ts:4 — the defect the lane saw\n- [note] N1 src/a.ts:9 — a plain note\n```' ;;
     plain-blocker-new)   r=$'verdict: needs-work\n## Findings\n- [blocker] B1 src/other.ts:20 — a defect only plain saw\n  Scenario: an empty list → a crash' ;;
     plain-no-jira)       r=$'verdict: approve\n## Findings\n- [note] N0 ticket-unavailable — getJiraIssue could not fetch GH-42' ;;
+    plain-makefile)      r=$'verdict: needs-work\n## Findings\n- [blocker] B1 Makefile:13 — the test target skips the new suite\n- [blocker] B2 the docs at https://ci.test:443 still name the old target' ;;
     plain-slow)          sleep 2; r=$'verdict: approve\n## Findings\nNone.' ;;
     plain-silent)        r="I looked around and have nothing to add." ;;
     plain-crash)         rm -f "$S/plain-running"; printf '{"subtype":"error_during_execution","total_cost_usd":0.5}\n'; exit 1 ;;
@@ -261,6 +262,8 @@ case "$plan" in
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work
     sha=$(git rev-parse "origin/$branch"); for v in ${FAKE_ORDER//,/ }; do post "$(vbody "$v" "$sha")"; done ;;
   review-silent)   : ;;
+  review-needs-work-makefile) # a blocker on an extensionless file
+    post "$(FINDINGS=$'- [blocker] B1 Makefile:12 — the test target skips the new suite\n  Scenario: make test → the suite never runs\n  Fix: add it to the target' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
   review-approve-summary) # an approve carrying a Summary, as a real review writes one
     post "$(printf 'verdict: approve\nreviewed: %s\n\n## Summary\n\nMergeable as it is.\nNothing to do.\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n| D-1 | honored | fake |\n\n## Findings\n\nNone.' "$(git rev-parse "origin/$branch")")" ;;
   review-approve-seeplain) # waits up to 3 s for the plain session to be running, and records whether it was

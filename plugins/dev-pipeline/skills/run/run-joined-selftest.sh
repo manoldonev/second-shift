@@ -170,6 +170,15 @@ for h in "$HOME"/.claude "$HOME"/.claude-*; do [ -d "$h/projects" ] && { [[ "$di
 [[ "$dis" == *"$want"* ]] && [ "$home_ok" -eq 1 ] \
   && ok "(j12) reads of every transcript dir are denied: \$CLAUDE_CONFIG_DIR/projects and each ~/.claude*/projects that exists" || bad "(j12) deny list: $dis"
 
+# (j13) an extensionless path is a site: lane Makefile:12 and plain Makefile:13 are one finding; a URL host:port is no site
+fixture j13; printf 'build-pr\nreview-needs-work-makefile\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-makefile\nplain-approve\n' > "$FAKE_PLAIN_PLAN"
+run_case "$d"; expect approved "(j13) blockers on a Makefile, then approve"
+posted 1 > "$d/v1.md"
+grep -qx -- '- \[blocker\] B1 \[lane+plain\] Makefile:12 — the test target skips the new suite' "$d/v1.md" \
+  && grep -qx -- '- \[blocker\] B2 \[plain\] the docs at https://ci.test:443 still name the old target' "$d/v1.md" && [ "$(grep -c '^- \[blocker\]' "$d/v1.md")" -eq 2 ] \
+  && grep -qx -- '- Agreed: B1 ↔ plain B1' "$d/v1.md" && grep -qx -- '- Plain-only: B2 (plain B2)' "$d/v1.md" \
+  && ok "(j13) Makefile:12 and Makefile:13 merge into one [lane+plain] finding; the URL blocker has no site and is added as [plain]" || bad "(j13) first verdict: $(grep '^- ' "$d/v1.md" | tr '\n' '|')"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 exit $?
