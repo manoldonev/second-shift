@@ -4,6 +4,34 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.12.0
+
+### `dev-pipeline` 17.10.0 → 17.11.0
+
+- **feat(dev-pipeline): the lane vs blind block compares every finding side by side (#1181)** (#1181)
+  the joined verdict and review-lead report call the record-blind
+  review "blind" ([blind], [lane+blind], `dev: lane vs blind`), and the folded
+  block compares every finding of both reviews in a table (outcome, site, both
+  texts), quotes the blind review's draft, and adds an outcome matrix to its
+  plain-vs-lane machine line; a located ticket-unavailable note is now read as
+  a review without the ticket.
+  Migration: none. Scripts reading the machine line keep every existing key;
+  scripts matching the [plain] tags, the block's old bullet lines or its
+  summary must match [blind] and the prefix `dev: lane vs blind`.
+
+### `review-toolkit` 11.6.0 → 11.7.0
+
+- **feat(dev-pipeline): the lane vs blind block compares every finding side by side (#1181)** (#1181)
+  the joined verdict and review-lead report call the record-blind
+  review "blind" ([blind], [lane+blind], `dev: lane vs blind`), and the folded
+  block compares every finding of both reviews in a table (outcome, site, both
+  texts), quotes the blind review's draft, and adds an outcome matrix to its
+  plain-vs-lane machine line; a located ticket-unavailable note is now read as
+  a review without the ticket.
+  Migration: none. Scripts reading the machine line keep every existing key;
+  scripts matching the [plain] tags, the block's old bullet lines or its
+  summary must match [blind] and the prefix `dev: lane vs blind`.
+
 ## v17.11.0
 
 ### `dev-pipeline` 17.9.0 → 17.10.0
