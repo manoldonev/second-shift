@@ -4,6 +4,27 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.12.1
+
+### `dev-pipeline` 17.11.0 → 17.11.1
+
+- **fix(dev-pipeline): let the plain review look up the Jira cloudId it needs (#1183)** (#1183)
+  a plain review started with --jira-key can now fetch its ticket; it was denied the
+  getAccessibleAtlassianResources cloudId lookup and always reviewed without the ticket.
+  Migration: none.
+
+### `review-toolkit` 11.7.0 → 11.7.1
+
+- **fix(dev-pipeline): let the plain review look up the Jira cloudId it needs (#1183)** (#1183)
+  a plain review started with --jira-key can now fetch its ticket; it was denied the
+  getAccessibleAtlassianResources cloudId lookup and always reviewed without the ticket.
+  Migration: none.
+- **fix(review-toolkit): hold the scope gate to what the PR claims of its ticket (#1184)** (#1184)
+  the scope-completeness gate no longer blocks a PR that links its ticket without a
+  closing keyword (Relates to, Part of) on ticket items the PR does not attempt; it lists them as
+  not delivered by this PR. Closing PRs keep the whole-ticket gate.
+  Migration: none.
+
 ## v17.12.0
 
 ### `dev-pipeline` 17.10.0 → 17.11.0
