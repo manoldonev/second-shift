@@ -509,9 +509,9 @@ PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" && bash "$PT/plai
 `<scratch dir>/plain-ticket.md`
 (`gh issue view <N> --json title,body --jq '"# " + .title, "", (.body // "")' > "<scratch dir>/plain-ticket.md"`)
 and pass `--ticket "<scratch dir>/plain-ticket.md"`. When a Jira key was given, pass `--jira-key <KEY>`: the
-session may then read that issue with `getJiraIssue` and call nothing else. With neither, the plain review reviews
-the diff alone. Pass `--record <name>` when a decision record was found in Process step 4, so a ticket line naming
-it is dropped. Run this with `run_in_background`, never in the foreground:
+session may then read that issue with `getJiraIssue`, look up its cloudId with `getAccessibleAtlassianResources`, and
+call nothing else. With neither, the plain review reviews the diff alone. Pass `--record <name>` when a decision
+record was found in Process step 4, so a ticket line naming it is dropped. Run this with `run_in_background`, never in the foreground:
 
 ```bash
 PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" && \

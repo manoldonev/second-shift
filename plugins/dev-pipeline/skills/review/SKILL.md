@@ -45,7 +45,8 @@ review.
    `bash <this skill's base directory>/../../tools/plain-review.sh enabled` prints `false`. Under
    github, write the ticket you read in step 1 to a file, as `# <title>`, a blank line, then the
    body, and pass it as `--ticket <file>`. Under jira, pass `--jira-key <KEY>` instead: the session
-   may then read that issue with `getJiraIssue` and call nothing else. Then run this with
+   may then read that issue with `getJiraIssue`, look up its cloudId with
+   `getAccessibleAtlassianResources`, and call nothing else. Then run this with
    `run_in_background`, never in the foreground:
 
    ```bash

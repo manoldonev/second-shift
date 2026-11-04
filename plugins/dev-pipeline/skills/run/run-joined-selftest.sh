@@ -119,7 +119,8 @@ run_case "$d"; expect approved "(j7) run.joinedReview false"
   && ! jq -e '.[0].body | contains("dev: lane vs blind")' "$FAKE_GH/comments.json" >/dev/null \
   && ok "(j7) no plain session and no dev block; the lane review posts its own verdict" || bad "(j7) plain-calls=$(cat "$FAKE_GH/plain-calls" 2>/dev/null)"
 
-# (j8) jira, the default: the scheduler reads no Jira ticket, so the plain session fetches it with the read-only getJiraIssue tool
+# (j8) jira, the default: the scheduler reads no Jira ticket, so the plain session fetches it with the read-only getJiraIssue tool,
+# after looking up the cloudId that tool requires
 JIRACFG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}'
 jira_run() { # jira_run <label>: the fixture's run under the jira key GH-42
   mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
@@ -129,9 +130,9 @@ jira_run() { # jira_run <label>: the fixture's run under the jira key GH-42
 FIXTURE_CONFIG="$JIRACFG" fixture j8; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"; jira_run j8
 pa="$FAKE_GH/plain-args-1.txt"; pp="$FAKE_GH/plain-prompt-1.txt"
 allow="$(awk 'p { print; exit } $0 == "--allowedTools" { p = 1 }' "$pa")"
-[ "$allow" = 'Read,Grep,Glob,mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue' ] \
+[ "$allow" = 'Read,Grep,Glob,mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue,mcp__atlassian__getAccessibleAtlassianResources,mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources' ] \
   && ! grep -qx -- --strict-mcp-config "$pa" \
-  && ok "(j8) the plain session loads MCP servers and is allowed getJiraIssue alone, under each Atlassian namespace" || bad "(j8) allow=$allow strict=$(grep -cx -- --strict-mcp-config "$pa")"
+  && ok "(j8) the plain session loads MCP servers and is allowed getJiraIssue and its cloudId lookup alone, under each Atlassian namespace" || bad "(j8) allow=$allow strict=$(grep -cx -- --strict-mcp-config "$pa")"
 dis="$(awk 'p { print; exit } $0 == "--disallowedTools" { p = 1 }' "$pa")"
 [[ "$dis" == *mcp__atlassian__editJiraIssue* && "$dis" == *mcp__claude_ai_Atlassian_Rovo__createConfluencePage* ]] && ! grep -qE 'editJiraIssue|createJiraIssue|transitionJiraIssue|addCommentToJiraIssue|Confluence|search' <<<"$allow" \
   && ok "(j8) no Atlassian write, Confluence or search tool is allowed, and the write tools are denied" || bad "(j8) allow=$allow"
