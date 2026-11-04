@@ -87,11 +87,11 @@ bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o6" --
 [ "$RC" -eq 2 ] && ok "(p8) --ticket and --jira-key together is usage: exit 2" || bad "(p8) rc=$RC"
 
 FAKE_MODE=none bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o3" --plans-dir docs/plans >/dev/null 2>&1; RC=$?
-[ "$RC" -eq 1 ] && [ "$(cat "$T/o3/why")" = "the plain review returned no verdict" ] && [ ! -s "$T/o3/verdict.md" ] \
+[ "$RC" -eq 1 ] && [ "$(cat "$T/o3/why")" = "the blind review returned no verdict" ] && [ ! -s "$T/o3/verdict.md" ] \
   && ok "(p9) a final message with no verdict is exit 1, and why says so" || bad "(p9) rc=$RC why=$(cat "$T/o3/why" 2>/dev/null)"
 
 FAKE_MODE=slow bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o4" --plans-dir docs/plans --timeout 2 >/dev/null 2>&1; RC=$?
-[ "$RC" -eq 1 ] && [ "$(cat "$T/o4/why")" = "the plain review ran past 2s" ] && [ -s "$T/o4/end" ] \
+[ "$RC" -eq 1 ] && [ "$(cat "$T/o4/why")" = "the blind review ran past 2s" ] && [ -s "$T/o4/end" ] \
   && ok "(p10) a session past --timeout is stopped: exit 1, and why says so" || bad "(p10) rc=$RC why=$(cat "$T/o4/why" 2>/dev/null)"
 W1="$(cat "$T/o1/wall" 2>/dev/null)"; W4="$(cat "$T/o4/wall" 2>/dev/null)"
 case "$W1" in ''|*[!0-9]*) W1=-1 ;; esac; case "$W4" in ''|*[!0-9]*) W4=-1 ;; esac
@@ -101,7 +101,7 @@ case "$W1" in ''|*[!0-9]*) W1=-1 ;; esac; case "$W4" in ''|*[!0-9]*) W4=-1 ;; es
 mkdir -p "$T/tmp"; D="$(TMPDIR="$T/tmp" bash "$TOOL" out-dir "$HEAD_SHA")"
 mkdir -p "$D/scratch"; echo stale > "$D/why"; echo 'verdict: approve' > "$D/verdict.md"; echo stale > "$D/scratch/old"
 TMPDIR="$T/tmp" FAKE_MODE=none bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --plans-dir docs/plans >/dev/null 2>&1; RC=$?
-[ "$D" = "$T/tmp/plain-review-$HEAD_SHA" ] && [ "$RC" -eq 1 ] && [ "$(cat "$D/why")" = "the plain review returned no verdict" ] \
+[ "$D" = "$T/tmp/plain-review-$HEAD_SHA" ] && [ "$RC" -eq 1 ] && [ "$(cat "$D/why")" = "the blind review returned no verdict" ] \
   && [ ! -s "$D/verdict.md" ] && [ ! -e "$D/scratch/old" ] \
   && ok "(p21) with no --out, run uses out-dir <head>, after clearing what an earlier run left there" || bad "(p21) D=$D rc=$RC why=$(cat "$D/why" 2>/dev/null)"
 bash "$TOOL" out-dir 'not-a-sha' >/dev/null 2>&1; RC=$?

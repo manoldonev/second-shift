@@ -1267,12 +1267,12 @@ plain_draft() { bash "$TOOLS/plain-review.sh" draft "$1" "$2"; }
 plain_start() { # plain_start <attempt>: the plain session, in the background; 1 with PLAIN_WHY when its input cannot be made
   local r="$PLAIN_ROOT/$1" sid a args=()
   PLAIN_WHY=""; PLAIN_OK=0; PLAIN_TICKET=false
-  plain_tree "$r/tree" && mkdir -p "$r/scratch" || { PLAIN_WHY="the plain review's tree could not be written"; return 1; }
+  plain_tree "$r/tree" && mkdir -p "$r/scratch" || { PLAIN_WHY="the blind review's tree could not be written"; return 1; }
   if plain_ticket "$STATE/plain-ticket-$1.md"; then PLAIN_TICKET=true; else PLAIN_TICKET=false; say "plain review: no ticket body to hand it — it reviews the diff alone"; fi
-  git -C "$WT" diff "origin/$BASE_NAME...$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" > "$STATE/plain-diff-$1.diff" 2>/dev/null || { PLAIN_WHY="the diff could not be read for the plain review"; return 1; }
-  plain_prompt "$r/scratch/verdict.md" "$STATE/plain-ticket-$1.md" "$STATE/plain-diff-$1.diff" "$PLAIN_TICKET" > "$STATE/plain-$1.prompt" || { PLAIN_WHY="the plain review's prompt could not be written"; return 1; }
-  sid="$(new_uuid)" || { PLAIN_WHY="no session id for the plain review"; return 1; }
-  plain_args "$r/tree" "$r/scratch" > "$STATE/plain-$1.args" || { PLAIN_WHY="the plain review's flags could not be written"; return 1; }
+  git -C "$WT" diff "origin/$BASE_NAME...$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" > "$STATE/plain-diff-$1.diff" 2>/dev/null || { PLAIN_WHY="the diff could not be read for the blind review"; return 1; }
+  plain_prompt "$r/scratch/verdict.md" "$STATE/plain-ticket-$1.md" "$STATE/plain-diff-$1.diff" "$PLAIN_TICKET" > "$STATE/plain-$1.prompt" || { PLAIN_WHY="the blind review's prompt could not be written"; return 1; }
+  sid="$(new_uuid)" || { PLAIN_WHY="no session id for the blind review"; return 1; }
+  plain_args "$r/tree" "$r/scratch" > "$STATE/plain-$1.args" || { PLAIN_WHY="the blind review's flags could not be written"; return 1; }
   while IFS= read -r a; do args+=("$a"); done < "$STATE/plain-$1.args"
   say "session: plain $1 $sid ~/.claude*/projects/*/$sid.jsonl"
   date +%s > "$STATE/plain-$1.start"
@@ -1289,8 +1289,8 @@ plain_collect() { # plain_collect <attempt>: waits for the plain session and cou
   [ -n "$PLAIN_PID" ] || return 1
   wait "$PLAIN_PID"; rc=$?; PLAIN_PID=""
   add_cost "$STATE/plain-$1.json"
-  [ "$rc" -ne 124 ] || { PLAIN_WHY="the plain review ran past ${REVIEW_TO}s"; return 1; }
-  plain_draft "$STATE/plain-$1.json" "$d" || { PLAIN_WHY="the plain review returned no verdict"; return 1; }
+  [ "$rc" -ne 124 ] || { PLAIN_WHY="the blind review ran past ${REVIEW_TO}s"; return 1; }
+  plain_draft "$STATE/plain-$1.json" "$d" || { PLAIN_WHY="the blind review returned no verdict"; return 1; }
   cp "$d" "$STATE/plain-verdict-$1.md" && PLAIN_OK=1
 }
 join_verdicts() { # join_verdicts <lane draft> <plain draft or ''> <why plain is missing> [verdict-join.sh flags]: the joined verdict on stdout
@@ -1507,7 +1507,7 @@ joined_post() { # joined_post <attempt>: joins the lane draft with the plain one
   [ -s "$LANE_DRAFT" ] || { JOINED_MISS="the review session wrote no verdict draft to $LANE_DRAFT"; return 1; }
   [ "$PLAIN_OK" -eq 1 ] && p="$STATE/plain-verdict-$1.md"
   cp "$LANE_DRAFT" "$STATE/lane-verdict-$1.md" 2>/dev/null
-  join_verdicts "$LANE_DRAFT" "$p" "${PLAIN_WHY:-the plain review did not return}" --ticket "$PLAIN_TICKET" \
+  join_verdicts "$LANE_DRAFT" "$p" "${PLAIN_WHY:-the blind review did not return}" --ticket "$PLAIN_TICKET" \
     --lane-cost "$(jq -r '.total_cost_usd | numbers' "$STATE/review-$1.json" 2>/dev/null)" --lane-wall "$(session_wall "$STATE/review-$1.start" "$STATE/review-$1.end")" \
     --plain-cost "$(jq -r '.total_cost_usd | numbers' "$STATE/plain-$1.json" 2>/dev/null)" --plain-wall "$(session_wall "$STATE/plain-$1.start" "$STATE/plain-$1.end")" \
     > "$j" || { JOINED_MISS="the lane and plain drafts could not be joined"; return 1; }
@@ -2053,7 +2053,8 @@ while :; do
     "reason: ticket-unreadable") terminal env-not-ready "the review could not read ticket $ISSUE at $HEAD_SHA (reason: ticket-unreadable) — fix the tracker access and re-launch" ;;
     "reason: seat-unavailable") terminal env-not-ready "the review could not dispatch its design-fidelity reviewer at $HEAD_SHA (reason: seat-unavailable) — install or enable design-toolkit and re-launch" ;;
   esac
-  FINDINGS="$STATE/verdict-body.md"; RED_LOG=""; NEED_BUILD=1
+  awk '/^<details><summary>dev: lane vs blind/ { exit } { print }' "$STATE/verdict-body.md" > "$STATE/verdict-findings.md" && FINDINGS="$STATE/verdict-findings.md" || FINDINGS="$STATE/verdict-body.md"
+  RED_LOG=""; NEED_BUILD=1
   over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
 done
 

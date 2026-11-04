@@ -6,25 +6,31 @@
 #                   [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>] [--ticket true|false]
 #
 # --format report joins a review-lead report instead of a lane verdict, by the same rules: its blockers are the
-# bullets under `## Critical`, an agreed one becomes `- [lane+plain] …`, a plain-only one is added there as
-# `- [plain] …`, and a plain-only blocker turns `**Ready to merge?** Yes` or `With fixes` into `No`.
+# bullets under `## Critical`, an agreed one becomes `- [lane+blind] …`, a plain-only one is added there as
+# `- [blind] …`, and a plain-only blocker turns `**Ready to merge?** Yes` or `With fixes` into `No`.
 #
-# Plain contributes blockers only; its notes are dropped. A plain blocker at the file of a lane blocker, within 3
-# lines of it, is that blocker, tagged [lane+plain]. Any other is added after the lane's blockers as [plain],
-# numbered after the lane's highest B id, and turns an approve into a needs-work: line 1 becomes
-# `verdict: needs-work`, the Summary's first line `Not mergeable yet.`, and a `Nothing to do.` line names the
-# [plain] blockers. With no plain draft, `## Notes` says why and the lane's verdict stands as written.
-# The body ends with a folded `dev: lane vs plain` block under `## Notes`, which verdict-check.sh reads as prose:
-# the counts, the ids on each side, the verdict impact, each session's cost and wall time, whether plain had the
-# ticket (--ticket false, or a plain `ticket-unavailable` note: it reviewed the diff alone), and one
-# `<!-- plain-vs-lane: {json} -->` line for scripts that aggregate across PRs.
+# The body takes plain's blockers only. A plain blocker at the file of a lane blocker, within 3 lines of it, is that
+# blocker, tagged [lane+blind]. Any other is added after the lane's blockers as [blind], numbered after the lane's
+# highest B id, and turns an approve into a needs-work: line 1 becomes `verdict: needs-work`, the Summary's first
+# line `Not mergeable yet.`, and a `Nothing to do.` line names the [blind] blockers. With no plain draft, `## Notes`
+# says why and the lane's verdict stands as written.
+#
+# The body ends with a folded `dev: lane vs blind` block under `## Notes`, which verdict-check.sh reads as prose. It
+# compares every finding of both reviews, notes and dismissals included: the summary counts agreed, rated
+# differently, lane alone and blind alone (the comment names the plain review "blind"); a table pairs the findings, one to one, by the same site rule (nearest
+# first, then the same severity), disagreements first; then both verdicts, both sessions (a lane passed no cost and no
+# wall is "not measured"), plain's draft as written, and one `<!-- plain-vs-lane: {json} -->` line for scripts that
+# aggregate across PRs. Its `lane_only` and `plain_only` count blockers only; `m_<lane>_<plain>` count table rows by
+# class (b blocker, n note, d dismissed, 0 absent). A plain `ticket-unavailable` note, with or without a site before
+# it, means plain reviewed the diff alone; it is in no count and no row. Sites are a proxy: two findings at one site
+# are paired whatever they say, and a first-sentence excerpt stops at an abbreviation's period.
 #
 # Exit: 0 the joined verdict on stdout · 2 usage, or the lane draft cannot be read.
 set -uo pipefail
 usage() { echo "usage: verdict-join.sh <lane-draft> <plain-draft or ''> [--why <text>] [--format verdict|report] [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>] [--ticket true|false]" >&2; exit 2; }
 [ $# -ge 2 ] || usage
 lane="$1" plain="$2"; shift 2
-why="the plain review did not return" fmt=verdict lc="" pc="" lw="" pw="" ticket=true
+why="the blind review did not return" fmt=verdict lc="" pc="" lw="" pw="" ticket=true
 while [ $# -gt 0 ]; do
   case "$1" in
     --why) why="${2-}"; shift 2 ;;
@@ -58,31 +64,114 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     pa = a; sub(/:[0-9]+$/, "", pa); pb = b; sub(/:[0-9]+$/, "", pb); if (pa != pb) return 0
     d = substr(a, length(pa) + 2) - substr(b, length(pb) + 2); return d <= 3 && d >= -3
   }
+  function lineof(a) { sub(/^.*:/, "", a); return a + 0 }
+  function dist(a, b,   d) { if (!near(a, b)) return -1; d = lineof(a) - lineof(b); return d < 0 ? -d : d }
   function added(   k, c) {
     if (done) return 0; done = 1
-    for (k = 1; k <= np; k++) if (!pmatch[k]) { c++; print (rep ? "- [plain] " : "- [blocker] " newid[k] " [plain] ") ptext[k]; printf "%s", pcont[k] }
+    for (k = 1; k <= np; k++) if (!pmatch[k]) { c++; print (rep ? "- [blind] " : "- [blocker] " newid[k] " [blind] ") ptext[k]; printf "%s", pcont[k] }
     return c
   }
   function usd(x) { return x == "null" ? "unpriced" : sprintf("$%.2f", x) }
   function secs(x) { return x == "null" ? "? s" : x " s" }
-  function devblock(   b, k, s, lone, pone, pairs) {
-    for (b = 1; b <= nb; b++) if (!bagreed[b]) lone = lone (lone == "" ? "" : ", ") (rep ? (bloc[b] == "" ? "(no location)" : bloc[b]) : bid[b] (bloc[b] == "" ? "" : " " bloc[b]))
-    for (k = 1; k <= np; k++) {
-      if (pmatch[k]) pairs = pairs (pairs == "" ? "" : ", ") (rep ? bloc[pmatch[k]] : bid[pmatch[k]]) " ↔ plain " pid[k]
-      else pone = pone (pone == "" ? "" : ", ") (rep ? "plain " pid[k] : newid[k] " (plain " pid[k] ")") (ploc[k] == "" ? "" : " " ploc[k])
+  function addl(c, lab, t) { nl++; lcls[nl] = c; llab[nl] = lab; ltxt[nl] = t; lloc[nl] = loc(t); lfull[nl] = t; cur = nl; return nl }
+  function dismissed(t,   p) { p = index(t, DASH); return t ~ /^(Dismissed|Suppressed)\./ || (p && substr(t, p + DL) ~ /^(Dismissed|Suppressed)\./) }
+  function esc(s) { gsub(/Ready to merge\?/, "Ready to merge", s); gsub(/\|/, "\\|", s); gsub(/</, "\\&lt;", s); return s }
+  function sent(t) { return match(t, /\.( |$)/) ? substr(t, 1, RSTART) : t }
+  function untag(t) { sub(/^\[[A-Za-z0-9 _.\/-]+\] /, "", t); return t }
+  function ex(t,   p, l, s, r) {
+    t = untag(t); p = index(t, DASH)
+    if (p) t = substr(t, p + DL)
+    else { l = loc(t); if (l != "" && (p = index(t, l))) t = substr(t, 1, p - 1) substr(t, p + length(l)); gsub(/\(confidence: [0-9]+\)/, "", t); gsub(/^[ \t]+|[ \t]+$/, "", t); gsub(/[ \t][ \t]+/, " ", t) }
+    s = sent(t); if (s ~ /^(Dismissed|Suppressed)\.$/) s = s " " sent(substr(t, length(s) + 2))
+    if (length(s) > 160) { r = substr(s, 1, 160); for (p = 160; p > 0 && substr(r, p, 1) != " "; p--) ; if (p > 1) s = substr(r, 1, p - 1) "…" }
+    return esc(s)
+  }
+  function anchor(t,   p) { t = untag(t); p = index(t, DASH); if (p < 2 || p > 61) return "(no site)"; t = substr(t, 1, p - 1); gsub(/^[ \t]+|[ \t]+$/, "", t); return esc(t) }
+  function word(c) { return c == "b" ? "blocker" : c == "n" ? "note" : "dismissed" }
+  function row(j, i, x,   k) {
+    k = (j ? lcls[j] : "0") "_" (i ? pcl[i] : "0"); m[k]++
+    nr++; rj[nr] = j; ri[nr] = i; rx[nr] = x; rkey[nr] = rk[k] * 1000000 + j * 1000 + i; rcls[nr] = k
+  }
+  function pair2(   b, k, j, i, x, bj, bi, bd, bs, d, s) {
+    split("0_b n_b d_b b_0 b_n b_b n_n d_n n_0 0_n", ord, " "); for (k = 1; k <= 10; k++) rk[ord[k]] = k
+    ot["0_b"] = "blind only: blocker"; ot["n_b"] = "lane note, blind blocker"; ot["d_b"] = "lane dismissed, blind blocker"; ot["b_0"] = "lane only: blocker"
+    ot["b_n"] = "lane blocker, blind note"; ot["b_b"] = "agreed: blocker"; ot["n_n"] = "agreed: note"; ot["d_n"] = "lane dismissed, blind note"; ot["n_0"] = "lane only: note"; ot["0_n"] = "blind only: note"
+    for (i = 1; i <= np; i++) { pcl[i] = "b"; plab[i] = pid[i]; ptx[i] = ptext[i]; plc[i] = ploc[i] }
+    for (i = 1; i <= nq; i++) { pcl[np + i] = "n"; plab[np + i] = qid[i]; ptx[np + i] = qtx[i]; plc[np + i] = qloc[i] }
+    pt = np + nq
+    for (b = 1; b <= nb; b++) if (bagreed[b]) {
+      x = ""; i = 0
+      for (k = 1; k <= np; k++) if (pmatch[k] == b) { puse[k] = 1; if (!i) i = k; else { x = x (x == "" ? "" : ", ") pid[k]; merged++ } }
+      luse[lj[b]] = 1; row(lj[b], i, x)
     }
+    for (k = 1; k <= np; k++) if (pmatch[k]) puse[k] = 1
+    while (1) {
+      bj = 0
+      for (j = 1; j <= nl; j++) if (!luse[j]) for (i = 1; i <= pt; i++) if (!puse[i]) {
+        d = dist(lloc[j], plc[i]); if (d < 0) continue
+        s = lcls[j] == pcl[i] ? 0 : 1
+        if (!bj || d < bd || (d == bd && s < bs)) { bj = j; bi = i; bd = d; bs = s }
+      }
+      if (!bj) break
+      luse[bj] = 1; puse[bi] = 1; row(bj, bi, "")
+    }
+    for (j = 1; j <= nl; j++) if (!luse[j]) { if (lcls[j] == "d") m["d_0"]++; else row(j, 0, "") }
+    for (i = 1; i <= pt; i++) if (!puse[i]) row(0, i, "")
+    for (j = 1; j <= nr; j++) so[j] = j
+    for (j = 2; j <= nr; j++) for (i = j; i > 1 && rkey[so[i - 1]] > rkey[so[i]]; i--) { k = so[i]; so[i] = so[i - 1]; so[i - 1] = k }
+  }
+  function site(j, i,   s) {
+    if (j && lloc[j] != "") { s = esc(lloc[j]); if (i && plc[i] != "" && lineof(plc[i]) != lineof(lloc[j])) s = s " (blind :" lineof(plc[i]) ")"; return s }
+    if (j) return anchor(ltxt[j])
+    return plc[i] != "" ? esc(plc[i]) : anchor(ptx[i])
+  }
+  function lcell(j) { if (!j) return "—"; return rep ? llab[j] ": " ex(ltxt[j]) : llab[j] " " word(lcls[j]) ": " ex(ltxt[j]) }
+  function pcell(i, x) { if (!i) return "—"; return plab[i] " " word(pcl[i]) ": " ex(ptx[i]) (x == "" ? "" : " (+ " x ")") }
+  function outcome(r,   s, i) {
+    s = ot[rcls[r]]; i = ri[r]
+    if (i && i <= np && !pmatch[i]) s = s "; added as " (rep ? "[blind]" : newid[i])
+    if (rj[r] && tolower(lfull[rj[r]]) ~ /(plain|blind) review/) s = s "; lane cites blind"
+    return s
+  }
+  function mv(k) { return pf == "" ? "null" : m[k] + 0 }
+  function fold(   i, s, tot, left) {
+    print "<details><summary>blind review, as written</summary>"; print ""; print "```text"
+    for (i = 1; i <= nraw; i++) {
+      s = praw[i]; if (s !~ /[^ \t]/) continue
+      gsub(/Ready to merge\?/, "Ready to merge", s); s = "    " s
+      if (tot + length(s) > 8000) { for (left = 0; i <= nraw; i++) if (praw[i] ~ /[^ \t]/) left++; print "    … " left " more lines not shown"; break }
+      tot += length(s); print s
+    }
+    print "```"; print ""; print "</details>"; print ""
+  }
+  function devblock(   j, r, a, dd, la, pa, lv, rv, jv, pvs, cites) {
+    if (pf != "") pair2()
+    for (j = 1; j <= nl; j++) { if (lcls[j] == "n") lnotes++; if (lcls[j] == "d") ldis++; if (tolower(lfull[j]) ~ /(plain|blind) review/) cites++ }
+    a = m["b_b"] + m["n_n"]; dd = m["n_b"] + m["d_b"] + m["b_n"] + m["d_n"]; la = m["b_0"] + m["n_0"]; pa = m["0_b"] + m["0_n"]
     print ""
-    print "<details><summary>dev: lane vs plain</summary>"
+    if (pf == "") print "<details><summary>dev: lane vs blind — the blind review did not return</summary>"
+    else print "<details><summary>dev: lane vs blind — " a + 0 " agreed, " dd + 0 " rated differently, " la + 0 " lane alone, " pa + 0 " blind alone" (flip ? "; blind flipped the verdict" : "") "</summary>"
     print ""
-    print "Lane blockers: " nb + 0 ". Plain blockers: " np + 0 ". Agreed: " na + 0 ". Lane-only: " nb - na ". Plain-only: " nadd + 0 ". Plain notes dropped: " pnotes + 0 "."
-    print "- Lane-only: " (lone == "" ? "none" : lone)
-    print "- Plain-only: " (pone == "" ? "none" : pone)
-    print "- Agreed: " (pairs == "" ? "none" : pairs)
-    if (rep) print "Ready to merge: the lane alone said " ready "; the joined report says " (flip ? "No (plain flipped it to No)" : ready) "."
-    else { s = substr(line[1], 10); print "Verdict: the lane alone said " s "; the joined verdict is " (flip ? "needs-work (plain flipped approve → needs-work)" : s) "." }
-    print "Lane session: " usd(lc) ", " secs(lw) ". Plain session: " usd(pc) ", " secs(pw) ", " (pf == "" ? "did not return (" why ")" : "returned") (ticket == "true" ? "" : ", reviewed without a ticket") "."
+    if (pf != "" && !nr) { print "No finding to compare."; print "" }
+    if (nr) {
+      print "| Outcome | Site | Lane | Blind |"; print "| --- | --- | --- | --- |"
+      for (r = 1; r <= nr && r <= 40; r++) { j = so[r]; print "| " outcome(j) " | " site(rj[j], ri[j]) " | " lcell(rj[j]) " | " pcell(ri[j], rx[j]) " |" }
+      print ""; if (nr > 40) { print nr - 40 " more rows are counted in the machine line."; print "" }
+    }
+    pvs = pf == "" ? "did not return" : pv == "" ? "no verdict line" : pv
+    if (rep) {
+      lv = ready ~ /^Yes/ ? "yes" : ready ~ /^No([^A-Za-z]|$)/ ? "no" : ready ~ /^With fixes/ ? "with-fixes" : ""
+      print "- Ready to merge: lane " ready " · blind " pvs " · joined " (flip ? "No (blind flipped it)" : ready) "."
+    } else {
+      rv = substr(line[1], 10); lv = rv ~ /^(approve|needs-work)$/ ? rv : ""; jv = flip ? "needs-work (blind flipped it)" : rv
+      print "- Verdict: lane " rv " · blind " pvs " · joined " jv "."
+    }
+    print "- Lane session: " (lc == "null" && lw == "null" ? "not measured" : usd(lc) ", " secs(lw)) ". Blind session: " usd(pc) ", " secs(pw) ", " (pf == "" ? "did not return (" why ")" : "returned") (ticket == "true" ? "" : ", reviewed without a ticket") "."
     print ""
-    printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s} -->\n", nb, np, na, nb - na, nadd, pnotes, (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
+    if (pf != "") fold()
+    printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s", nb, np, na, nb - na, nadd, pnotes, (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
+    printf ",\"v\":2,\"format\":\"%s\",\"lane_verdict\":%s,\"plain_verdict\":%s,\"lane_notes\":%d,\"lane_dismissed\":%d,\"lane_cites_plain\":%d,\"plain_merged\":%s", (rep ? "report" : "verdict"), (lv == "" ? "null" : "\"" lv "\""), (pv == "" ? "null" : "\"" pv "\""), lnotes, ldis, cites, (pf == "" ? "null" : merged + 0)
+    printf ",\"m_b_b\":%s,\"m_b_n\":%s,\"m_b_0\":%s,\"m_n_b\":%s,\"m_n_n\":%s,\"m_n_0\":%s,\"m_d_b\":%s,\"m_d_n\":%s,\"m_d_0\":%s,\"m_0_b\":%s,\"m_0_n\":%s} -->\n", mv("b_b"), mv("b_n"), mv("b_0"), mv("n_b"), mv("n_n"), mv("n_0"), mv("d_b"), mv("d_n"), mv("d_0"), mv("0_b"), mv("0_n")
     print ""
     print "</details>"
   }
@@ -102,7 +191,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
         if (s ~ /^[ \t]*$/) { pend++; continue }
         for (; pend > 0; pend--) print ""
         if (nadd > 0 && s ~ /^(- )?None\.?[ \t]*$/) continue
-        if (i in agreed) { print "- [lane+plain] " substr(s, 3); continue }
+        if (i in agreed) { print "- [lane+blind] " substr(s, 3); continue }
       }
       if (i == readyline && flip) { print "**Ready to merge?** No"; continue }
       print s
@@ -114,12 +203,18 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     devblock()
   }
   BEGIN {
+    DASH = " — "; DL = length(DASH)
     if (pf != "") while ((getline l < pf) > 0) {
-      sub(/\r$/, "", l)
+      sub(/\r$/, "", l); praw[++nraw] = l
+      if (pv == "" && match(l, /^verdict: (approve|needs-work)[ \t]*$/)) { pv = substr(l, 10); sub(/[ \t]+$/, "", pv) }
       if (l ~ /^## /) { psec = l; inb = 0; continue }
       if (psec !~ /^## Findings[ \t]*$/) continue
-      if (l ~ /^- \[note\] ([BNH][0-9]+ )?ticket-unavailable/) { ticket = "false"; inb = 0; continue }
-      if (l ~ /^- \[note\] /) { pnotes++; inb = 0; continue }
+      if (l ~ /^- \[note\] ([BNH][0-9]+ )?([^ ]+ — )?ticket-unavailable([^A-Za-z0-9_-]|$)/) { ticket = "false"; inb = 0; continue }
+      if (l ~ /^- \[note\] /) {
+        pnotes++; nq++; t = l; sub(/^- \[note\] /, "", t); qid[nq] = "?"
+        if (match(t, /^[BNH][0-9]+ /)) { qid[nq] = substr(t, 1, RLENGTH - 1); t = substr(t, RLENGTH + 1) }
+        qtx[nq] = t; qloc[nq] = loc(t); inb = 0; continue
+      }
       if (l ~ /^- \[blocker\] /) {
         np++; t = l; sub(/^- \[blocker\] /, "", t); pid[np] = "?"
         if (match(t, /^[BNH][0-9]+ /)) { pid[np] = substr(t, 1, RLENGTH - 1); t = substr(t, RLENGTH + 1) }
@@ -128,18 +223,31 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
       if (inb && l ~ /^[ \t]+[^ \t]/) { c = l; sub(/^[ \t]+/, "", c); pcont[np] = pcont[np] "  " c "\n"; continue }
       inb = 0
     }
+    rsec["Critical"] = "b"; rsec["Warnings"] = "n"; rsec["Suggestions"] = "n"; rsec["Pre-existing"] = "d"; rsec["Suppressed"] = "d"
+    rlab["Critical"] = "Critical"; rlab["Warnings"] = "Warning"; rlab["Suggestions"] = "Suggestion"; rlab["Pre-existing"] = "Pre-existing"; rlab["Suppressed"] = "Suppressed"
   }
   { sub(/\r$/, ""); line[++n] = $0
-    if ($0 ~ /^## /) { sec = $0; sub(/[ \t]+$/, "", sec) }
+    if ($0 ~ /^## /) { sec = $0; sub(/[ \t]+$/, "", sec); cur = 0; rs = sec; sub(/^## /, "", rs); sub(/ .*/, "", rs); if (!(rs in rsec)) rs = "" }
+    else if (cur && $0 ~ /^[ \t]+[^ \t]/) lfull[cur] = lfull[cur] " " $0
     else if (rep) {
-      if (sec ~ /^## Critical/ && $0 ~ /^- / && $0 !~ /^- None\.?[ \t]*$/) { nb++; bline[nb] = n; bloc[nb] = loc($0) }
+      cur = 0
+      if (rs != "" && $0 ~ /^- / && $0 !~ /^- None\.?[ \t]*$/) {
+        t = substr($0, 3); lab = rlab[rs]; if (match(t, /^\[[A-Za-z0-9 _.\/-]+\] /)) lab = lab " " substr(t, 1, RLENGTH - 1)
+        j = addl(rsec[rs], lab, t)
+        if (rs == "Critical") { nb++; bline[nb] = n; bloc[nb] = loc($0); lj[nb] = j }
+      }
       else if (match($0, /^\*\*Ready to merge\?\*\*[ \t]*/)) { readyline = n; ready = substr($0, RLENGTH + 1); sub(/[ \t]+$/, "", ready) }
     }
     else if (sec == "## Findings" && match($0, /^- \[blocker\] B[0-9]+ /)) {
       r = RLENGTH; nb++; bline[nb] = n; bid[nb] = substr($0, 13, r - 13)
       id = substr($0, 14, r - 14) + 0; if (id > maxb) maxb = id
-      bloc[nb] = loc(substr($0, r + 1))
+      bloc[nb] = loc(substr($0, r + 1)); lj[nb] = addl("b", bid[nb], substr($0, r + 1))
     }
+    else if (sec == "## Findings" && $0 ~ /^- \[note\] /) {
+      t = substr($0, 10); lab = "?"; if (match(t, /^[BNH][0-9]+ /)) { lab = substr(t, 1, RLENGTH - 1); t = substr(t, RLENGTH + 1) }
+      addl(dismissed(t) ? "d" : "n", lab, t)
+    }
+    else cur = 0
   }
   END {
     for (k = 1; k <= np; k++) for (b = 1; b <= nb; b++) if (near(ploc[k], bloc[b])) { pmatch[k] = b; agreed[bline[b]] = 1; if (!bagreed[b]) na++; bagreed[b] = 1; break }
@@ -158,12 +266,12 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
       }
       if (sec == "## Summary" && flip) {
         if (!first && s ~ /[^ \t]/) { first = 1; print "Not mergeable yet."; continue }
-        if (s == "Nothing to do.") { print "Fix the [plain] blockers in Findings."; continue }
+        if (s == "Nothing to do.") { print "Fix the [blind] blockers in Findings."; continue }
       }
       if (sec == "## Findings") {
         if (s == "None." && nadd > 0) continue
         if (s ~ /^- \[note\] /) added()
-        if (i in agreed) { match(s, /^- \[blocker\] B[0-9]+ /); print substr(s, 1, RLENGTH) "[lane+plain] " substr(s, RLENGTH + 1); continue }
+        if (i in agreed) { match(s, /^- \[blocker\] B[0-9]+ /); print substr(s, 1, RLENGTH) "[lane+blind] " substr(s, RLENGTH + 1); continue }
       }
       print s
     }
