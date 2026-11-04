@@ -17,11 +17,13 @@
 #
 # The body ends with a folded `dev: lane vs blind` block under `## Notes`, which verdict-check.sh reads as prose. It
 # compares every finding of both reviews, notes and dismissals included: the summary counts agreed, rated
-# differently, lane alone and blind alone (the comment names the plain review "blind"); a table pairs the findings, one to one, by the same site rule (nearest
-# first, then the same severity), disagreements first; then both verdicts, both sessions (a lane passed no cost and no
-# wall is "not measured"), plain's draft as written, and one `<!-- plain-vs-lane: {json} -->` line for scripts that
-# aggregate across PRs. Its `lane_only` and `plain_only` count blockers only; `m_<lane>_<plain>` count table rows by
-# class (b blocker, n note, d dismissed, 0 absent). A plain `ticket-unavailable` note, with or without a site before
+# differently, lane alone and blind alone (the comment names the plain review "blind"); a list pairs the findings, one
+# to one, by the same site rule (nearest first, then the same severity), disagreements first, one entry per pair with
+# the outcome and the site on its line and each side's finding under it (a GitHub table squeezed the findings into
+# one-word columns beside a long path); then both verdicts, both sessions (a lane passed no cost and no wall is "not
+# measured"), plain's draft as written, and one `<!-- plain-vs-lane: {json} -->` line for scripts that aggregate
+# across PRs. Its `lane_only` and `plain_only` count blockers only; `m_<lane>_<plain>` count pairs by class (b
+# blocker, n note, d dismissed, 0 absent). A plain `ticket-unavailable` note, with or without a site before
 # it, means plain reviewed the diff alone; it is in no count and no row. Sites are a proxy: two findings at one site
 # are paired whatever they say, and a first-sentence excerpt stops at an abbreviation's period.
 #
@@ -75,7 +77,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
   function secs(x) { return x == "null" ? "? s" : x " s" }
   function addl(c, lab, t) { nl++; lcls[nl] = c; llab[nl] = lab; ltxt[nl] = t; lloc[nl] = loc(t); lfull[nl] = t; cur = nl; return nl }
   function dismissed(t,   p) { p = index(t, DASH); return t ~ /^(Dismissed|Suppressed)\./ || (p && substr(t, p + DL) ~ /^(Dismissed|Suppressed)\./) }
-  function esc(s) { gsub(/Ready to merge\?/, "Ready to merge", s); gsub(/\|/, "\\|", s); gsub(/</, "\\&lt;", s); return s }
+  function esc(s) { gsub(/Ready to merge\?/, "Ready to merge", s); gsub(/</, "\\&lt;", s); return s }
   function sent(t) { return match(t, /\.( |$)/) ? substr(t, 1, RSTART) : t }
   function untag(t) { sub(/^\[[A-Za-z0-9 _.\/-]+\] /, "", t); return t }
   function ex(t,   p, l, s, r) {
@@ -125,8 +127,8 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     if (j) return anchor(ltxt[j])
     return plc[i] != "" ? esc(plc[i]) : anchor(ptx[i])
   }
-  function lcell(j) { if (!j) return "—"; return rep ? llab[j] ": " ex(ltxt[j]) : llab[j] " " word(lcls[j]) ": " ex(ltxt[j]) }
-  function pcell(i, x) { if (!i) return "—"; return plab[i] " " word(pcl[i]) ": " ex(ptx[i]) (x == "" ? "" : " (+ " x ")") }
+  function lcell(j) { return rep ? llab[j] ": " ex(ltxt[j]) : llab[j] " " word(lcls[j]) ": " ex(ltxt[j]) }
+  function pcell(i, x) { return plab[i] " " word(pcl[i]) ": " ex(ptx[i]) (x == "" ? "" : " (+ " x ")") }
   function outcome(r,   s, i) {
     s = ot[rcls[r]]; i = ri[r]
     if (i && i <= np && !pmatch[i]) s = s "; added as " (rep ? "[blind]" : newid[i])
@@ -154,9 +156,12 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     print ""
     if (pf != "" && !nr) { print "No finding to compare."; print "" }
     if (nr) {
-      print "| Outcome | Site | Lane | Blind |"; print "| --- | --- | --- | --- |"
-      for (r = 1; r <= nr && r <= 40; r++) { j = so[r]; print "| " outcome(j) " | " site(rj[j], ri[j]) " | " lcell(rj[j]) " | " pcell(ri[j], rx[j]) " |" }
-      print ""; if (nr > 40) { print nr - 40 " more rows are counted in the machine line."; print "" }
+      for (r = 1; r <= nr && r <= 40; r++) {
+        j = so[r]; print "- **" outcome(j) "** — " site(rj[j], ri[j])
+        if (rj[j]) print "  - lane " lcell(rj[j])
+        if (ri[j]) print "  - blind " pcell(ri[j], rx[j])
+      }
+      print ""; if (nr > 40) { print nr - 40 " more pairs are counted in the machine line."; print "" }
     }
     pvs = pf == "" ? "did not return" : pv == "" ? "no verdict line" : pv
     if (rep) {
