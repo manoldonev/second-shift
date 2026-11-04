@@ -115,7 +115,7 @@ printf '%s\n' '## Critical (must fix before merge)' 'None.' '' '## Suppressed (b
 printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 src/e.ts:5 — the query is injectable' > "$T/plain-supp.md"
 OUT="$(bash "$TOOL" "$T/lead-supp.md" "$T/plain-supp.md" --format report)"
 listed "$OUT" '- **lane dismissed, blind blocker; added as [blind]** — src/e.ts:4 (blind :5)' '  - lane Suppressed [Security]: maybe injectable' '  - blind B1 blocker: the query is injectable' \
-  && ! pairs "$OUT" | grep -q 'src/f.ts' && jq -e '.m_d_b == 1 and .m_d_0 == 1 and .lane_dismissed == 2' <<<"$(devjs "$OUT")" >/dev/null \
+  && [[ "$(pairs "$OUT")" != *'src/f.ts'* ]] && jq -e '.m_d_b == 1 and .m_d_0 == 1 and .lane_dismissed == 2' <<<"$(devjs "$OUT")" >/dev/null \
   && ok "(r15) a suppressed bullet at plain's site is a dismissal, not a miss; an unpaired one is not listed" || bad "(r15) $(devjs "$OUT")"
 
 printf '%s\n' 'verdict: approve' '## Findings' '- [note] N0 src/a.ts:1 — ticket-unavailable — getJiraIssue could not fetch GH-42' > "$T/plain-noticket.md"
