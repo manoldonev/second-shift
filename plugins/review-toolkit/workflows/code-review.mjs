@@ -166,6 +166,9 @@ const FINDINGS_SCHEMA = {
 //                  computed here: Workflow scripts have no Bash/filesystem access.
 //   issue        — GitHub issue number (drives scope-completeness; omit to skip it)
 //   spec         — optional committed decision record path; scope-completeness scores its rows
+//   issueLink    — optional; the verb the PR body links the issue with, verbatim (`Closes`, `Relates to`).
+//                  Absent or a closing keyword, scope-completeness scores the whole ticket; any other verb
+//                  runs it in partial mode, where items the diff does not attempt are reported, not failed.
 //   reviewers    — array of agentType strings already selected per review-lead routing
 //   changedFiles — array of changed paths (context for the prompt)
 //   prContext    — optional free-text branch/PR context
@@ -177,7 +180,7 @@ const FINDINGS_SCHEMA = {
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may
 // be an object, or (per the Workflow contract's stringified-args caveat) a JSON string.
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { worktree, base, head, issue, spec, reviewers = [], requiredSeats = [], panel, changedFiles = [], prContext = '', config = {} } = a
+const { worktree, base, head, issue, issueLink, spec, reviewers = [], requiredSeats = [], panel, changedFiles = [], prContext = '', config = {} } = a
 const substantial = panel === 'substantial'
 // Per-reviewer model-tier overrides from the consumer config (bare-keyed).
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
@@ -227,6 +230,13 @@ const seatNames = (() => {
 if (seatNames.some((r) => bare(r) === 'scope-completeness-reviewer') && !issue) {
   throw new Error('code-review workflow: scope-completeness-reviewer requires args.issue (GitHub issue number or JIRA ticket key)')
 }
+// issueLink is the one piece of PR-authored text that reaches the scope reviewer, so it is held to a bare verb:
+// anything longer could carry the scope interpretation the reviewer's independence rule keeps out.
+if (issueLink !== undefined && !(typeof issueLink === 'string' && /^[A-Za-z][A-Za-z -]{0,29}$/.test(issueLink))) {
+  throw new Error(`code-review workflow: args.issueLink must be a bare link verb such as 'Closes' or 'Relates to', got ${JSON.stringify(issueLink)}`)
+}
+// GitHub's closing keywords
+const CLOSING_LINK = /^(close[sd]?|fix(e[sd])?|resolve[sd]?)$/i
 
 // Workflow runtime globals used below — injected by the Workflow runtime, not
 // imported: log(), phase(), parallel(), agent(). See the Workflow tool API.
@@ -540,6 +550,11 @@ const dispatchReviewer = async (requested) => {
       `(run \`git -C ${worktree} diff ${range}\` to see the change). ` +
       `${fetchInstr} and classify each scope item against the diff. ` +
       (spec ? `Decision record: the committed decision record \`${spec}\`. ` : '') +
+      (issueLink === undefined
+        ? ''
+        : CLOSING_LINK.test(issueLink.trim())
+          ? `Ticket link: the PR body links the ticket with \`${issueLink}\`, a closing keyword — score the whole ticket. `
+          : `Ticket link: the PR body links the ticket with \`${issueLink}\`, not a closing keyword — partial mode. `) +
       `Return your verdict and findings.` +
       PROGRESSIVE_EMIT
   } else if (bare(dispatched) === 'unit-test-mutation-reviewer') {
