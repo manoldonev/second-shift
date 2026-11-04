@@ -137,14 +137,14 @@ run() {
   out="$(physical "$out")"
   rm -rf "$out/tree" "$out/scratch"/* && rm -f "$out"/{why,verdict.md,ticket,ticket.md,diff.diff,prompt.md,result.json,session.err,start,end,wall} \
     || { echo "plain-review: cannot clear $out" >&2; return 2; }
-  tree "$wt" "$head" "$plans" "$out/tree" || { why "the plain review's tree could not be written"; return; }
+  tree "$wt" "$head" "$plans" "$out/tree" || { why "the blind review's tree could not be written"; return; }
   local has=true tracker=github
-  if [ -n "$ticket" ]; then strip "$plans" "$record" < "$ticket" > "$out/ticket.md" || { why "the ticket could not be read for the plain review"; return; }
+  if [ -n "$ticket" ]; then strip "$plans" "$record" < "$ticket" > "$out/ticket.md" || { why "the ticket could not be read for the blind review"; return; }
   elif [ -n "$jira" ]; then tracker=jira; ticket_text jira "$jira" > "$out/ticket.md"
   else has=false; ticket_text none > "$out/ticket.md"; fi
   echo "$has" > "$out/ticket"
-  git -C "$wt" diff "$base...$head" -- . ":(exclude)$plans" > "$out/diff.diff" 2>/dev/null || { why "the diff could not be read for the plain review"; return; }
-  prompt "$out/scratch/verdict.md" "$out/ticket.md" "$out/diff.diff" "$has" > "$out/prompt.md" || { why "the plain review's prompt could not be written"; return; }
+  git -C "$wt" diff "$base...$head" -- . ":(exclude)$plans" > "$out/diff.diff" 2>/dev/null || { why "the diff could not be read for the blind review"; return; }
+  prompt "$out/scratch/verdict.md" "$out/ticket.md" "$out/diff.diff" "$has" > "$out/prompt.md" || { why "the blind review's prompt could not be written"; return; }
   local dis ms a flags=() reads=()
   reads=("$(physical "$wt")"); for d in ${deny[@]+"${deny[@]}"}; do reads+=("$(physical "$d")"); done
   dis="$(deny "AskUserQuestion,EnterWorktree,ExitWorktree" "${reads[@]}")"
@@ -157,11 +157,11 @@ run() {
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$t" -ge "$secs" ]; then kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
-      ended; why "the plain review ran past ${secs}s"; return; fi
+      ended; why "the blind review ran past ${secs}s"; return; fi
     sleep 1; t=$((t + 1))
   done
   wait "$pid"; ended
-  draft "$out/result.json" "$out/verdict.md" || { why "the plain review returned no verdict"; return; }
+  draft "$out/result.json" "$out/verdict.md" || { why "the blind review returned no verdict"; return; }
 }
 
 [ $# -ge 1 ] || usage

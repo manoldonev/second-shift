@@ -58,7 +58,8 @@ review.
    paths literally: put in this skill's base directory, the `headRefOid` sha and your scratch dir
    as you hold them. With no `--out`, the run writes to
    `plain-review.sh out-dir <headRefOid>`, which step 8 derives again from the same sha. The run
-   first clears what an earlier run left there. Do not read that dir before step 8.
+   first clears what an earlier run left there. Never open the files in that dir yourself: only the
+   join block reads them, so your draft is your own review alone.
 3. **Pass 1: review the diff from the ticket and the code alone.** Until step 4, do not open the
    decision record, the plan, the PR description, a PR comment or an earlier verdict. The diff is
    `origin/<base>...HEAD`, where `<base>` is the PR's base branch. Read it without the plans
@@ -241,7 +242,7 @@ review.
    O="$(bash <this skill's base directory>/../../tools/plain-review.sh out-dir <headRefOid>)" || exit 1
    P=""; [ -s "$O/verdict.md" ] && P="$O/verdict.md"
    bash <this skill's base directory>/../../tools/verdict-join.sh <your draft> "$P" \
-     --why "$(cat "$O/why" 2>/dev/null || echo 'the plain review did not return')" \
+     --why "$(cat "$O/why" 2>/dev/null || echo 'the blind review did not return')" \
      --ticket "$(cat "$O/ticket" 2>/dev/null || echo false)" \
      --plain-cost "$(jq -r '.total_cost_usd | numbers' "$O/result.json" 2>/dev/null)" \
      --plain-wall "$(cat "$O/wall" 2>/dev/null)" > <joined draft>
@@ -251,7 +252,9 @@ review.
 
    The joined draft is the body you check and post, unchanged. The script merges plain's blockers
    by `run.sh`'s rules, makes a plain-only blocker turn an approve into a needs-work, and ends the
-   body with a folded `dev: lane vs plain` block under `## Notes`. When the plain review did not
+   body with a folded `dev: lane vs blind` block under `## Notes`. The block sets every finding of
+   both reviews side by side, holds the blind review's draft as written, and reads "not measured" for this
+   session's cost and time. When the plain review did not
    return, your verdict stands and `## Notes` says why. When the plain review is off, skip this
    step and post your own draft.
 

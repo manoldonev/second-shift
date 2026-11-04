@@ -127,6 +127,7 @@ if [ -n "${PLAIN_SESSION:-}" ]; then
     plain-blocker-agree) r=$'```\nverdict: needs-work\n## Findings\n- [blocker] B1 src/a.ts:4 — the defect the lane saw\n- [note] N1 src/a.ts:9 — a plain note\n```' ;;
     plain-blocker-new)   r=$'verdict: needs-work\n## Findings\n- [blocker] B1 src/other.ts:20 — a defect only plain saw\n  Scenario: an empty list → a crash' ;;
     plain-no-jira)       r=$'verdict: approve\n## Findings\n- [note] N0 ticket-unavailable — getJiraIssue could not fetch GH-42' ;;
+    plain-no-jira-located) r=$'verdict: approve\n## Findings\n- [note] N0 src/a.ts:1 — ticket-unavailable — getJiraIssue could not fetch GH-42' ;;
     plain-makefile)      r=$'verdict: needs-work\n## Findings\n- [blocker] B1 Makefile:13 — the test target skips the new suite\n- [blocker] B2 the docs at https://ci.test:443 still name the old target' ;;
     plain-slow)          sleep 2; r=$'verdict: approve\n## Findings\nNone.' ;;
     plain-silent)        r="I looked around and have nothing to add." ;;

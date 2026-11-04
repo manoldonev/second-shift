@@ -1447,12 +1447,12 @@ async def joined_review(case: dict, r: dict, root: Path, bindir: Path, model: st
     costs = [envelope.get("total_cost_usd"), penvelope.get("total_cost_usd")]
     pdraft, why = Path(r["plain_scratch"]) / "verdict.md", ""
     if not plain_ok:
-        why = "the plain review ran past its timeout"
+        why = "the blind review ran past its timeout"
     else:
         pout_json = state / "plain-result.json"
         pout_json.write_text(json.dumps(penvelope))
         if run_function(r["funcs"], "plain_draft", str(pout_json), str(pdraft)).returncode != 0:
-            why = "the plain review returned no verdict"
+            why = "the blind review returned no verdict"
     draft = Path(r["draft"])
     text = None
     if draft.exists():

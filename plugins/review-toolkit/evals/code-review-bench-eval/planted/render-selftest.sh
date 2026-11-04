@@ -179,7 +179,7 @@ PATH="$T/fakebin:$PATH" py review --case abc123 --arm lane --dest "$T/rv-lane" -
   && ok "the lane's posted verdict is captured through the local gh and passes verdict-check.sh" || bad "lane review: rc=$rc $(head -c 600 "$T/rv-lane.json") $(tail -n 3 "$T/rv-lane.err")"
 PATH="$T/fakebin:$PATH" py review --case abc123 --arm joined --dest "$T/rv-joined" --clones "$T/clones" --reviewer-model fake --no-bench > "$T/rv-joined.json" 2> "$T/rv-joined.err"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(field "$T/rv-joined.json" status)" = ok ] && [ "$(field "$T/rv-joined.json" verdict)" = needs-work ] \
-  && [ "$(field "$T/rv-joined.json" findings 0 path)" = src/sum.sh ] && grep -q '^- \[blocker\] B1 \[plain\] src/sum.sh:1' <<<"$(field "$T/rv-joined.json" text)" \
+  && [ "$(field "$T/rv-joined.json" findings 0 path)" = src/sum.sh ] && grep -q '^- \[blocker\] B1 \[blind\] src/sum.sh:1' <<<"$(field "$T/rv-joined.json" text)" \
   && ok "joined: run.sh's join adds plain's blocker to the lane's approve, and the joined verdict passes verdict-check.sh" || bad "joined review: rc=$rc $(head -c 800 "$T/rv-joined.json") $(tail -n 3 "$T/rv-joined.err")"
 [ "$(field "$T/rv-joined.json" cost_usd)" = 0.75 ] && [ "$(field "$T/rv-joined.json" plain_status)" = returned ] && [ "$(jq length "$T/rv-joined/work/gh/comments.json" 2>/dev/null)" = 0 ] \
   && ok "joined: the record sums both sessions' cost, and the lane session posted nothing" || bad "joined record: cost=$(field "$T/rv-joined.json" cost_usd) plain=$(field "$T/rv-joined.json" plain_status)"

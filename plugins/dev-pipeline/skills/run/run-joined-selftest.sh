@@ -13,7 +13,8 @@ echo "[run-joined-selftest] the joined review: plain beside the lane, one verdic
 posted() { awk -v k="$1" '$0 == "<!-- end of comment -->" { c++; next } c == k - 1' "$FAKE_GH/pr-comment-bodies" 2>/dev/null; }   # the k-th body the scheduler posted
 has_posted() { local k="$1"; shift; posted "$k" > "$d/posted-$k.md"; grep -q "$@" "$d/posted-$k.md"; }   # has_posted <k> [-x] <pattern>
 devjson() { posted "$1" | sed -n 's/^<!-- plain-vs-lane: \(.*\) -->$/\1/p'; }   # the dev block's machine-readable line
-devblock_last() { posted "$1" | awk '/^<details><summary>dev: lane vs plain<\/summary>$/ { on = 1 } on { last = $0 } END { exit !(on && last == "</details>") }'; }
+devblock_last() { posted "$1" | awk '/^<details><summary>dev: lane vs blind( — .*)?<\/summary>$/ { on = 1 } on { last = $0 } END { exit !(on && last == "</details>") }'; }
+above() { posted "$1" | sed '/^<details><summary>dev: lane vs blind/,$d'; }   # the k-th body without its dev block
 OFFCFG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"run":{"joinedReview":false}}'
 
 # (j1) the default: no config key, no env. Both sessions run in parallel; the plain one cannot reach the record
@@ -39,9 +40,9 @@ grep -q '^# a change$' "$pp" && grep -q 'Do the thing in src/a.ts' "$pp" && ! gr
   && ok "(j1) the lane review may not comment and is told to write its draft" || bad "(j1) lane allowlist/prompt: $(grep -o 'Bash(gh pr comment[^,]*' "$FAKE_GH/args-2.txt")"
 [ "$(grep -c '^verdict: ' "$FAKE_GH/pr-comment-bodies" 2>/dev/null)" -eq 1 ] && [ "$(jq length "$FAKE_GH/comments.json")" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" \
   && ok "(j1) the scheduler posts one joined verdict, binds it and posts success" || bad "(j1) posted: $(tr '\n' '|' < "$FAKE_GH/pr-comment-bodies" 2>/dev/null)"
-devblock_last 1 && jq -e '.lane_blockers == 0 and .plain_blockers == 0 and .agreed == 0 and .flipped == false and .plain_returned == true
+devblock_last 1 && jq -e '.v == 2 and .format == "verdict" and .lane_blockers == 0 and .plain_blockers == 0 and .agreed == 0 and .flipped == false and .plain_returned == true
     and .lane_cost_usd == 1 and .plain_cost_usd == 0.5 and (.lane_wall_s | type) == "number" and .plain_wall_s >= 2 and .ticket == true' <<<"$(devjson 1)" >/dev/null \
-  && has_posted 1 -x 'Verdict: the lane alone said approve; the joined verdict is approve.' && has_posted 1 'Plain session: [$]0.50, [0-9]* s, returned\.$' \
+  && has_posted 1 -x -- '- Verdict: lane approve · blind approve · joined approve.' && has_posted 1 -x 'No finding to compare.' && has_posted 1 'Blind session: [$]0.50, [0-9]* s, returned\.$' \
   && ok "(j1) [AC-10] the verdict ends with the folded dev block: no-flip counts, both sessions' cost and wall time, and its JSON line" || bad "(j1) dev block: $(devjson 1) $(posted 1 | tail -n 9 | tr '\n' '|')"
 grep -q '^cost_usd: 2.50$' "$FAKE_GH/issue-comments" && ok "(j1) the run's cost counts the plain session" || bad "(j1) cost: $(grep -o 'cost_usd: [0-9.]*' "$FAKE_GH/issue-comments")"
 
@@ -50,34 +51,39 @@ fixture j2; printf 'build-pr\nreview-approve-summary\nbuild-push-only\nreview-ap
 run_case "$d"; expect approved "(j2) needs-work from a plain-only blocker, then approve"
 posted 1 > "$d/v1.md"
 [ "$(head -n 1 "$d/v1.md")" = "verdict: needs-work" ] && grep -qx 'Not mergeable yet.' "$d/v1.md" && ! grep -q 'Mergeable as it is.\|^Nothing to do.$\|^None.$' "$d/v1.md" \
-  && grep -qx -- '- \[blocker\] B1 \[plain\] src/other.ts:20 — a defect only plain saw' "$d/v1.md" && grep -qx '  Scenario: an empty list → a crash' "$d/v1.md" \
-  && ok "(j2) line 1 and the Summary's first line are rewritten; the blocker is added as [plain] with its scenario" || bad "(j2) first verdict: $(tr '\n' '|' < "$d/v1.md")"
-grep -q 'state=failure' "$FAKE_GH/statuses" && grep -q '\[plain\] src/other.ts:20' "$FAKE_GH/prompt-3.txt" \
-  && ok "(j2) the needs-work posts failure and the next build gets the [plain] finding" || bad "(j2) statuses=$(tr '\n' '|' < "$FAKE_GH/statuses") prompt-3 has it: $(grep -c 'other.ts' "$FAKE_GH/prompt-3.txt")"
+  && grep -qx -- '- \[blocker\] B1 \[blind\] src/other.ts:20 — a defect only plain saw' "$d/v1.md" && grep -qx '  Scenario: an empty list → a crash' "$d/v1.md" \
+  && ok "(j2) line 1 and the Summary's first line are rewritten; the blocker is added as [blind] with its scenario" || bad "(j2) first verdict: $(tr '\n' '|' < "$d/v1.md")"
+grep -q 'state=failure' "$FAKE_GH/statuses" && grep -q '\[blind\] src/other.ts:20' "$FAKE_GH/prompt-3.txt" \
+  && ok "(j2) the needs-work posts failure and the next build gets the [blind] finding" || bad "(j2) statuses=$(tr '\n' '|' < "$FAKE_GH/statuses") prompt-3 has it: $(grep -c 'other.ts' "$FAKE_GH/prompt-3.txt")"
 devblock_last 1 && jq -e '.plain_only == 1 and .lane_only == 0 and .flipped == true and .plain_returned == true' <<<"$(devjson 1)" >/dev/null \
-  && grep -qx -- '- Plain-only: B1 (plain B1) src/other.ts:20' "$d/v1.md" \
-  && grep -qx 'Verdict: the lane alone said approve; the joined verdict is needs-work (plain flipped approve → needs-work).' "$d/v1.md" \
-  && ok "(j2) [AC-10] the dev block names the plain-only blocker and the flip" || bad "(j2) dev block: $(devjson 1)"
+  && grep -qxF '| blind only: blocker; added as B1 | src/other.ts:20 | — | B1 blocker: a defect only plain saw |' "$d/v1.md" \
+  && grep -qxF '<details><summary>dev: lane vs blind — 0 agreed, 0 rated differently, 0 lane alone, 1 blind alone; blind flipped the verdict</summary>' "$d/v1.md" \
+  && grep -qx -- '- Verdict: lane approve · blind needs-work · joined needs-work (blind flipped it).' "$d/v1.md" \
+  && ok "(j2) the dev block sets the plain-only blocker beside the lane, and names the flip" || bad "(j2) dev block: $(devjson 1)"
+! grep -q 'dev: lane vs blind\|blind review, as written' "$FAKE_GH/prompt-3.txt" && grep -q '\[blind\] src/other.ts:20' "$FAKE_GH/prompt-3.txt" \
+  && ok "(j2) the next build reads the findings without the dev block" || bad "(j2) prompt-3 dev block lines: $(grep -c 'dev: lane vs blind' "$FAKE_GH/prompt-3.txt")"
 
-# (j3) a blocker both raised at the same site is one finding, tagged [lane+plain]; plain's notes are dropped
+# (j3) a blocker both raised at the same site is one finding, tagged [lane+blind]; plain's notes are dropped
 fixture j3; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-blocker-agree\nplain-approve\n' > "$FAKE_PLAIN_PLAN"
 run_case "$d"; expect approved "(j3) an agreed blocker, then approve"
 posted 1 > "$d/v1.md"
-grep -qx -- '- \[blocker\] B1 \[lane+plain\] src/a.ts:3 — mixed blocker' "$d/v1.md" && [ "$(grep -c '^- \[blocker\]' "$d/v1.md")" -eq 1 ] \
-  && grep -qx -- '- \[note\] N1 src/a.ts:9 — mixed note' "$d/v1.md" && ! grep -q 'a plain note\|^- .*\[plain\]' "$d/v1.md" \
-  && ok "(j3) one blocker tagged [lane+plain], the lane's note kept, plain's note dropped" || bad "(j3) first verdict: $(tr '\n' '|' < "$d/v1.md")"
+grep -qx -- '- \[blocker\] B1 \[lane+blind\] src/a.ts:3 — mixed blocker' "$d/v1.md" && [ "$(grep -c '^- \[blocker\]' "$d/v1.md")" -eq 1 ] \
+  && above 1 > "$d/above-1.md" && grep -qx -- '- \[note\] N1 src/a.ts:9 — mixed note' "$d/above-1.md" && ! grep -q 'a plain note\|^- .*\[blind\]' "$d/above-1.md" \
+  && ok "(j3) one blocker tagged [lane+blind], the lane's note kept, plain's note dropped" || bad "(j3) first verdict: $(tr '\n' '|' < "$d/v1.md")"
 jq -e '.lane_blockers == 1 and .plain_blockers == 1 and .agreed == 1 and .lane_only == 0 and .plain_only == 0 and .plain_notes_dropped == 1 and .flipped == false' <<<"$(devjson 1)" >/dev/null \
-  && grep -qx -- '- Agreed: B1 ↔ plain B1' "$d/v1.md" && grep -qx -- '- Plain-only: none' "$d/v1.md" \
-  && ok "(j3) [AC-10] the dev block pairs the agreed ids and counts the dropped note" || bad "(j3) dev block: $(devjson 1)"
+  && jq -e '.m_b_b == 1 and .m_n_n == 1' <<<"$(devjson 1)" >/dev/null \
+  && grep -qxF '| agreed: blocker | src/a.ts:3 (blind :4) | B1 blocker: mixed blocker | B1 blocker: the defect the lane saw |' "$d/v1.md" \
+  && grep -qxF '| agreed: note | src/a.ts:9 | N1 note: mixed note | N1 note: a plain note |' "$d/v1.md" \
+  && ok "(j3) the dev block pairs the agreed blocker and the agreed note, each with both texts" || bad "(j3) dev block: $(devjson 1)"
 
 # (j4) a plain review that returns no verdict, or crashes: the lane's verdict is posted alone, with a Notes line
 for p in silent crash; do
   fixture "j4-$p"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-%s\n' "$p" > "$FAKE_PLAIN_PLAN"
   run_case "$d"; expect approved "(j4) plain-$p"
-  has_posted 1 -x 'Joined review: the plain review returned no verdict, so this verdict is the lane review alone.' && grep -q '^cost_usd: 2.50$' "$FAKE_GH/issue-comments" \
+  has_posted 1 -x 'Joined review: the blind review returned no verdict, so this verdict is the lane review alone.' && grep -q '^cost_usd: 2.50$' "$FAKE_GH/issue-comments" \
     && ok "(j4) plain-$p: the lane's verdict is posted with a Notes line saying plain did not return; its cost still counts" || bad "(j4) plain-$p: $(posted 1 | tr '\n' '|')"
   devblock_last 1 && jq -e '.plain_returned == false and .plain_blockers == 0 and .flipped == false and .plain_cost_usd == 0.5' <<<"$(devjson 1)" >/dev/null \
-    && has_posted 1 'Plain session: [$]0.50, [0-9]* s, did not return (the plain review returned no verdict)\.$' \
+    && has_posted 1 'Blind session: [$]0.50, [0-9]* s, did not return (the blind review returned no verdict)\.$' \
     && ok "(j4) [AC-10] plain-$p: the dev block says plain did not return" || bad "(j4) plain-$p dev block: $(devjson 1)"
 done
 # (j4t) an unreadable github ticket: the plain review still runs, on the diff alone, and the dev block says so
@@ -110,7 +116,7 @@ FIXTURE_CONFIG="$OFFCFG" fixture j7; printf 'build-pr\nreview-approve\n' > "$FAK
 run_case "$d"; expect approved "(j7) run.joinedReview false"
 [ ! -f "$FAKE_GH/plain-calls" ] && grep -qF 'Bash(gh pr comment*)' "$FAKE_GH/args-2.txt" && grep -q '^Post ONE PR comment' "$FAKE_GH/prompt-2.txt" \
   && ! grep -q '^verdict: ' "$FAKE_GH/pr-comment-bodies" 2>/dev/null && [ "$(jq length "$FAKE_GH/comments.json")" -eq 1 ] \
-  && ! jq -e '.[0].body | contains("dev: lane vs plain")' "$FAKE_GH/comments.json" >/dev/null \
+  && ! jq -e '.[0].body | contains("dev: lane vs blind")' "$FAKE_GH/comments.json" >/dev/null \
   && ok "(j7) no plain session and no dev block; the lane review posts its own verdict" || bad "(j7) plain-calls=$(cat "$FAKE_GH/plain-calls" 2>/dev/null)"
 
 # (j8) jira, the default: the scheduler reads no Jira ticket, so the plain session fetches it with the read-only getJiraIssue tool
@@ -138,15 +144,19 @@ grep -qx 'Fetch ticket GH-42 with the getJiraIssue tool and read its summary and
 FIXTURE_CONFIG="$JIRACFG" fixture j8u; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-no-jira\n' > "$FAKE_PLAIN_PLAN"; jira_run j8u
 devblock_last 1 && jq -e '.ticket == false and .plain_returned == true and .plain_notes_dropped == 0' <<<"$(devjson 1)" >/dev/null && has_posted 1 'returned, reviewed without a ticket\.$' \
   && ok "(j8u) the ticket-unavailable note sets the dev block's ticket to false" || bad "(j8u) dev=$(devjson 1)"
+# (j8v) the same note after a site, as plain's finding grammar puts one first, still means no ticket
+FIXTURE_CONFIG="$JIRACFG" fixture j8v; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-no-jira-located\n' > "$FAKE_PLAIN_PLAN"; jira_run j8v
+devblock_last 1 && jq -e '.ticket == false and .plain_notes_dropped == 0 and .m_0_n == 0' <<<"$(devjson 1)" >/dev/null && has_posted 1 'returned, reviewed without a ticket\.$' \
+  && ok "(j8v) a ticket-unavailable note written after a site sets ticket false and is no row" || bad "(j8v) dev=$(devjson 1)"
 fixture j9; RUN_JOINED_REVIEW=maybe run_case "$d"; expect env-config-run "(j9) a switch that is not true or false"
 
 # (j10) ids stay unique: plain's B1 at another site than the lane's B1 is renumbered after the lane's
 fixture j10; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-blocker-new\nplain-approve\n' > "$FAKE_PLAIN_PLAN"
 run_case "$d"; expect approved "(j10) a lane B1 and a plain B1 at different sites, then approve"
 posted 1 > "$d/v1.md"
-grep -qx -- '- \[blocker\] B1 src/a.ts:3 — mixed blocker' "$d/v1.md" && grep -qx -- '- \[blocker\] B2 \[plain\] src/other.ts:20 — a defect only plain saw' "$d/v1.md" \
+grep -qx -- '- \[blocker\] B1 src/a.ts:3 — mixed blocker' "$d/v1.md" && grep -qx -- '- \[blocker\] B2 \[blind\] src/other.ts:20 — a defect only plain saw' "$d/v1.md" \
   && grep -q 'state=failure' "$FAKE_GH/statuses" && ! grep -q 'breaks the verdict grammar' <<<"$OUT" \
-  && ok "(j10) the lane keeps B1, plain's blocker becomes B2 [plain], and the joined verdict passes verdict-check.sh and binds" || bad "(j10) first verdict: $(grep '^- ' "$d/v1.md" | tr '\n' '|')"
+  && ok "(j10) the lane keeps B1, plain's blocker becomes B2 [blind], and the joined verdict passes verdict-check.sh and binds" || bad "(j10) first verdict: $(grep '^- ' "$d/v1.md" | tr '\n' '|')"
 
 # (j11) jira with tracker writes on: the plain session is still denied every Atlassian write tool, under every namespace
 FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":true,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture j11
@@ -174,10 +184,11 @@ for h in "$HOME"/.claude "$HOME"/.claude-*; do [ -d "$h/projects" ] && { [[ "$di
 fixture j13; printf 'build-pr\nreview-needs-work-makefile\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-makefile\nplain-approve\n' > "$FAKE_PLAIN_PLAN"
 run_case "$d"; expect approved "(j13) blockers on a Makefile, then approve"
 posted 1 > "$d/v1.md"
-grep -qx -- '- \[blocker\] B1 \[lane+plain\] Makefile:12 — the test target skips the new suite' "$d/v1.md" \
-  && grep -qx -- '- \[blocker\] B2 \[plain\] the docs at https://ci.test:443 still name the old target' "$d/v1.md" && [ "$(grep -c '^- \[blocker\]' "$d/v1.md")" -eq 2 ] \
-  && grep -qx -- '- Agreed: B1 ↔ plain B1' "$d/v1.md" && grep -qx -- '- Plain-only: B2 (plain B2)' "$d/v1.md" \
-  && ok "(j13) Makefile:12 and Makefile:13 merge into one [lane+plain] finding; the URL blocker has no site and is added as [plain]" || bad "(j13) first verdict: $(grep '^- ' "$d/v1.md" | tr '\n' '|')"
+grep -qx -- '- \[blocker\] B1 \[lane+blind\] Makefile:12 — the test target skips the new suite' "$d/v1.md" \
+  && grep -qx -- '- \[blocker\] B2 \[blind\] the docs at https://ci.test:443 still name the old target' "$d/v1.md" && [ "$(grep -c '^- \[blocker\]' "$d/v1.md")" -eq 2 ] \
+  && grep -qxF '| agreed: blocker | Makefile:12 (blind :13) | B1 blocker: the test target skips the new suite | B1 blocker: the test target skips the new suite |' "$d/v1.md" \
+  && grep -qxF '| blind only: blocker; added as B2 | (no site) | — | B2 blocker: the docs at https://ci.test:443 still name the old target |' "$d/v1.md" \
+  && ok "(j13) Makefile:12 and Makefile:13 merge into one [lane+blind] finding; the URL blocker has no site and is added as [blind]" || bad "(j13) first verdict: $(grep '^- ' "$d/v1.md" | tr '\n' '|')"
 
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

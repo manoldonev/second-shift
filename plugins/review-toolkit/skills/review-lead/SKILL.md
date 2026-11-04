@@ -494,7 +494,8 @@ run one, replace its three placeholders with values you hold literally:
   checkout.
 
 The plain review's out dir is never written down: each block derives it again with `plain-review.sh out-dir
-<head sha>`.
+<head sha>`. Never open the files in it yourself: only the join block reads them, so your report is your own review
+alone.
 
 **When it runs.** In dispatch mode only. Skip it in synthesis-only mode: the pipeline that drove you runs its own.
 Run this check. If it prints `false`, skip the plain review. If it fails, skip the plain review and end the report
@@ -529,16 +530,17 @@ PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" || exit 1
 O="$(bash "$PT/plain-review.sh" out-dir <head sha>)" || exit 1
 P=""; [ -s "$O/verdict.md" ] && P="$O/verdict.md"
 bash "$PT/verdict-join.sh" "<scratch dir>/lead-report.md" "$P" --format report \
-  --why "$(cat "$O/why" 2>/dev/null || echo 'the plain review did not return')" \
+  --why "$(cat "$O/why" 2>/dev/null || echo 'the blind review did not return')" \
   --ticket "$(cat "$O/ticket" 2>/dev/null || echo false)" \
   --plain-cost "$(jq -r '.total_cost_usd | numbers' "$O/result.json" 2>/dev/null)" \
   --plain-wall "$(cat "$O/wall" 2>/dev/null)"
 ```
 
-Give its output as your report, unchanged. The script tags an agreed blocker `[lane+plain]`, adds a plain-only one
-under `## Critical` as `[plain]`, and turns `Ready to merge?` to `No` when it adds one. It ends the report with a
-folded `dev: lane vs plain` block. When the plain review did not return, the report stands as you wrote it and its
-`## Notes` says why. Never edit, drop or soften a `[plain]` blocker after the join.
+Give its output as your report, unchanged. The script tags an agreed blocker `[lane+blind]`, adds a plain-only one
+under `## Critical` as `[blind]`, and turns `Ready to merge?` to `No` when it adds one. It ends the report with a
+folded `dev: lane vs blind` block that sets every finding of both reviews side by side and holds the blind review's draft as
+written. When the plain review did not return, the report stands as you wrote it and its
+`## Notes` says why. Never edit, drop or soften a `[blind]` blocker after the join.
 
 ## Synthesis Rules
 
