@@ -27,6 +27,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMPT_FILE_DEFAULT="$HERE/../skills/run/plain-review.md"
 JIRA_READ="mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue"
+JIRA_READ="$JIRA_READ,mcp__atlassian__getAccessibleAtlassianResources,mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources"
 usage() { sed -n '6,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 enabled() { # RUN_JOINED_REVIEW beats the config, as in run.sh
@@ -71,7 +72,8 @@ strip() { awk -v a="$1/" -v b="$2" 'index($0, a) == 0 && (b == "" || index($0, b
 ticket_text() {
   case "$1" in
     jira) printf '%s\n' "Fetch ticket $2 with the getJiraIssue tool and read its summary and description. Ignore any link to a decision record or plan." \
-      "If the tool cannot fetch it, review the diff alone and add the finding \`- [note] N0 ticket-unavailable — getJiraIssue could not fetch $2\`." ;;
+      "getJiraIssue needs a cloudId: when you have none, take it from the getAccessibleAtlassianResources tool." \
+      "If getJiraIssue cannot fetch it, review the diff alone and add the finding \`- [note] N0 ticket-unavailable — getJiraIssue could not fetch $2\`." ;;
     none) echo "No ticket is available for this change." ;;
     *) usage ;;
   esac
@@ -92,8 +94,9 @@ prompt() {
 }
 
 # Only its own tree and scratch are added. Under github no MCP server loads, so no tracker or code-host tool can fetch the
-# record. Under jira the servers load as they do for the lane sessions, and the allowlist grants getJiraIssue alone: every
-# other MCP tool needs a grant this session never gets, and --permission-prompts none denies it
+# record. Under jira the servers load as they do for the lane sessions, and the allowlist grants getJiraIssue and the
+# getAccessibleAtlassianResources lookup of the cloudId it requires, both read-only: every other MCP tool needs a grant this
+# session never gets, and --permission-prompts none denies it
 args() {
   local sets mcp=--strict-mcp-config allow="Read,Grep,Glob"
   [ "$5" = jira ] && { mcp=""; allow="$allow,$JIRA_READ"; }

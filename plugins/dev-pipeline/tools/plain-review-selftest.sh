@@ -79,10 +79,13 @@ grep -qx 'No ticket is available for this change.' "$T/prompt" && ! grep -q 'Als
 
 FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o5" --plans-dir docs/plans --jira-key ABC-12 >/dev/null 2>&1
 ALW="$(awk 'p { print; exit } $0 == "--allowedTools" { p = 1 }' "$T/args")"
+DIS="$(awk 'p { print; exit } $0 == "--disallowedTools" { p = 1 }' "$T/args")"
 grep -q 'Fetch ticket ABC-12 with the getJiraIssue tool' "$T/prompt" && grep -q '^Also flag a requirement the ticket states' "$T/prompt" \
+  && grep -q 'take it from the getAccessibleAtlassianResources tool' "$T/prompt" \
   && ! grep -qx -- '--strict-mcp-config' "$T/args" && [ "$(cat "$T/o5/ticket")" = true ] \
-  && [ "$ALW" = "Read,Grep,Glob,mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue" ] \
-  && ok "(p7) --jira-key: MCP loads, getJiraIssue is the one tool added, and the prompt names the key" || bad "(p7) allow=$ALW"
+  && [ "$ALW" = "Read,Grep,Glob,mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue,mcp__atlassian__getAccessibleAtlassianResources,mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources" ] \
+  && [[ "$DIS" != *getJiraIssue* && "$DIS" != *getAccessibleAtlassianResources* ]] \
+  && ok "(p7) --jira-key: MCP loads, getJiraIssue and the cloudId lookup it needs are the tools added, none denied, and the prompt names the key" || bad "(p7) allow=$ALW"
 bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o6" --ticket "$T/ticket.md" --jira-key ABC-12 >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 2 ] && ok "(p8) --ticket and --jira-key together is usage: exit 2" || bad "(p8) rc=$RC"
 
