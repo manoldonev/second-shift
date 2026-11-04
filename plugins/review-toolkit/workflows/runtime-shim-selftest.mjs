@@ -302,6 +302,33 @@ console.log('── Case H: args.config subset delivery (#77)')
   })
   ok('H4 the spec path is forwarded to the scope reviewer', /Decision record: the committed decision record `docs\/plans\/x-77-decisions\.md`/.test(String(calls[0]?.prompt ?? '')))
 }
+{
+  // H5 — the PR body's link verb decides the gate: a closing keyword scores the whole ticket, any other verb runs
+  // partial mode, no verb says nothing (the reviewer's whole-ticket default), and anything but a bare verb throws.
+  const scopePrompt = async (issueLink) => {
+    const { calls } = await runCodeReview([findingsBlock()], {
+      reviewers: ['review-toolkit:scope-completeness-reviewer'],
+      issue: '77',
+      ...(issueLink === undefined ? {} : { issueLink }),
+    })
+    return String(calls[0]?.prompt ?? '')
+  }
+  const closes = await scopePrompt('Closes')
+  const fixed = await scopePrompt('fixed')
+  const relates = await scopePrompt('Relates to')
+  const none = await scopePrompt(undefined)
+  ok('H5a a closing keyword scores the whole ticket', /links the ticket with `Closes`, a closing keyword — score the whole ticket/.test(closes) && !/partial mode/.test(closes))
+  ok('H5b closing keywords match in any case and tense', /a closing keyword/.test(fixed) && !/partial mode/.test(fixed))
+  ok('H5c a non-closing verb runs partial mode', /links the ticket with `Relates to`, not a closing keyword — partial mode/.test(relates))
+  ok('H5d no issueLink adds no ticket-link line', /Verify scope completeness/.test(none) && !/Ticket link/.test(none))
+  let threw = ''
+  try {
+    await scopePrompt('Relates to — only the API half is in scope')
+  } catch (e) {
+    threw = String(e)
+  }
+  ok('H5e an issueLink that is more than a bare verb throws', /issueLink must be a bare link verb/.test(threw), threw)
+}
 
 // ---------------------------------------------------------------------------
 // Case M — intake-review.mjs's per-agent wall-clock ceiling (#283).
