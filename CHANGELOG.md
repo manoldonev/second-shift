@@ -4,6 +4,15 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.12.2
+
+### `dev-pipeline` 17.11.1 → 17.11.2
+
+- **fix(dev-pipeline): the lane vs blind block lists each pair instead of a table (#1186)** (#1186)
+  the verdict comment's folded lane vs blind block lists each paired finding on its own
+  lines instead of a four-column table that GitHub squeezed into one-word columns.
+  Migration: none.
+
 ## v17.12.1
 
 ### `dev-pipeline` 17.11.0 → 17.11.1
