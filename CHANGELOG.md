@@ -4,6 +4,83 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.13.0
+
+### `dev-pipeline` 17.11.2 → 17.12.0
+
+- **feat: built-by names its release; intake and the blind review guard against over-engineering (#1188)** (#1188)
+  a pipeline PR's built-by line names the second-shift release its
+  dev-pipeline shipped in, e.g. 'built-by: second-shift run <id> (v17.13.0)'.
+  A plugin installed before this release carries no stamp and keeps the bare line.
+  Migration: none.
+  the blind review flags over-engineering the change introduced, and
+  intake (spec review and the interview) recommends against refactors and
+  abstractions no present caller or requirement needs.
+  Migration: none.
+  the verdict comment's lane vs blind block groups its pairs under one
+  line per outcome, each pair on a single line that starts with its site.
+  Migration: none.
+  the verdict comment no longer quotes a blind review that found nothing.
+  Migration: none.
+  an abstraction, layer, option or generalization no present caller
+  needs is flagged even when the ticket or the decision record prescribes it,
+  with the prescribing decision quoted, on lane and ad hoc reviews alike.
+  Migration: none.
+  the over-engineering rule no longer flags a surface the ticket
+  requires, such as a config key a consumer repo uses, for lacking a caller
+  in the checkout.
+  Migration: none.
+
+### `intake-toolkit` 8.6.0 → 8.7.0
+
+- **feat: built-by names its release; intake and the blind review guard against over-engineering (#1188)** (#1188)
+  a pipeline PR's built-by line names the second-shift release its
+  dev-pipeline shipped in, e.g. 'built-by: second-shift run <id> (v17.13.0)'.
+  A plugin installed before this release carries no stamp and keeps the bare line.
+  Migration: none.
+  the blind review flags over-engineering the change introduced, and
+  intake (spec review and the interview) recommends against refactors and
+  abstractions no present caller or requirement needs.
+  Migration: none.
+  the verdict comment's lane vs blind block groups its pairs under one
+  line per outcome, each pair on a single line that starts with its site.
+  Migration: none.
+  the verdict comment no longer quotes a blind review that found nothing.
+  Migration: none.
+  an abstraction, layer, option or generalization no present caller
+  needs is flagged even when the ticket or the decision record prescribes it,
+  with the prescribing decision quoted, on lane and ad hoc reviews alike.
+  Migration: none.
+  the over-engineering rule no longer flags a surface the ticket
+  requires, such as a config key a consumer repo uses, for lacking a caller
+  in the checkout.
+  Migration: none.
+
+### `review-toolkit` 11.7.1 → 11.8.0
+
+- **feat: built-by names its release; intake and the blind review guard against over-engineering (#1188)** (#1188)
+  a pipeline PR's built-by line names the second-shift release its
+  dev-pipeline shipped in, e.g. 'built-by: second-shift run <id> (v17.13.0)'.
+  A plugin installed before this release carries no stamp and keeps the bare line.
+  Migration: none.
+  the blind review flags over-engineering the change introduced, and
+  intake (spec review and the interview) recommends against refactors and
+  abstractions no present caller or requirement needs.
+  Migration: none.
+  the verdict comment's lane vs blind block groups its pairs under one
+  line per outcome, each pair on a single line that starts with its site.
+  Migration: none.
+  the verdict comment no longer quotes a blind review that found nothing.
+  Migration: none.
+  an abstraction, layer, option or generalization no present caller
+  needs is flagged even when the ticket or the decision record prescribes it,
+  with the prescribing decision quoted, on lane and ad hoc reviews alike.
+  Migration: none.
+  the over-engineering rule no longer flags a surface the ticket
+  requires, such as a config key a consumer repo uses, for lacking a caller
+  in the checkout.
+  Migration: none.
+
 ## v17.12.2
 
 ### `dev-pipeline` 17.11.1 → 17.11.2
