@@ -21,6 +21,7 @@ idea; we hold that the asking is the make-or-break step."*
 | File | Who writes it |
 | --- | --- |
 | `plugins/*/.claude-plugin/plugin.json` → `version` | `scripts/derive-release.sh`, on the release PR |
+| `plugins/*/.claude-plugin/release` | `scripts/derive-release.sh`, on the release PR |
 | `CHANGELOG.md` | `scripts/derive-release.sh`, on the release PR |
 | `.claude-plugin/marketplace.json` → `metadata.version` | `scripts/derive-release.sh`, on the release PR |
 

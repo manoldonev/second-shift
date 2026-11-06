@@ -374,6 +374,8 @@ while IFS=$'\t' read -r name _old new _lvl; do
   [[ -f "$manifest" ]] || continue
   tmp="$SCRATCH/plugin.json"
   jq --arg v "$new" '.version = $v' "$manifest" > "$tmp" && cat "$tmp" > "$manifest"
+  # Bumped plugins only: the version is the install cache key, so a stamp on an unbumped plugin never reaches a machine
+  printf '%s\n' "$RELEASE_VERSION" > "plugins/$name/.claude-plugin/release"
 done < "$SCRATCH/plugver.tsv"
 
 # 2. marketplace.json lockstep version

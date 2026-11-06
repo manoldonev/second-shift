@@ -61,6 +61,11 @@ for manifest in $(git diff --name-only "$MERGE_BASE"..HEAD -- 'plugins/*/.claude
   fi
 done
 
+for stamp in $(git diff --name-only "$MERGE_BASE"..HEAD -- 'plugins/*/.claude-plugin/release' 2>/dev/null); do
+  echo "[frozen-files] ✗ $stamp is release-owned — scripts/derive-release.sh stamps it on the release PR. Revert the edit." >&2
+  fails=$((fails + 1))
+done
+
 if [[ "$fails" -gt 0 ]]; then
   echo "[frozen-files] $fails frozen-file modification(s). See docs/releasing.md." >&2
   exit 1

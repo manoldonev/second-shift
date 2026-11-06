@@ -184,6 +184,9 @@ MAIN_ROOT="$(cd "$_common/.." 2>/dev/null && pwd)" || terminal env-main-root "ca
 REPO_SLUG="$(basename "$MAIN_ROOT")"
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOOLS="$(cd "$SKILL_DIR/../../tools" && pwd)"
+# derive-release.sh stamps the release into each plugin it bumps; a checkout between releases has none
+RELEASE="$(grep -xE 'v?[0-9]+\.[0-9]+\.[0-9]+' "${RUN_RELEASE_FILE:-$SKILL_DIR/../../.claude-plugin/release}" 2>/dev/null | head -n 1)"
+BUILT_BY="built-by: second-shift run $RUN_ID${RELEASE:+ (v${RELEASE#v})}"
 
 # C1/C2: an absent file means the consumer configured nothing; a present-but-unparseable one is a refusal
 CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
@@ -1057,7 +1060,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   if [ "$1" -eq 1 ]; then
     echo "When the checks you ran are green, commit and push branch $BRANCH to origin. If no PR is open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME'. Leave it a draft: the scheduler marks it ready for review only when a review approves its head."
     echo "Write the PR body for the human who reviews it. Use short sentences and the active voice. Put one fact in each sentence. Use the same word for the same thing. Do not use idioms, metaphors or abstract words. Put what the reviewer must know first. State each fact once: a later section cites the row id and does not repeat the fact. Keep the body under 500 words, not counting the Checks table. A limit never removes a record row, a deferred decision, a skipped command or a test you think is wrong. If they do not fit, shorten the wording and cut the changes first. Write the body in this order:"
-    echo "1. Line 1, exactly: 'built-by: second-shift run $RUN_ID'."
+    echo "1. Line 1, exactly: '$BUILT_BY'."
     echo "2. The repo's pull request template, when it has one. Keep its headings and their order. Fill its sections with what changes for the users of this code and why, and with the changes. Do not add a '## What this changes' heading of your own. When the repo has no template, write '## What this changes' and then '## Changes'. What this changes has at most 80 words. It says what changes for the users of this code, and why. It does not describe the implementation. Give the changes grouped by area, in at most 8 bullets, with at most 20 words in each bullet. Do not repeat a decision or a default that another section states. When you cite a record row or an acceptance criterion, put its id in parentheses after the sentence that states it. Do not write a list of ids without the facts they stand for."
     echo "3. '## Before you merge', only when it has something to say. Leave the section out when there is nothing. It names each thing the reviewer must decide or do before the merge. For each record row with provenance deferred, name its open region. If the region's disposition is pause-and-ask, say what the build stopped on and what it asks. If it is reversible-default-and-flag, name the default you used. Include each deploy, migration or other PR that must land first."
     if [ "$TRACKER" = github ]; then echo "4. The line 'Closes #$ISSUE', so the ticket closes on merge. Put it where the template asks for linked issues. When it does not ask, or there is no template, put it here."; else echo "4. The template's '### Jira Items' heading, or your own here, and under it the line 'Closes [$ISSUE]'."; fi

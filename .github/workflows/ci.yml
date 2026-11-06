@@ -128,7 +128,7 @@ jobs:
           fi
 
   # The release PR skips the selftest sweep when its diff is derive-release.sh output only (the
-  # version fields, CHANGELOG.md, the pin example in docs/onboarding.md): that code is main's, and
+  # version fields and release stamps, CHANGELOG.md, the pin example in docs/onboarding.md): that code is main's, and
   # main's push run sweeps it. A hand edit to any other file on release/next runs the sweep.
   # Head repo checked as in pr-gates: a fork naming its branch release/next always gets the sweep.
   release-scope:
@@ -152,7 +152,7 @@ jobs:
           compare="$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$HEAD_SHA")"
           base="$(jq -r '.merge_base_commit.sha' <<<"$compare")"
           echo "base=$base" >> "$GITHUB_OUTPUT"
-          other="$(jq -r '.files[].filename' <<<"$compare" | grep -vxE 'CHANGELOG\.md|docs/onboarding\.md|\.claude-plugin/marketplace\.json|plugins/[^/]+/\.claude-plugin/plugin\.json' || true)"
+          other="$(jq -r '.files[].filename' <<<"$compare" | grep -vxE 'CHANGELOG\.md|docs/onboarding\.md|\.claude-plugin/marketplace\.json|plugins/[^/]+/\.claude-plugin/(plugin\.json|release)' || true)"
           if [[ -n "$other" ]]; then
             echo "release/next changes files beyond the derivation, so the sweep runs:"
             echo "$other"

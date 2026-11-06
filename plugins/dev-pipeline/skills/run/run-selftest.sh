@@ -281,6 +281,15 @@ grep -q 'run /intake-toolkit:intake 42 first' <<<"$OUT" && ! grep -q 'intake-too
 fixture l5; run_case "$d" --dry-run; expect usage-dry-run "(l5) the removed --dry-run is refused by name"; [ "$RC" -eq 2 ] && ok "(l5) usage-dry-run exits 2" || bad "(l5) exit $RC"
 [ ! -f "$FAKE_GH/calls" ] && ok "(l5) nothing spawned on --dry-run" || bad "(l5) claude called on --dry-run"
 
+fixture rel; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf '17.12.2\n' > "$T/release-rel"
+RUN_RELEASE_FILE="$T/release-rel" run_case "$d"; expect approved "(rel) a stamped plugin builds to approved"
+grep -qE "^1\. Line 1, exactly: 'built-by: second-shift run [0-9TZ]+-[0-9]+ \(v17\.12\.2\)'\.$" "$FAKE_GH/prompt-1.txt" \
+  && ok "(rel) the built-by line names the release the plugin shipped in" || bad "(rel) built-by line: $(grep 'Line 1, exactly' "$FAKE_GH/prompt-1.txt")"
+fixture rel0; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
+RUN_RELEASE_FILE="$T/no-such-release" run_case "$d"; expect approved "(rel0) an unstamped checkout builds to approved"
+grep -qE "^1\. Line 1, exactly: 'built-by: second-shift run [0-9TZ]+-[0-9]+'\.$" "$FAKE_GH/prompt-1.txt" \
+  && ok "(rel0) without a release stamp the built-by line carries no version" || bad "(rel0) built-by line: $(grep 'Line 1, exactly' "$FAKE_GH/prompt-1.txt")"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 exit $?

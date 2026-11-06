@@ -4,10 +4,11 @@ Every consumer upgrade is a deliberate PR (third-party marketplaces never auto-u
 every release must make that PR easy to open and easy to trust.
 
 **Versions and the CHANGELOG are derived at release time, not written in feature PRs.**
-A feature PR never touches `plugins/*/.claude-plugin/plugin.json` `version` or
-`CHANGELOG.md` — CI rejects it (`scripts/check-frozen-files.sh`). Both are computed by
+A feature PR never touches `plugins/*/.claude-plugin/plugin.json` `version`,
+`plugins/*/.claude-plugin/release` or `CHANGELOG.md` — CI rejects it (`scripts/check-frozen-files.sh`). All are computed by
 [`scripts/derive-release.sh`](../scripts/derive-release.sh) from conventional commit types
-and changed paths, and land on an accumulating **release PR**.
+and changed paths, and land on an accumulating **release PR**. `release` holds the release version that last bumped its
+plugin; `/dev-pipeline:run` puts it on the PR body's `built-by:` line.
 
 ## The flow
 
@@ -79,7 +80,7 @@ bash plugins/second-shift/skills/onboard/tools/pin-resolve.sh manoldonev/second-
 
 | Gate | Where | What it enforces |
 | --- | --- | --- |
-| `check-frozen-files.sh` | every PR except `release/next` | **hard:** no `plugin.json` version or `CHANGELOG.md` edits. **advisory (warn-only, never fails):** announces a `.github/workflows/**` edit — the enforcer there is meant to be a server-side ruleset, not this script, which runs inside the very workflow it would freeze ([`pipeline-manifesto.md`](pipeline-manifesto.md) T0 note) |
+| `check-frozen-files.sh` | every PR except `release/next` | **hard:** no `plugin.json` version, `release` stamp or `CHANGELOG.md` edits. **advisory (warn-only, never fails):** announces a `.github/workflows/**` edit — the enforcer there is meant to be a server-side ruleset, not this script, which runs inside the very workflow it would freeze ([`pipeline-manifesto.md`](pipeline-manifesto.md) T0 note) |
 | `check-changelog-trailer.sh` | every PR except `release/next` | a `plugins/**` PR carries `Changelog:` or `Changelog: none` |
 | `check-plugin-version-bumps.sh` | the release PR only | every content-changed plugin carries its derived bump (the version string is the update **cache key** — an unbumped plugin updates NOBODY) |
 | configVersion migration-doc gate | the release PR only | a `configVersion` change ships `docs/migrations/vN-to-vN+1.md` (the contract in [`migrations/README.md`](migrations/README.md)) |
