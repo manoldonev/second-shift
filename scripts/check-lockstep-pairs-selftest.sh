@@ -352,5 +352,28 @@ else
   out | sed 's/^/      /' >&2
 fi
 
+# ---- (s) in a git checkout, an ignored copy is not read; an untracked one is -----------------
+d=$(tree s)
+git -C "$d" init -q
+sh_block "$d/a.sh" demo "" "VALUE=1"
+sh_block "$d/b.sh" demo "" "VALUE=1"
+printf 'wt/\n' > "$d/.gitignore"
+sh_block "$d/wt/stale/a.sh" demo "" "VALUE=0"
+rc=$(run "$d")
+if [[ "$rc" -eq 0 ]]; then
+  ok "(s) a drifted copy under an ignored path does not red the tree"
+else
+  bad "(s) an ignored copy was read as a group member (rc=$rc)"
+  out | sed 's/^/      /' >&2
+fi
+sh_block "$d/c.sh" demo "" "VALUE=0"
+rc=$(run "$d")
+if [[ "$rc" -ne 0 ]]; then
+  ok "(s) a drifted untracked copy still reds the tree"
+else
+  bad "(s) an untracked copy was skipped"
+  out | sed 's/^/      /' >&2
+fi
+
 echo "[lockstep-selftest] summary: $PASS passed, $FAIL failed"
 exit $FAIL
