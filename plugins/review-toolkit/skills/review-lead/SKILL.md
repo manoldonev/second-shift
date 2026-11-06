@@ -160,8 +160,8 @@ When in doubt, review deeper rather than shallower.
 
 If a plan/spec was provided as input, read it — you'll verify the implementation matches after collecting sub-agent findings. Verify:
 
-- **Missing requirements**: Is every plan task/requirement reflected in the code?
-- **Scope creep**: Was anything built that isn't in the plan?
+- **Missing requirements**: Is every plan task/requirement reflected in the code? A requirement is an outcome, a behavior, an acceptance criterion or an external surface the ticket or plan states. An external surface is something a party outside the diff's own code reads or calls: a config key, an entry point or command, an API, or a stored or on-disk format. A plan task that only prescribes internal structure is not missing when the outcomes are met.
+- **Scope creep**: Was anything built that isn't in the plan? Over-engineering found here is also a finding (see Over-engineering is a finding, under Step 3).
 - **Misunderstandings**: Does the implementation match the plan's intent?
 
 Report plan compliance issues separately from code quality issues.
@@ -589,6 +589,8 @@ For every finding from a sub-reviewer, classify it:
 
 **A dismissal cites the artifact that makes the finding harmless.** Downgrading or omitting a reviewer finding needs a citation — the schema showing the persisted shape, the guard that already rejects the input, the sibling that establishes the pattern. A rationale with no artifact behind it ("harmless over JSON") is not a dismissal; the finding stays at the reviewer's severity. For a finding the diff is the first to depend on (lead-pass rule 4, Duplicate delivery included), a sibling is not that artifact: a pattern nobody depended on is not an established pattern, and sibling handlers without commit-point dedup do not clear a new delivery source.
 
+**Over-engineering is a finding.** Every over-engineering observation, from a reviewer or from the lead pass, goes in Critical, Warnings or Suggestions, or in `## Suppressed` when its confidence alone is below the threshold. The Review Summary, Strengths, the Reasoning line and Plan Compliance carry no over-engineering observation that the finding sections do not. "The ticket prescribed it" and "a style trade-off" never move a finding out of the finding sections or down a tier: a structure the ticket or a plan prescribes is not a need for it, so quote that line in the finding.
+
 **Examples of false positives to catch:**
 
 - "Missing auth headers" → when NO component in the app uses auth headers
@@ -709,6 +711,7 @@ Combine all findings into one report with this structure:
 ```
 ## Review Summary
 One paragraph. Give your overall assessment in short sentences. If a plan was provided, say whether the code follows it.
+No over-engineering observation here, in Strengths or in the Reasoning line that the finding sections do not carry.
 
 ## Strengths
 What the code does well — be specific. Acknowledge good patterns, solid testing, clean design.
@@ -729,8 +732,8 @@ Each finding includes: [Reviewer] file:line (confidence: N) — description.
 - [Complexity] finding...
 
 ## Plan Compliance (if plan/spec provided)
-- Missing: [requirements not implemented]
-- Extra: [code not in the plan]
+- Missing: [requirements not implemented — a structure the plan only prescribes is not one]
+- Extra: [code not in the plan — over-engineering here is also a finding row]
 - Mismatches: [implementation differs from spec]
 If all requirements met: "Implementation matches the plan."
 

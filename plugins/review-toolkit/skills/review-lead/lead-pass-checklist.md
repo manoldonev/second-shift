@@ -165,7 +165,9 @@ Before emitting any Critical or Warning, answer three questions to yourself. A f
    pre-existing), the anchor is the diff line that depends on the cited out-of-diff defect.
 2. **Concrete today?** Can you describe a concrete failure that happens, or a concrete protection
    the diff removes or fails to apply, **as the code stands**? "If X ever happens" reasoning fails
-   this gate.
+   this gate. An over-engineering finding (Complexity) meets it by citing the callers of the
+   structure, or by showing that there are none. It has no failure today, so it stays a Warning
+   at most (the two-condition trigger) and is never dropped for that.
 3. **Distinct from the surrounding pattern?** If every sibling does the same thing, the diff doing
    it is consistent — `[Pre-existing]` at most, never a new Critical. Sibling consistency does not
    apply when the diff is the first consumer of the defect: a pattern nobody depended on is not an
@@ -390,8 +392,8 @@ premature abstraction. Never flag structure the repo's framework, runtime, or co
 **Critical**
 
 - **Premature abstraction** — a helper, wrapper, or abstract/interface layer for something used
-  exactly once. The tell is indirection with no second caller. A plan counts only when the ticket
-  states it; a need expected only in the future is not one.
+  exactly once. The tell is indirection with no second caller. A plan the ticket prescribes is not
+  a need; a need expected only in the future is not one either.
 - **Configuration creep** — values that will never vary hidden behind a config lookup. Values that
   genuinely differ per environment (URLs, credentials, deployment paths) are not this.
 - **Unnecessary patterns** — factory / strategy / observer / builder, or a trait/interface seam
@@ -415,9 +417,12 @@ premature abstraction. Never flag structure the repo's framework, runtime, or co
 **A decision is not a need.** A ticket line, a decision-record row or any other recorded decision
 that prescribes an abstraction, layer, option or generalization never removes a finding above and
 never lowers its severity: tickets often carry over-architecture an assistant recommended. Raise it
-as if the decision were absent, and quote the decision in the finding. A requirement the ticket
-states is a need, not a decision: a surface the ticket asks for, such as a config key or an entry
-point a caller outside the checkout uses, is not over-engineering for lacking a caller in the diff.
+as if the decision were absent, and quote the decision in the finding. An external surface the
+ticket asks for is a need, not a decision: something a party outside the diff's own code reads or
+calls, such as a config key, an entry point or command, an API, or a stored or on-disk format. It
+needs no named caller, and it is not over-engineering for lacking a caller in the diff. A repo's
+declared `## Intentional complexity` exemption still holds. An over-engineering finding is never
+carried only in prose, and "a style trade-off" never moves it out of the findings or down a tier.
 
 **Do NOT flag**
 
