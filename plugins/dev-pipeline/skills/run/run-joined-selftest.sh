@@ -72,8 +72,8 @@ grep -qx -- '- \[blocker\] B1 \[lane+blind\] src/a.ts:3 — mixed blocker' "$d/v
   && ok "(j3) one blocker tagged [lane+blind], the lane's note kept, plain's note dropped" || bad "(j3) first verdict: $(tr '\n' '|' < "$d/v1.md")"
 jq -e '.lane_blockers == 1 and .plain_blockers == 1 and .agreed == 1 and .lane_only == 0 and .plain_only == 0 and .plain_notes_dropped == 1 and .flipped == false' <<<"$(devjson 1)" >/dev/null \
   && jq -e '.m_b_b == 1 and .m_n_n == 1' <<<"$(devjson 1)" >/dev/null \
-  && grep -qxF -- '- **agreed: blocker** — src/a.ts:3 (blind :4)' "$d/v1.md" && grep -qxF '  - lane B1 blocker: mixed blocker' "$d/v1.md" && grep -qxF '  - blind B1 blocker: the defect the lane saw' "$d/v1.md" \
-  && grep -qxF -- '- **agreed: note** — src/a.ts:9' "$d/v1.md" && grep -qxF '  - lane N1 note: mixed note' "$d/v1.md" && grep -qxF '  - blind N1 note: a plain note' "$d/v1.md" \
+  && grep -qxF -- '- `src/a.ts:3` (blind :4) — lane B1: mixed blocker · blind B1: the defect the lane saw' "$d/v1.md" \
+  && grep -qxF -- '- `src/a.ts:9` — lane N1: mixed note · blind N1: a plain note' "$d/v1.md" \
   && ok "(j3) the dev block pairs the agreed blocker and the agreed note, each with both texts" || bad "(j3) dev block: $(devjson 1)"
 
 # (j4) a plain review that returns no verdict, or crashes: the lane's verdict is posted alone, with a Notes line

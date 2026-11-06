@@ -18,9 +18,9 @@
 # The body ends with a folded `dev: lane vs blind` block under `## Notes`, which verdict-check.sh reads as prose. It
 # compares every finding of both reviews, notes and dismissals included: the summary counts agreed, rated
 # differently, lane alone and blind alone (the comment names the plain review "blind"); a list pairs the findings, one
-# to one, by the same site rule (nearest first, then the same severity), disagreements first, one entry per pair with
-# the outcome and the site on its line and each side's finding under it (a GitHub table squeezed the findings into
-# one-word columns beside a long path); then both verdicts, both sessions (a lane passed no cost and no wall is "not
+# to one, by the same site rule (nearest first, then the same severity), disagreements first, grouped under one bold outcome
+# line with its count, one line per pair that leads with the site (a GitHub table squeezed the findings into one-word
+# columns beside a long path, and a nested entry per pair was too tall to skim); then both verdicts, both sessions (a lane passed no cost and no wall is "not
 # measured"), plain's draft as written, and one `<!-- plain-vs-lane: {json} -->` line for scripts that aggregate
 # across PRs. Its `lane_only` and `plain_only` count blockers only; `m_<lane>_<plain>` count pairs by class (b
 # blocker, n note, d dismissed, 0 absent). A plain `ticket-unavailable` note, with or without a site before
@@ -122,18 +122,24 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     for (j = 1; j <= nr; j++) so[j] = j
     for (j = 2; j <= nr; j++) for (i = j; i > 1 && rkey[so[i - 1]] > rkey[so[i]]; i--) { k = so[i]; so[i] = so[i - 1]; so[i - 1] = k }
   }
+  function code(s) { return s == "(no site)" ? s : "`" s "`" }
   function site(j, i,   s) {
-    if (j && lloc[j] != "") { s = esc(lloc[j]); if (i && plc[i] != "" && lineof(plc[i]) != lineof(lloc[j])) s = s " (blind :" lineof(plc[i]) ")"; return s }
-    if (j) return anchor(ltxt[j])
-    return plc[i] != "" ? esc(plc[i]) : anchor(ptx[i])
+    if (j && lloc[j] != "") { s = code(esc(lloc[j])); if (i && plc[i] != "" && lineof(plc[i]) != lineof(lloc[j])) s = s " (blind :" lineof(plc[i]) ")"; return s }
+    if (j) return code(anchor(ltxt[j]))
+    return code(plc[i] != "" ? esc(plc[i]) : anchor(ptx[i]))
   }
-  function lcell(j) { return rep ? llab[j] ": " ex(ltxt[j]) : llab[j] " " word(lcls[j]) ": " ex(ltxt[j]) }
-  function pcell(i, x) { return plab[i] " " word(pcl[i]) ": " ex(ptx[i]) (x == "" ? "" : " (+ " x ")") }
-  function outcome(r,   s, i) {
-    s = ot[rcls[r]]; i = ri[r]
-    if (i && i <= np && !pmatch[i]) s = s "; added as " (rep ? "[blind]" : newid[i])
-    if (rj[r] && tolower(lfull[rj[r]]) ~ /(plain|blind) review/) s = s "; lane cites blind"
-    return s
+  function lcell(j) { return llab[j] ": " ex(ltxt[j]) }
+  function pcell(i, x) { return plab[i] ": " ex(ptx[i]) (x == "" ? "" : " (+ " x ")") }
+  function extra(r,   s, i) {
+    i = ri[r]
+    if (i && i <= np && !pmatch[i]) s = "added as " (rep ? "[blind]" : newid[i])
+    if (rj[r] && tolower(lfull[rj[r]]) ~ /(plain|blind) review/) s = s (s == "" ? "" : "; ") "lane cites blind"
+    return s == "" ? "" : " _(" s ")_"
+  }
+  function pairline(r,   j, i) {
+    j = rj[r]; i = ri[r]
+    if (j && i) return "- " site(j, i) " — lane " lcell(j) " · blind " pcell(i, rx[r]) extra(r)
+    return "- " site(j, i) " — " (j ? lcell(j) : pcell(i, rx[r])) extra(r)
   }
   function mv(k) { return pf == "" ? "null" : m[k] + 0 }
   function fold(   i, s, tot, left) {
@@ -146,7 +152,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     }
     print "```"; print ""; print "</details>"; print ""
   }
-  function devblock(   j, r, a, dd, la, pa, lv, rv, jv, pvs, cites) {
+  function devblock(   g, j, r, a, dd, la, pa, lv, rv, jv, pvs, cites) {
     if (pf != "") pair2()
     for (j = 1; j <= nl; j++) { if (lcls[j] == "n") lnotes++; if (lcls[j] == "d") ldis++; if (tolower(lfull[j]) ~ /(plain|blind) review/) cites++ }
     a = m["b_b"] + m["n_n"]; dd = m["n_b"] + m["d_b"] + m["b_n"] + m["d_n"]; la = m["b_0"] + m["n_0"]; pa = m["0_b"] + m["0_n"]
@@ -157,9 +163,9 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     if (pf != "" && !nr) { print "No finding to compare."; print "" }
     if (nr) {
       for (r = 1; r <= nr && r <= 40; r++) {
-        j = so[r]; print "- **" outcome(j) "** — " site(rj[j], ri[j])
-        if (rj[j]) print "  - lane " lcell(rj[j])
-        if (ri[j]) print "  - blind " pcell(ri[j], rx[j])
+        j = so[r]
+        if (rcls[j] != g) { if (g != "") print ""; g = rcls[j]; print "**" ot[g] "** (" m[g] ")"; print "" }
+        print pairline(j)
       }
       print ""; if (nr > 40) { print nr - 40 " more pairs are counted in the machine line."; print "" }
     }
