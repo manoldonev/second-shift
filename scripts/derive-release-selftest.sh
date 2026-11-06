@@ -47,6 +47,7 @@ mkplugin() { # mkplugin <name> <version>
 # --- baseline at v1.0.0 ---
 mkplugin alpha 1.2.0
 mkplugin beta 2.0.1
+mkplugin gamma 0.3.0
 mkdir -p .claude-plugin docs
 printf '{\n  "name": "fixture",\n  "metadata": { "version": "1.0.0" }\n}\n' > .claude-plugin/marketplace.json
 printf '{ "source": { "ref": "v1.0.0" } }\n' > docs/onboarding.md
@@ -180,6 +181,9 @@ V_MARKET="$(jq -r .metadata.version .claude-plugin/marketplace.json)"
 [[ "$V_ALPHA" == "1.4.0" ]] && ok "alpha version written (max rule)" || bad "alpha version: $V_ALPHA"
 [[ "$V_BETA" == "3.0.0" ]] && ok "beta version written (AC-7 same field shape)" || bad "beta version: $V_BETA"
 [[ "$V_MARKET" == "2.0.0" ]] && ok "marketplace lockstep version written" || bad "marketplace: $V_MARKET"
+[[ "$(cat plugins/alpha/.claude-plugin/release 2>/dev/null)" == "2.0.0" && "$(cat plugins/beta/.claude-plugin/release 2>/dev/null)" == "2.0.0" ]] \
+  && ok "each bumped plugin is stamped with the release version" || bad "release stamp: alpha=$(cat plugins/alpha/.claude-plugin/release 2>/dev/null) beta=$(cat plugins/beta/.claude-plugin/release 2>/dev/null)"
+[[ ! -e plugins/gamma/.claude-plugin/release ]] && ok "an unbumped plugin gets no release stamp" || bad "gamma was stamped: $(cat plugins/gamma/.claude-plugin/release)"
 assert_contains "pinned-ref example updated" '"ref": "v2.0.0"' docs/onboarding.md
 
 assert_contains "generated release heading (AC-3)" '## v2.0.0' CHANGELOG.md
@@ -254,6 +258,13 @@ git add -A
 git commit -qm "fix(beta): honest fix (#18)" -m "Changelog: none"
 if bash "$FROZEN" v2.0.0 > /dev/null 2>&1; then ok "frozen-files gate passes a clean PR (AC-1)"; else bad "frozen-files gate rejected a clean PR"; fi
 if bash "$TRAILER" v2.0.0 > /dev/null 2>&1; then ok "trailer gate passes with Changelog: none (AC-5)"; else bad "trailer gate rejected Changelog: none"; fi
+
+git checkout -q v2.0.0
+git checkout -qb stamp-pr
+echo 9.9.9 > plugins/beta/.claude-plugin/release
+git add -A
+git commit -qm "fix(beta): hand-written release stamp" -m "Changelog: none"
+if bash "$FROZEN" v2.0.0 > /dev/null 2>&1; then bad "frozen-files gate passed a hand-edited release stamp"; else ok "frozen-files gate rejects a hand-edited release stamp"; fi
 
 # Non-plugins PR: trailer not required.
 git checkout -q v2.0.0

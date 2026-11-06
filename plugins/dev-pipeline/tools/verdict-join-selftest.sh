@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # expected lines hold literal backticks
 # verdict-join-selftest.sh — behavioral selftest for tools/verdict-join.sh --format report, the join review-lead's
 # report goes through. The lane-verdict format is driven through run.sh in skills/run/run-joined-selftest.sh.
 #
@@ -6,8 +7,7 @@
 # under Critical as [blind] and flips Ready to merge from With fixes or Yes to No, but never touches an existing No;
 # plain's notes stay out of the report; a report with no Critical section gets one; with no plain draft the report
 # stands and its Notes say why; every report ends with the folded dev block: a list pairing every finding of both
-# reviews one to one by site, disagreements first, each pair's outcome and site on one line and each side's finding
-# under it, plain's draft as written, and a machine line whose matrix sums.
+# reviews one to one by site, disagreements first, grouped under a bold outcome line, one line per pair leading with its site, plain's draft as written, and a machine line whose matrix sums.
 #
 # Operator-safe: no network. Exit code = number of failed checks.
 set -uo pipefail
@@ -39,18 +39,18 @@ printf '%s\n' "$CRIT" | grep -qxF -- '- [blind] src/c.ts:3 — off by one' && pr
   && ok "(r2) a plain-only blocker is added under Critical as [blind], with its continuation" || bad "(r2) $CRIT"
 printf '%s\n' "$OUT" | grep -qxF '**Ready to merge?** No' && ! printf '%s\n' "$OUT" | grep -q 'With fixes$' \
   && ok "(r3) a plain-only blocker flips Ready to merge from With fixes to No" || bad "(r3) $(printf '%s\n' "$OUT" | grep 'Ready')"
-pairs() { printf '%s\n' "$1" | grep -E '^(- \*\*|  - )'; }   # the dev block's list: one `- **outcome** — site` line per pair, its sides indented under it
+pairs() { printf '%s\n' "$1" | grep -E '^(\*\*[a-z][^*]*\*\* \([0-9]+\)|- `|- \(no site\))'; }   # the dev block's list: a bold outcome header per group, then one `- site — findings` line per pair
 listed() { local p; p="$(pairs "$1")"; shift; [[ "$p"$'\n' == *"$(printf '%s\n' "$@")"* ]]; }
 ABOVE="$(printf '%s\n' "$OUT" | sed '/^<details><summary>dev: lane vs blind/,$d')"; DEV="$(printf '%s\n' "$OUT" | sed -n '/^<details><summary>dev: lane vs blind/,$p')"
-! grep -q 'src/d.ts' <<<"$ABOVE" && listed "$DEV" '- **blind only: note** — src/d.ts:1' '  - blind N1 note: style' \
+! grep -q 'src/d.ts' <<<"$ABOVE" && listed "$DEV" '**blind only: note** (1)' '- `src/d.ts:1` — N1: style' \
   && ok "(r4) plain's note stays out of the report and is compared in the dev block" || bad "(r4) $DEV"
 JSON="$(printf '%s\n' "$OUT" | sed -n 's/^<!-- plain-vs-lane: \(.*\) -->$/\1/p')"
 INV='.lane_blockers == .m_b_b + .m_b_n + .m_b_0 and .lane_notes == .m_n_b + .m_n_n + .m_n_0 and .lane_dismissed == .m_d_b + .m_d_n + .m_d_0
   and .plain_blockers == .m_b_b + .plain_merged + .m_n_b + .m_d_b + .m_0_b and .plain_notes_dropped == .m_b_n + .m_n_n + .m_d_n + .m_0_n
   and .agreed == .m_b_b and .lane_only == .m_b_n + .m_b_0 and .plain_only == .m_n_b + .m_d_b + .m_0_b'
-PAIRS="$(printf '%s\n' '- **blind only: blocker; added as [blind]** — src/c.ts:3' '  - blind B2 blocker: off by one' \
-  '- **agreed: blocker** — src/a.ts:10 (blind :12)' '  - lane Critical [Security]: injection' '  - blind B1 blocker: the same injection' \
-  '- **lane only: note** — src/b.ts:5' '  - lane Warning [Performance]: slow' '- **blind only: note** — src/d.ts:1' '  - blind N1 note: style')"
+PAIRS="$(printf '%s\n' '**blind only: blocker** (1)' '- `src/c.ts:3` — B2: off by one _(added as [blind])_' \
+  '**agreed: blocker** (1)' '- `src/a.ts:10` (blind :12) — lane Critical [Security]: injection · blind B1: the same injection' \
+  '**lane only: note** (1)' '- `src/b.ts:5` — Warning [Performance]: slow' '**blind only: note** (1)' '- `src/d.ts:1` — N1: style')"
 [ "$(jq -c '[.lane_blockers,.plain_blockers,.agreed,.lane_only,.plain_only,.plain_notes_dropped,.flipped,.plain_returned,.lane_cost_usd,.plain_wall_s,.v,.format,.lane_verdict,.plain_verdict]' <<<"$JSON" 2>/dev/null)" = '[1,2,1,0,1,1,true,true,1.2,40,2,"report","with-fixes","needs-work"]' ] \
   && jq -e "$INV" <<<"$JSON" >/dev/null \
   && grep -qxF '<details><summary>dev: lane vs blind — 1 agreed, 0 rated differently, 1 lane alone, 2 blind alone; blind flipped the verdict</summary>' <<<"$DEV" \
@@ -91,14 +91,14 @@ printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B4 Makefile:13 �
 OUT="$(bash "$TOOL" "$T/lead-make.md" "$T/plain-make.md" --format report)"
 printf '%s\n' "$OUT" | grep -qxF -- '- [lane+blind] [Pipeline] Makefile:12 (confidence: 90) — the test target never runs' \
   && printf '%s\n' "$OUT" | grep -qxF -- '- [blind] build/Dockerfile:2 — wrong base' \
-  && listed "$OUT" '- **agreed: blocker** — Makefile:12 (blind :13)' '  - lane Critical [Pipeline]: the test target never runs' '  - blind B4 blocker: test target skipped' \
-  && listed "$OUT" '- **blind only: blocker; added as [blind]** — build/Dockerfile:2' '  - blind B5 blocker: wrong base' \
+  && listed "$OUT" '- `Makefile:12` (blind :13) — lane Critical [Pipeline]: the test target never runs · blind B4: test target skipped' \
+  && listed "$OUT" '- `build/Dockerfile:2` — B5: wrong base _(added as [blind])_' \
   && ok "(r12) an extensionless path (Makefile:12) is a Critical bullet's site: plain's Makefile:13 agrees with it, ids kept" || bad "(r12) $OUT"
 
 devjs() { printf '%s\n' "$1" | sed -n 's/^<!-- plain-vs-lane: \(.*\) -->$/\1/p'; }
 printf '%s\n' 'verdict: approve' '## Findings' '- [note] N1 src/b.ts:6 — slow loop' > "$T/plain-note.md"
 OUT="$(bash "$TOOL" "$T/lead.md" "$T/plain-note.md" --format report)"
-listed "$OUT" '- **agreed: note** — src/b.ts:5 (blind :6)' '  - lane Warning [Performance]: slow' '  - blind N1 note: slow loop' && printf '%s\n' "$OUT" | grep -qxF '**Ready to merge?** With fixes' \
+listed "$OUT" '**agreed: note** (1)' '- `src/b.ts:5` (blind :6) — lane Warning [Performance]: slow · blind N1: slow loop' && printf '%s\n' "$OUT" | grep -qxF '**Ready to merge?** With fixes' \
   && jq -e '.m_n_n == 1 and .agreed == 0 and .flipped == false' <<<"$(devjs "$OUT")" >/dev/null \
   && ok "(r13) a plain note at a Warning's site is an agreed note, and changes nothing in the report" || bad "(r13) $(devjs "$OUT")"
 
@@ -106,7 +106,7 @@ printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 src/b.ts:5 —
 sed 's/— slow$/— slow, as the plain review also says/' "$T/lead.md" > "$T/lead-cites.md"
 OUT="$(bash "$TOOL" "$T/lead-cites.md" "$T/plain-on-warning.md" --format report)"
 printf '%s\n' "$OUT" | grep -qxF -- '- [blind] src/b.ts:5 — the loop is quadratic' && printf '%s\n' "$OUT" | grep -qxF '**Ready to merge?** No' \
-  && listed "$OUT" '- **lane note, blind blocker; added as [blind]; lane cites blind** — src/b.ts:5' '  - lane Warning [Performance]: slow, as the plain review also says' '  - blind B1 blocker: the loop is quadratic' \
+  && listed "$OUT" '**lane note, blind blocker** (1)' '- `src/b.ts:5` — lane Warning [Performance]: slow, as the plain review also says · blind B1: the loop is quadratic _(added as [blind]; lane cites blind)_' \
   && jq -e '.m_n_b == 1 and .plain_only == 1 and .lane_cites_plain == 1 and .flipped == true' <<<"$(devjs "$OUT")" >/dev/null \
   && ok "(r14) a plain blocker the lane rated a Warning is still added and flips; its pair names the split and the citation" || bad "(r14) $(devjs "$OUT")"
 
@@ -114,7 +114,7 @@ printf '%s\n' '## Critical (must fix before merge)' 'None.' '' '## Suppressed (b
   '- [Style] src/f.ts:1 (confidence: 40) — naming' '' '**Ready to merge?** Yes' > "$T/lead-supp.md"
 printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 src/e.ts:5 — the query is injectable' > "$T/plain-supp.md"
 OUT="$(bash "$TOOL" "$T/lead-supp.md" "$T/plain-supp.md" --format report)"
-listed "$OUT" '- **lane dismissed, blind blocker; added as [blind]** — src/e.ts:4 (blind :5)' '  - lane Suppressed [Security]: maybe injectable' '  - blind B1 blocker: the query is injectable' \
+listed "$OUT" '**lane dismissed, blind blocker** (1)' '- `src/e.ts:4` (blind :5) — lane Suppressed [Security]: maybe injectable · blind B1: the query is injectable _(added as [blind])_' \
   && [[ "$(pairs "$OUT")" != *'src/f.ts'* ]] && jq -e '.m_d_b == 1 and .m_d_0 == 1 and .lane_dismissed == 2' <<<"$(devjs "$OUT")" >/dev/null \
   && ok "(r15) a suppressed bullet at plain's site is a dismissal, not a miss; an unpaired one is not listed" || bad "(r15) $(devjs "$OUT")"
 
@@ -126,7 +126,7 @@ jq -e '.ticket == false and .plain_notes_dropped == 0 and .m_0_n == 0' <<<"$(dev
 { printf '%s\n' 'verdict: approve' '## Extra' '## Findings'; printf -- '- [note] N1 src/a.ts:30 — a | pipe and </details> and Ready to merge? then %s\n' "$(printf 'word %.0s' $(seq 60))"; } > "$T/plain-hostile.md"
 OUT="$(bash "$TOOL" "$T/lead.md" "$T/plain-hostile.md" --format report)"
 DEV="$(printf '%s\n' "$OUT" | sed -n '/^<details><summary>dev: lane vs blind/,$p')"
-ENTRY="$(grep '^  - blind N1 note: ' <<<"$DEV")"
+ENTRY="$(grep '^- `src/a.ts:30` — N1: ' <<<"$DEV")"
 [[ "$ENTRY" == *'a | pipe and &lt;/details> and Ready to merge then word'*'…' ]] && ! grep -q '^## \|^- \[\|Ready to merge?' <<<"$DEV" \
   && [ "$(grep -cx '</details>' <<<"$DEV")" -eq 2 ] && [ "$(tail -n 1 <<<"$DEV")" = '</details>' ] && grep -qx '    ## Extra' <<<"$DEV" \
   && ok "(r17) plain text cannot break the block: entries escape and cut, the quoted draft is indented, and the folds close" || bad "(r17) $DEV"
@@ -139,15 +139,20 @@ printf '%s\n' "$OUT" | grep -qxF '<details><summary>dev: lane vs blind — the b
 
 printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 src/a.ts:9 — injection' '- [blocker] B2 src/a.ts:11 — injection again' > "$T/plain-two.md"
 OUT="$(bash "$TOOL" "$T/lead.md" "$T/plain-two.md" --format report)"
-listed "$OUT" '- **agreed: blocker** — src/a.ts:10 (blind :9)' '  - lane Critical [Security]: injection' '  - blind B1 blocker: injection (+ B2)' \
+listed "$OUT" '**agreed: blocker** (1)' '- `src/a.ts:10` (blind :9) — lane Critical [Security]: injection · blind B1: injection (+ B2)' \
   && printf '%s\n' "$OUT" | grep -qxF '**Ready to merge?** With fixes' && jq -e '.plain_merged == 1 and .plain_only == 0 and .m_b_b == 1' <<<"$(devjs "$OUT")" >/dev/null \
   && ok "(r19) two plain blockers at one lane blocker are one agreed pair, the second counted as merged" || bad "(r19) $(devjs "$OUT")"
 
+printf '%s\n' 'verdict: approve' '## Findings' 'None.' > "$T/plain-none.md"
+OUT="$(bash "$TOOL" "$T/lead.md" "$T/plain-none.md" --format report)"
+! printf '%s\n' "$OUT" | grep -q 'blind review, as written' && printf '%s\n' "$OUT" | grep -qF 'blind approve' && [ "$(printf '%s\n' "$OUT" | tail -n 1)" = '</details>' ] \
+  && ok "(r21) a blind draft with no findings is not quoted: the verdict line already says it" || bad "(r21) $(printf '%s\n' "$OUT" | tail -n 12)"
+
 { printf '%s\n' 'verdict: approve' '## Findings'; for i in $(seq 45); do printf -- '- [note] N%s src/n%s.ts:1 — note %s\n' "$i" "$i" "$i"; done; } > "$T/plain-many.md"
 OUT="$(bash "$TOOL" "$T/lead-clean.md" "$T/plain-many.md" --format report)"
-[ "$(printf '%s\n' "$OUT" | grep -c '^- \*\*blind only: note')" -eq 40 ] && printf '%s\n' "$OUT" | grep -qx '5 more pairs are counted in the machine line.' \
+[ "$(printf '%s\n' "$OUT" | grep -c '^- `src/n')" -eq 40 ] && printf '%s\n' "$OUT" | grep -qxF '**blind only: note** (45)' && printf '%s\n' "$OUT" | grep -qx '5 more pairs are counted in the machine line.' \
   && jq -e '.m_0_n == 45' <<<"$(devjs "$OUT")" >/dev/null \
-  && ok "(r20) the list stops at 40 pairs and says how many more the machine line counts" || bad "(r20) pairs=$(printf '%s\n' "$OUT" | grep -c '^- \*\*')"
+  && ok "(r20) the list stops at 40 pairs and says how many more the machine line counts" || bad "(r20) pairs=$(printf '%s\n' "$OUT" | grep -c '^- `')"
 
 echo "verdict-join-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

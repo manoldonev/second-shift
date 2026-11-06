@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2154,SC2034  # the sourced lib sets $d, $OUT, $RC (fixture, run_case) and reads TERM_SLUG (expect)
+# shellcheck disable=SC2154,SC2034,SC2016  # the sourced lib sets $d, $OUT, $RC (fixture, run_case) and reads TERM_SLUG (expect); expected lines hold literal backticks
 # run-joined-selftest.sh — run.sh scenario slice: the joined review, on by default. A record-blind plain review runs
 # beside the lane review; the scheduler joins the two drafts and posts one verdict; run.joinedReview false turns it off.
 # The fakes, the fixture and run_case/expect live in run-selftest-lib.sh.
@@ -56,7 +56,7 @@ posted 1 > "$d/v1.md"
 grep -q 'state=failure' "$FAKE_GH/statuses" && grep -q '\[blind\] src/other.ts:20' "$FAKE_GH/prompt-3.txt" \
   && ok "(j2) the needs-work posts failure and the next build gets the [blind] finding" || bad "(j2) statuses=$(tr '\n' '|' < "$FAKE_GH/statuses") prompt-3 has it: $(grep -c 'other.ts' "$FAKE_GH/prompt-3.txt")"
 devblock_last 1 && jq -e '.plain_only == 1 and .lane_only == 0 and .flipped == true and .plain_returned == true' <<<"$(devjson 1)" >/dev/null \
-  && grep -qxF -- '- **blind only: blocker; added as B1** — src/other.ts:20' "$d/v1.md" && grep -qxF '  - blind B1 blocker: a defect only plain saw' "$d/v1.md" \
+  && grep -qxF -- '- `src/other.ts:20` — B1: a defect only plain saw _(added as B1)_' "$d/v1.md" \
   && grep -qxF '<details><summary>dev: lane vs blind — 0 agreed, 0 rated differently, 0 lane alone, 1 blind alone; blind flipped the verdict</summary>' "$d/v1.md" \
   && grep -qx -- '- Verdict: lane approve · blind needs-work · joined needs-work (blind flipped it).' "$d/v1.md" \
   && ok "(j2) the dev block sets the plain-only blocker beside the lane, and names the flip" || bad "(j2) dev block: $(devjson 1)"
@@ -72,8 +72,8 @@ grep -qx -- '- \[blocker\] B1 \[lane+blind\] src/a.ts:3 — mixed blocker' "$d/v
   && ok "(j3) one blocker tagged [lane+blind], the lane's note kept, plain's note dropped" || bad "(j3) first verdict: $(tr '\n' '|' < "$d/v1.md")"
 jq -e '.lane_blockers == 1 and .plain_blockers == 1 and .agreed == 1 and .lane_only == 0 and .plain_only == 0 and .plain_notes_dropped == 1 and .flipped == false' <<<"$(devjson 1)" >/dev/null \
   && jq -e '.m_b_b == 1 and .m_n_n == 1' <<<"$(devjson 1)" >/dev/null \
-  && grep -qxF -- '- **agreed: blocker** — src/a.ts:3 (blind :4)' "$d/v1.md" && grep -qxF '  - lane B1 blocker: mixed blocker' "$d/v1.md" && grep -qxF '  - blind B1 blocker: the defect the lane saw' "$d/v1.md" \
-  && grep -qxF -- '- **agreed: note** — src/a.ts:9' "$d/v1.md" && grep -qxF '  - lane N1 note: mixed note' "$d/v1.md" && grep -qxF '  - blind N1 note: a plain note' "$d/v1.md" \
+  && grep -qxF -- '- `src/a.ts:3` (blind :4) — lane B1: mixed blocker · blind B1: the defect the lane saw' "$d/v1.md" \
+  && grep -qxF -- '- `src/a.ts:9` — lane N1: mixed note · blind N1: a plain note' "$d/v1.md" \
   && ok "(j3) the dev block pairs the agreed blocker and the agreed note, each with both texts" || bad "(j3) dev block: $(devjson 1)"
 
 # (j4) a plain review that returns no verdict, or crashes: the lane's verdict is posted alone, with a Notes line
@@ -187,9 +187,8 @@ run_case "$d"; expect approved "(j13) blockers on a Makefile, then approve"
 posted 1 > "$d/v1.md"
 grep -qx -- '- \[blocker\] B1 \[lane+blind\] Makefile:12 — the test target skips the new suite' "$d/v1.md" \
   && grep -qx -- '- \[blocker\] B2 \[blind\] the docs at https://ci.test:443 still name the old target' "$d/v1.md" && [ "$(grep -c '^- \[blocker\]' "$d/v1.md")" -eq 2 ] \
-  && grep -qxF -- '- **agreed: blocker** — Makefile:12 (blind :13)' "$d/v1.md" && [ "$(grep -cxF '  - lane B1 blocker: the test target skips the new suite' "$d/v1.md")" -eq 1 ] \
-  && grep -qxF '  - blind B1 blocker: the test target skips the new suite' "$d/v1.md" \
-  && grep -qxF -- '- **blind only: blocker; added as B2** — (no site)' "$d/v1.md" && grep -qxF '  - blind B2 blocker: the docs at https://ci.test:443 still name the old target' "$d/v1.md" \
+  && [ "$(grep -cxF -- '- `Makefile:12` (blind :13) — lane B1: the test target skips the new suite · blind B1: the test target skips the new suite' "$d/v1.md")" -eq 1 ] \
+  && grep -qxF -- '- (no site) — B2: the docs at https://ci.test:443 still name the old target _(added as B2)_' "$d/v1.md" \
   && ok "(j13) Makefile:12 and Makefile:13 merge into one [lane+blind] finding; the URL blocker has no site and is added as [blind]" || bad "(j13) first verdict: $(grep '^- ' "$d/v1.md" | tr '\n' '|')"
 
 echo "[self-test] $PASS passed, $FAIL failed"

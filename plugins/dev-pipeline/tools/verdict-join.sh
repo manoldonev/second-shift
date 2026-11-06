@@ -18,9 +18,9 @@
 # The body ends with a folded `dev: lane vs blind` block under `## Notes`, which verdict-check.sh reads as prose. It
 # compares every finding of both reviews, notes and dismissals included: the summary counts agreed, rated
 # differently, lane alone and blind alone (the comment names the plain review "blind"); a list pairs the findings, one
-# to one, by the same site rule (nearest first, then the same severity), disagreements first, one entry per pair with
-# the outcome and the site on its line and each side's finding under it (a GitHub table squeezed the findings into
-# one-word columns beside a long path); then both verdicts, both sessions (a lane passed no cost and no wall is "not
+# to one, by the same site rule (nearest first, then the same severity), disagreements first, grouped under one bold outcome
+# line with its count, one line per pair that leads with the site (a GitHub table squeezed the findings into one-word
+# columns beside a long path, and a nested entry per pair was too tall to skim); then both verdicts, both sessions (a lane passed no cost and no wall is "not
 # measured"), plain's draft as written, and one `<!-- plain-vs-lane: {json} -->` line for scripts that aggregate
 # across PRs. Its `lane_only` and `plain_only` count blockers only; `m_<lane>_<plain>` count pairs by class (b
 # blocker, n note, d dismissed, 0 absent). A plain `ticket-unavailable` note, with or without a site before
@@ -122,20 +122,30 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     for (j = 1; j <= nr; j++) so[j] = j
     for (j = 2; j <= nr; j++) for (i = j; i > 1 && rkey[so[i - 1]] > rkey[so[i]]; i--) { k = so[i]; so[i] = so[i - 1]; so[i - 1] = k }
   }
+  function code(s) { return s == "(no site)" ? s : "`" s "`" }
   function site(j, i,   s) {
-    if (j && lloc[j] != "") { s = esc(lloc[j]); if (i && plc[i] != "" && lineof(plc[i]) != lineof(lloc[j])) s = s " (blind :" lineof(plc[i]) ")"; return s }
-    if (j) return anchor(ltxt[j])
-    return plc[i] != "" ? esc(plc[i]) : anchor(ptx[i])
+    if (j && lloc[j] != "") { s = code(esc(lloc[j])); if (i && plc[i] != "" && lineof(plc[i]) != lineof(lloc[j])) s = s " (blind :" lineof(plc[i]) ")"; return s }
+    if (j) return code(anchor(ltxt[j]))
+    return code(plc[i] != "" ? esc(plc[i]) : anchor(ptx[i]))
   }
-  function lcell(j) { return rep ? llab[j] ": " ex(ltxt[j]) : llab[j] " " word(lcls[j]) ": " ex(ltxt[j]) }
-  function pcell(i, x) { return plab[i] " " word(pcl[i]) ": " ex(ptx[i]) (x == "" ? "" : " (+ " x ")") }
-  function outcome(r,   s, i) {
-    s = ot[rcls[r]]; i = ri[r]
-    if (i && i <= np && !pmatch[i]) s = s "; added as " (rep ? "[blind]" : newid[i])
-    if (rj[r] && tolower(lfull[rj[r]]) ~ /(plain|blind) review/) s = s "; lane cites blind"
-    return s
+  function lcell(j) { return llab[j] ": " ex(ltxt[j]) }
+  function pcell(i, x) { return plab[i] ": " ex(ptx[i]) (x == "" ? "" : " (+ " x ")") }
+  function extra(r,   s, i) {
+    i = ri[r]
+    if (i && i <= np && !pmatch[i]) s = "added as " (rep ? "[blind]" : newid[i])
+    if (rj[r] && tolower(lfull[rj[r]]) ~ /(plain|blind) review/) s = s (s == "" ? "" : "; ") "lane cites blind"
+    return s == "" ? "" : " _(" s ")_"
+  }
+  function pairline(r,   j, i) {
+    j = rj[r]; i = ri[r]
+    if (j && i) return "- " site(j, i) " — lane " lcell(j) " · blind " pcell(i, rx[r]) extra(r)
+    return "- " site(j, i) " — " (j ? lcell(j) : pcell(i, rx[r])) extra(r)
   }
   function mv(k) { return pf == "" ? "null" : m[k] + 0 }
+  function bare(   i, s) {
+    for (i = 1; i <= nraw; i++) { s = praw[i]; gsub(/^[ \t]+|[ \t]+$/, "", s); if (s != "" && s !~ /^verdict: (approve|needs-work)$/ && s != "## Findings" && s != "None.") return 0 }
+    return 1
+  }
   function fold(   i, s, tot, left) {
     print "<details><summary>blind review, as written</summary>"; print ""; print "```text"
     for (i = 1; i <= nraw; i++) {
@@ -146,7 +156,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     }
     print "```"; print ""; print "</details>"; print ""
   }
-  function devblock(   j, r, a, dd, la, pa, lv, rv, jv, pvs, cites) {
+  function devblock(   g, j, r, a, dd, la, pa, lv, rv, jv, pvs, cites) {
     if (pf != "") pair2()
     for (j = 1; j <= nl; j++) { if (lcls[j] == "n") lnotes++; if (lcls[j] == "d") ldis++; if (tolower(lfull[j]) ~ /(plain|blind) review/) cites++ }
     a = m["b_b"] + m["n_n"]; dd = m["n_b"] + m["d_b"] + m["b_n"] + m["d_n"]; la = m["b_0"] + m["n_0"]; pa = m["0_b"] + m["0_n"]
@@ -157,9 +167,9 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     if (pf != "" && !nr) { print "No finding to compare."; print "" }
     if (nr) {
       for (r = 1; r <= nr && r <= 40; r++) {
-        j = so[r]; print "- **" outcome(j) "** — " site(rj[j], ri[j])
-        if (rj[j]) print "  - lane " lcell(rj[j])
-        if (ri[j]) print "  - blind " pcell(ri[j], rx[j])
+        j = so[r]
+        if (rcls[j] != g) { if (g != "") print ""; g = rcls[j]; print "**" ot[g] "** (" m[g] ")"; print "" }
+        print pairline(j)
       }
       print ""; if (nr > 40) { print nr - 40 " more pairs are counted in the machine line."; print "" }
     }
@@ -173,7 +183,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     }
     print "- Lane session: " (lc == "null" && lw == "null" ? "not measured" : usd(lc) ", " secs(lw)) ". Blind session: " usd(pc) ", " secs(pw) ", " (pf == "" ? "did not return (" why ")" : "returned") (ticket == "true" ? "" : ", reviewed without a ticket") "."
     print ""
-    if (pf != "") fold()
+    if (pf != "" && !bare()) fold()
     printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s", nb, np, na, nb - na, nadd, pnotes, (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
     printf ",\"v\":2,\"format\":\"%s\",\"lane_verdict\":%s,\"plain_verdict\":%s,\"lane_notes\":%d,\"lane_dismissed\":%d,\"lane_cites_plain\":%d,\"plain_merged\":%s", (rep ? "report" : "verdict"), (lv == "" ? "null" : "\"" lv "\""), (pv == "" ? "null" : "\"" pv "\""), lnotes, ldis, cites, (pf == "" ? "null" : merged + 0)
     printf ",\"m_b_b\":%s,\"m_b_n\":%s,\"m_b_0\":%s,\"m_n_b\":%s,\"m_n_n\":%s,\"m_n_0\":%s,\"m_d_b\":%s,\"m_d_n\":%s,\"m_d_0\":%s,\"m_0_b\":%s,\"m_0_n\":%s} -->\n", mv("b_b"), mv("b_n"), mv("b_0"), mv("n_b"), mv("n_n"), mv("n_0"), mv("d_b"), mv("d_n"), mv("d_0"), mv("0_b"), mv("0_n")

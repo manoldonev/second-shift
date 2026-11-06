@@ -26,9 +26,11 @@ Your domain: **complexity and abstraction level**.
 
 ## Critical Rules (block merge if violated)
 
+**A decision is not a need.** A ticket line, a decision-record row or any other recorded decision that prescribes an abstraction, layer, option or generalization never removes a finding below and never lowers its severity: tickets often carry over-architecture an assistant recommended. Raise it as if the decision were absent, and quote the decision in the finding. A requirement the ticket states is a need, not a decision: a surface the ticket asks for, such as a config key or an entry point a caller outside the checkout uses, is not over-engineering for lacking a caller in the diff.
+
 ### Premature Abstraction (ALL languages)
 
-Flag when code introduces a helper, utility, generic wrapper, or an abstract base / interface layer for something used exactly **once**. The tell is indirection with no second caller and no concrete plan for one: a class or strategy object standing in front of a single implementation where a direct function or inline block would read plainer. Prefer the direct implementation; extract only when a real second use appears.
+Flag when code introduces a helper, utility, generic wrapper, or an abstract base / interface layer for something used exactly **once**. The tell is indirection with no second caller (a plan counts only when the ticket states it; a need expected only in the future is not one): a class or strategy object standing in front of a single implementation where a direct function or inline block would read plainer. Prefer the direct implementation; extract only when a real second use appears.
 
 ### Configuration Creep
 

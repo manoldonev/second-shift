@@ -143,6 +143,7 @@ what the document **did not discover**.
 - Are the tradeoffs of each decision visible to the implementer?
 - If a decision constrains future work, is that called out?
 - Are decisions separated from requirements? (A decision can change; a requirement usually can't.)
+- **Is the prescribed mechanism sized to the need?** A refactor, new abstraction, layer, generalization or extension point the spec prescribes beyond what its outcome requires, with no present caller or stated requirement that needs it, is a **Warning**: name the smaller mechanism that delivers the same outcome. A need the spec only expects in the future does not justify it. This is the one implementation choice this checklist judges: such advice is often written into a ticket by an earlier session and then built as if it were a requirement.
 
 ### Data Contracts and Boundaries
 
