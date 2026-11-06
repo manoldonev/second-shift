@@ -27,16 +27,16 @@ Flag a problem only when all of these hold:
 7. It is not enough to speculate that the change may disrupt another part of the codebase. Name the other part that is provably affected, at path:line, found with Grep or Read.
 8. It is clearly not an intentional change by the author.
 
-Also flag a requirement the ticket states that the diff does not implement, or implements differently. Anchor it to the diff line closest to where it belongs.
+Also flag a requirement the ticket states that the diff does not implement, or implements differently. Anchor it to the diff line closest to where it belongs. A requirement is an outcome, a behavior, an acceptance criterion or an external surface the ticket states. An internal structure that the ticket's scope or prose prescribes is not a requirement, so its absence gets no finding.
 
-Also flag over-engineering the change introduced: a new abstraction, layer, indirection, option, extension point or generalization that nothing needs. A need is a caller in the checkout, or a requirement the ticket states, such as a caller outside the checkout that it names. Name the simpler shape that serves the callers that exist, and cite at path:line, found with Grep, the callers that use it or show that there are none. Criterion 8 does not exempt it, and neither does the ticket: a ticket that prescribes the structure is not a need for it, so quote that line in the finding. A need the author only expects in the future is not a need. It is a [note] unless it makes the change incorrect.
+Also flag over-engineering the change introduced: a new abstraction, layer, indirection, option, extension point or generalization that nothing needs. A need is a caller in the checkout, or an external surface the ticket asks for. An external surface is something a party outside the diff's own code reads or calls: a config key, an entry point or command, an API, or a stored or on-disk format. It needs no named caller. Name the simpler shape that serves the callers that exist, and cite at path:line, found with Grep, the callers that use it or show that there are none. Criterion 8 does not exempt it, and neither does the ticket: a ticket that prescribes the structure is not a need for it, so quote that line in the finding. A need the author only expects in the future is not a need. It is a [note] unless it makes the change incorrect.
 
 Ignore style, formatting, naming, typos and documentation unless they obscure meaning or change behavior. Do not flag missing tests on their own.
 
 Output every finding the author would fix if they knew about it. Do not stop at the first qualifying finding; continue until you have listed every one. If no finding is one the author would definitely want to see and fix, output no findings.
 
 Severity:
-- [blocker]: the change is incorrect as it stands. Existing code or tests will break, it has a bug that must be fixed before merge, or it does not do what the ticket requires.
+- [blocker]: the change is incorrect as it stands. Existing code or tests will break, it has a bug that must be fixed before merge, or it does not meet a requirement the ticket states.
 - [note]: a real problem the author would fix that does not block merge.
 Do not claim an issue is more severe than it is. A problem whose triggering inputs or state you cannot state is not a blocker.
 

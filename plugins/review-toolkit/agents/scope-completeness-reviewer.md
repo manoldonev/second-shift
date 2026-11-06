@@ -77,6 +77,8 @@ AC IDs exist only under an explicit AC heading: the _first_ heading whose text, 
 3. **Bolded phrases** that name a deliverable.
 4. **Sub-bullets** — treat each as its own item if it names a separate deliverable, not just a clarification of the parent.
 
+**An internal structure is not a scope item.** In 2b, a structure the ticket's scope or prose prescribes (a module split, a layer, a helper, a class or function shape, an internal pattern) is not a deliverable: the ticket's outcomes are. An external surface still is a scope item: something a party outside the diff's own code reads or calls, such as a config key, an entry point or command, an API, or a stored or on-disk format. It needs no named caller. A bullet that reads as both an outcome and a structure counts as structure. List each exclusion in `### Notes` as `not a scope item: an internal structure the scope prescribes — <bullet>`. This applies to 2b only: an AC from 2a that prescribes a structure stays a scope item.
+
 For each item, write a one-line summary in your own words. Do not paraphrase to make items easier to satisfy — capture them faithfully.
 
 If the issue body has zero extractable items (e.g., empty, or "fix the bug"), emit one synthetic item: "the change described in the title and description as a whole" and proceed.
@@ -168,6 +170,7 @@ By **turn 20** (of your 30 maximum) you MUST be writing the final result. No fur
 ### Notes
 - Any extraction caveats (e.g., "scope item 3 was inferred from prose, not from a bullet list")
 - Any classification uncertainty
+- not a scope item: an internal structure the scope prescribes — <bullet>
 ```
 
 For each `[unsatisfied]` item and failing row, review-lead will surface this as a `Critical [Scope completeness]` finding in the consolidated report, and the merge gate is "No" regardless of other reviewers' verdicts. `[not delivered]` items are listed for the human as information, never as findings.
@@ -183,3 +186,5 @@ For each `[unsatisfied]` item and failing row, review-lead will surface this as 
 ## Calibration: when in doubt, FAIL
 
 The alternative — letting the orchestrator's narrative determine completeness — produces silent misses. A FAIL that forces the human to cover the missing item, defer it in writing, or name who decided a departure is the **correct** behavior, not friction.
+
+Doubt never makes an internal structure a scope item. A 2b bullet you cannot tell apart from a prescribed structure is structure: list it in `### Notes` as an exclusion, and do not fail the gate on it.
