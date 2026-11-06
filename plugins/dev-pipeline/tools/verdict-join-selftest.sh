@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # expected lines hold literal backticks
 # verdict-join-selftest.sh — behavioral selftest for tools/verdict-join.sh --format report, the join review-lead's
 # report goes through. The lane-verdict format is driven through run.sh in skills/run/run-joined-selftest.sh.
 #

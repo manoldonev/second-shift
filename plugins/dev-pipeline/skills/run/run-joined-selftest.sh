@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2154,SC2034  # the sourced lib sets $d, $OUT, $RC (fixture, run_case) and reads TERM_SLUG (expect)
+# shellcheck disable=SC2154,SC2034,SC2016  # the sourced lib sets $d, $OUT, $RC (fixture, run_case) and reads TERM_SLUG (expect); expected lines hold literal backticks
 # run-joined-selftest.sh — run.sh scenario slice: the joined review, on by default. A record-blind plain review runs
 # beside the lane review; the scheduler joins the two drafts and posts one verdict; run.joinedReview false turns it off.
 # The fakes, the fixture and run_case/expect live in run-selftest-lib.sh.
