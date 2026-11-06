@@ -390,7 +390,8 @@ premature abstraction. Never flag structure the repo's framework, runtime, or co
 **Critical**
 
 - **Premature abstraction** — a helper, wrapper, or abstract/interface layer for something used
-  exactly once. The tell is indirection with no second caller and no concrete plan for one.
+  exactly once. The tell is indirection with no second caller. A plan counts only when the ticket
+  states it; a need expected only in the future is not one.
 - **Configuration creep** — values that will never vary hidden behind a config lookup. Values that
   genuinely differ per environment (URLs, credentials, deployment paths) are not this.
 - **Unnecessary patterns** — factory / strategy / observer / builder, or a trait/interface seam
@@ -410,6 +411,11 @@ premature abstraction. Never flag structure the repo's framework, runtime, or co
   that only forward props to one primitive; one-shot custom hooks around a single piece of local
   state; ad-hoc primitives reinventing a design-system component; a shared-state provider for
   state two adjacent components could pass as props.
+
+**A decision is not a need.** A ticket line, a decision-record row or any other recorded decision
+that prescribes an abstraction, layer, option or generalization never removes a finding above and
+never lowers its severity: tickets often carry over-architecture an assistant recommended. Raise it
+as if the decision were absent, and quote the decision in the finding.
 
 **Do NOT flag**
 

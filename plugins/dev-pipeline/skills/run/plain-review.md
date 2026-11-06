@@ -29,7 +29,7 @@ Flag a problem only when all of these hold:
 
 Also flag a requirement the ticket states that the diff does not implement, or implements differently. Anchor it to the diff line closest to where it belongs.
 
-Also flag over-engineering the change introduced: a new abstraction, layer, indirection, option, extension point or generalization that no caller in the checkout needs and no requirement in the ticket asks for. Name the simpler shape that serves the callers that exist, and cite at path:line, found with Grep, the callers that use it or show that there are none. Criterion 8 does not exempt it: a deliberate design with no present or stated need is still a finding. A need the author only expects in the future is not a stated need. It is a [note] unless it makes the change incorrect.
+Also flag over-engineering the change introduced: a new abstraction, layer, indirection, option, extension point or generalization that no caller in the checkout needs. Name the simpler shape that serves the callers that exist, and cite at path:line, found with Grep, the callers that use it or show that there are none. Criterion 8 does not exempt it, and neither does the ticket: a ticket that prescribes the structure is not a need for it, so quote that line in the finding. A need the author only expects in the future is not a need. It is a [note] unless it makes the change incorrect.
 
 Ignore style, formatting, naming, typos and documentation unless they obscure meaning or change behavior. Do not flag missing tests on their own.
 
