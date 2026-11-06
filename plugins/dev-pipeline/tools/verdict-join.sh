@@ -142,6 +142,10 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     return "- " site(j, i) " — " (j ? lcell(j) : pcell(i, rx[r])) extra(r)
   }
   function mv(k) { return pf == "" ? "null" : m[k] + 0 }
+  function bare(   i, s) {
+    for (i = 1; i <= nraw; i++) { s = praw[i]; gsub(/^[ \t]+|[ \t]+$/, "", s); if (s != "" && s !~ /^verdict: (approve|needs-work)$/ && s != "## Findings" && s != "None.") return 0 }
+    return 1
+  }
   function fold(   i, s, tot, left) {
     print "<details><summary>blind review, as written</summary>"; print ""; print "```text"
     for (i = 1; i <= nraw; i++) {
@@ -179,7 +183,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     }
     print "- Lane session: " (lc == "null" && lw == "null" ? "not measured" : usd(lc) ", " secs(lw)) ". Blind session: " usd(pc) ", " secs(pw) ", " (pf == "" ? "did not return (" why ")" : "returned") (ticket == "true" ? "" : ", reviewed without a ticket") "."
     print ""
-    if (pf != "") fold()
+    if (pf != "" && !bare()) fold()
     printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s", nb, np, na, nb - na, nadd, pnotes, (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
     printf ",\"v\":2,\"format\":\"%s\",\"lane_verdict\":%s,\"plain_verdict\":%s,\"lane_notes\":%d,\"lane_dismissed\":%d,\"lane_cites_plain\":%d,\"plain_merged\":%s", (rep ? "report" : "verdict"), (lv == "" ? "null" : "\"" lv "\""), (pv == "" ? "null" : "\"" pv "\""), lnotes, ldis, cites, (pf == "" ? "null" : merged + 0)
     printf ",\"m_b_b\":%s,\"m_b_n\":%s,\"m_b_0\":%s,\"m_n_b\":%s,\"m_n_n\":%s,\"m_n_0\":%s,\"m_d_b\":%s,\"m_d_n\":%s,\"m_d_0\":%s,\"m_0_b\":%s,\"m_0_n\":%s} -->\n", mv("b_b"), mv("b_n"), mv("b_0"), mv("n_b"), mv("n_n"), mv("n_0"), mv("d_b"), mv("d_n"), mv("d_0"), mv("0_b"), mv("0_n")

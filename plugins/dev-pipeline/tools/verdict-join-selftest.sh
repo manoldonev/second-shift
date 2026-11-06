@@ -142,6 +142,11 @@ listed "$OUT" '**agreed: blocker** (1)' '- `src/a.ts:10` (blind :9) — lane Cri
   && printf '%s\n' "$OUT" | grep -qxF '**Ready to merge?** With fixes' && jq -e '.plain_merged == 1 and .plain_only == 0 and .m_b_b == 1' <<<"$(devjs "$OUT")" >/dev/null \
   && ok "(r19) two plain blockers at one lane blocker are one agreed pair, the second counted as merged" || bad "(r19) $(devjs "$OUT")"
 
+printf '%s\n' 'verdict: approve' '## Findings' 'None.' > "$T/plain-none.md"
+OUT="$(bash "$TOOL" "$T/lead.md" "$T/plain-none.md" --format report)"
+! printf '%s\n' "$OUT" | grep -q 'blind review, as written' && printf '%s\n' "$OUT" | grep -qF 'blind approve' && [ "$(printf '%s\n' "$OUT" | tail -n 1)" = '</details>' ] \
+  && ok "(r21) a blind draft with no findings is not quoted: the verdict line already says it" || bad "(r21) $(printf '%s\n' "$OUT" | tail -n 12)"
+
 { printf '%s\n' 'verdict: approve' '## Findings'; for i in $(seq 45); do printf -- '- [note] N%s src/n%s.ts:1 — note %s\n' "$i" "$i" "$i"; done; } > "$T/plain-many.md"
 OUT="$(bash "$TOOL" "$T/lead-clean.md" "$T/plain-many.md" --format report)"
 [ "$(printf '%s\n' "$OUT" | grep -c '^- `src/n')" -eq 40 ] && printf '%s\n' "$OUT" | grep -qxF '**blind only: note** (45)' && printf '%s\n' "$OUT" | grep -qx '5 more pairs are counted in the machine line.' \
