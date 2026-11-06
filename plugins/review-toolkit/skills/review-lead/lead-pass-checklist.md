@@ -415,7 +415,9 @@ premature abstraction. Never flag structure the repo's framework, runtime, or co
 **A decision is not a need.** A ticket line, a decision-record row or any other recorded decision
 that prescribes an abstraction, layer, option or generalization never removes a finding above and
 never lowers its severity: tickets often carry over-architecture an assistant recommended. Raise it
-as if the decision were absent, and quote the decision in the finding.
+as if the decision were absent, and quote the decision in the finding. A requirement the ticket
+states is a need, not a decision: a surface the ticket asks for, such as a config key or an entry
+point a caller outside the checkout uses, is not over-engineering for lacking a caller in the diff.
 
 **Do NOT flag**
 
