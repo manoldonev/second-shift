@@ -166,18 +166,26 @@ scan_file() {
 }
 
 # --- Walk -------------------------------------------------------------------------------
-# -I skips binaries. .git and node_modules are pruned for cost, not policy: neither can
-# hold a repo contract, and both are absent from a fresh clone's scan surface anyway.
+# -I skips binaries. In a git checkout the walk reads what a clone would carry plus untracked
+# files, never ignored ones: ignored agent worktrees and run copies hold stale copies of every
+# block, and they red a correct tree. Outside git (the selftest's fixtures) it reads every file;
+# .git and node_modules are pruned there for cost, not policy.
+marked_files() {
+  if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    (cd "$ROOT" && git ls-files -z -co --exclude-standard | xargs -0 grep -lI 'LOCKSTEP-BEGIN' -- 2>/dev/null) \
+      | while IFS= read -r r; do printf '%s/%s\n' "$ROOT" "$r"; done
+  else
+    find "$ROOT" -type f \
+         ! -path '*/.git/*' ! -path '*/node_modules/*' -print0 2>/dev/null \
+      | xargs -0 grep -lI 'LOCKSTEP-BEGIN' 2>/dev/null
+  fi
+}
+
 while IFS= read -r abs; do
   rel="${abs#"$ROOT"/}"
   excluded "$rel" && continue
   scan_file "$abs" "$rel" >> "$SITES"
-done < <(
-  find "$ROOT" -type f \
-       ! -path '*/.git/*' ! -path '*/node_modules/*' -print0 2>/dev/null \
-    | xargs -0 grep -lI 'LOCKSTEP-BEGIN' 2>/dev/null \
-    | sort
-)
+done < <(marked_files | sort)
 
 # --- Structural failures ----------------------------------------------------------------
 # Reported before any grouping: a file whose markers do not pair up has no well-defined
