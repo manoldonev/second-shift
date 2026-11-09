@@ -397,6 +397,16 @@ grep -q "Each file must also finish there within its runner's time bound (\*.che
   && ok "(fw5) the build prompt states each runner's bound before it writes the tests" || bad "(fw5) the build prompt does not state the bound"
 [ ! -e "$d/leak" ] && ok "(fw5) N1: the TERM-ignoring grandchild was killed with the group before it wrote" || bad "(fw5) a grandchild outlived the bound and wrote $d/leak"
 fw_restored && ok "(fw5) the worktree is back on its branch after the bound" || bad "(fw5) worktree: $(git -C "$d/wt/42" status --short --branch | tr '\n' '|')"
+# (fw5b) a runner that never starts proves nothing: a missing command is 127, a file that is not executable is 126
+for fw_start in '127 /nonexistent/runner {file}' '126 ./src/a.ts {file}'; do
+  fw_code="${fw_start%% *}"
+  FIXTURE_CONFIG="$(jq -c --arg c "${fw_start#* }" '.commands.main.testRunners[0].command = $c' <<<"$FW_CONFIG")" fixture_v4 "fw5b-$fw_code" "$FW_TI"; fw_plan 1; fw_tree 1 'grep -qx fixed src/a.ts'
+  printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=1 run_case "$d"
+  expect checks-red-spent "(fw5b) a runner that exits $fw_code on the record commit's tree"
+  grep -qF "RED: AC-1 — testRunners[0] (*.check.sh) could not start on the record commit's tree (exit $fw_code" "$(SD)/fails-without-1.1.log" \
+    && grep -qF 'the call covered src/b.check.sh' "$(SD)/fails-without-1.1.log" && ! grep -q 'ok: AC-1' "$(SD)/fails-without-1.1.log" \
+    && ok "(fw5b) exit $fw_code is red, naming the runner, the code and the file, never a failure" || bad "(fw5b) $fw_code: $(grep -E 'fails without|terminal' <<<"$OUT" | tr '\n' '|') log: $(tr '\n' '|' < "$(SD)/fails-without-1.1.log" 2>/dev/null)"
+done
 # (fw6) D-7: a TERM to the run during the check stops it at once — the group is reaped, the EXIT trap puts the worktree
 # back on its branch and removes the mark, and the claim stays for a re-launch
 # shellcheck disable=SC2059

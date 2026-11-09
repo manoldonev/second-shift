@@ -58,7 +58,7 @@ backticks runs to the next comma, so a space in it makes the task unparseable. A
 
 | `format` | Calls | Placeholders | What judges a test |
 | --- | --- | --- | --- |
-| `exit` (default) | one per file | `{file}` | the exit code: any non-zero exit counts as failing, and the file is the unit |
+| `exit` (default) | one per file | `{file}` | the exit code: any non-zero exit but 126 and 127 counts as failing, and the file is the unit |
 | `cases` | one per file | `{file}`, optional `{cases}` | the line `case<TAB><passed\|failed><TAB><id>` the test prints for its case at exit |
 | `vitest-json` | one per runner, over all its files | `{files}`, `{report}` | the test's row in the JSON report |
 | `jest-json` | one per runner, over all its files | `{files}`, `{report}` | the test's row in the JSON report |
@@ -80,8 +80,8 @@ backticks runs to the next comma, so a space in it makes the task unparseable. A
   block's name, the block's `ok`/`bad` rows fold (any `bad` fails it), and a block with no row
   prints no line. With `{cases}` (this repo passes it as `SELFTEST_CASES={cases}`), an unselected
   block's `run_case` launches nothing and its rows are muted.
-- The judge, in order. Per call: a timeout, a missing or unreadable report, or failed rows with exit
-  0 is **one** red naming the runner. Per named test: a form its runner cannot judge (a bare file
+- The judge, in order. Per call: a timeout, a missing or unreadable report, failed rows with exit
+  0, or exit 126 or 127 under `exit` is **one** red naming the runner. Per named test: a form its runner cannot judge (a bare file
   under a reporting runner, `file::case` under `exit`) is red; two matching rows are red
   ("ambiguous"); one row must be `failed` — `passed` is red, and `skipped`, `pending` or `todo` is
   red; no row is red ("not collected" when the file is not in the report, "did not run"
@@ -105,8 +105,11 @@ backticks runs to the next comma, so a space in it makes the task unparseable. A
   pass every proof. A clean exit kills whatever the group left running, so nothing it backgrounded
   writes on the tree afterwards. Set the bound well above the call's normal runtime; the build is
   told to tag files that finish inside it.
-- Under `exit`, any non-zero exit counts as failing — an assertion, a missing import and a setup
-  error alike — and one failing case in the file carries every AC tagged on it. A file the runner
+- Under `exit`, any non-zero exit but 126 and 127 counts as failing — an assertion, a missing
+  import and a setup error alike — and one failing case in the file carries every AC tagged on it.
+  126 and 127 say a command could not be executed or found, so they are red, naming the runner and
+  the code. The exit code cannot say which command: a test that itself runs something the change
+  adds must fail there with another code. A file the runner
   never collects (excluded, outside its `rootDir`, a symlinked path) also exits non-zero, and so
   counts as failing: a reporting format closes that hole.
 - A named test that passes there is red, naming its AC and the test: the next build strengthens

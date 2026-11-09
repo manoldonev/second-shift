@@ -644,7 +644,7 @@ plan_coverage() { # plan_coverage <attempt> -> the script's exit: 0 pass · 1 re
 # -- fails without the change (#1040, layer 3 of #1018; #1053): after the checks and the coverage pass, the head's tagged test
 # files are applied onto the record commit's tree (the base code, none of the build's), beside the head's testSupport files
 # (never run), and run through the first configured testRunners entry whose `when` glob matches each. The runner's `format`
-# decides the unit (#1053 D-2 D-5 D-8): exit runs one file and its exit code judges the file (#1040 D-2: any failure counts);
+# decides the unit (#1053 D-2 D-5 D-8): exit runs one file and its exit code judges the file (#1040 D-2: any failure counts, but 126 and 127 are a runner that did not start);
 # cases runs one file and judges each named file::case by the `case<TAB><passed|failed><TAB><id>` line it prints; vitest-json
 # and jest-json run every file of the runner in one call and judge each named test by its row in the JSON report. Every named
 # test must fail there. One whose file does not load there, or that sits behind a failing vitest beforeAll, is pending (D-3):
@@ -838,6 +838,7 @@ fwc_leg() { # fwc_leg <record|head> <attempt> <index> <tests of that runner: ind
         fwc_call "$att" "$secs" "$c"; frc=$?
         if [ "$FWC_TIMED_OUT" -eq 1 ]; then fwc_run_red "$i" "$(fwc_rows_of "$f" "$list")" "did not finish within ${secs}s on the record commit's tree, and its process group was killed — tag a smaller file, or bound the wait inside it"
         elif [ "$frc" -eq 0 ]; then fwc_red "$f" "" "passes on the record commit's tree ($FIRST) with the head's tagged test files applied: it does not fail without the change — make it test what the change does"
+        elif [ "$frc" -eq 126 ] || [ "$frc" -eq 127 ]; then fwc_run_red "$i" "$(fwc_rows_of "$f" "$list")" "could not start on the record commit's tree (exit $frc: the shell could not find or execute a command) — check its command and that its binary is in the worktree; a test that itself runs something the change adds must fail there with another exit code"
         else fwc_ok "$f" "" "fails on the record commit's tree (exit $frc)"; fi
       done <<<"$(cut -f2 <<<"$list" | awk 'NF && !seen[$0]++')" ;;
     cases) # one call per file; its case lines are its report (#1053 D-4 D-16)
