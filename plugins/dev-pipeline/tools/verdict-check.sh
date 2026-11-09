@@ -9,7 +9,8 @@
 # The body has these parts, in this order and nothing else (the grammar run.sh's review prompt and
 # review/SKILL.md state):
 #   line 1 `verdict: approve|needs-work`, line 2 `reviewed: <40-hex sha>`, an optional line 3
-#   `reason: render-unavailable|ticket-unreadable|seat-unavailable`;
+#   `reason: render-unavailable|ticket-unreadable|seat-unavailable`, then an optional
+#   `reviewed-by: second-shift ...` line;
 #   `## Summary` (optional, first): its first line is `Mergeable as it is.` on an approve or `Not mergeable
 #   yet.` on a needs-work, it names every row scored departed, violated or undeterminable, and it
 #   holds no table;
@@ -74,6 +75,7 @@ function fold_summary(s,    body, list, nl, it, kw, i, j, k, p, total) {
 NR == 1 { if ($0 ~ /^verdict: (approve|needs-work)$/) v = substr($0, 10); else fail("line 1 is not a verdict line", cut($0)); next }
 NR == 2 { if (!($0 ~ /^reviewed: [0-9a-f]+$/ && length($0) == 50)) fail("line 2 is not a reviewed line", cut($0)); next }
 NR == 3 && $0 ~ /^reason: (render-unavailable|ticket-unreadable|seat-unavailable)$/ { reason = substr($0, 9); next }
+(NR == 3 || (NR == 4 && reason != "")) && /^reviewed-by: second-shift / { next }
 /^## / {
   h = $0; sub(/[ \t]+$/, "", h)
   if (!(h in order)) { fail("unknown section", h); sec = -1; next }

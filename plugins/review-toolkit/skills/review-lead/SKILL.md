@@ -706,6 +706,8 @@ Apply **Plan/Spec Awareness** above — the three checks (missing requirements, 
 
 ### Report structure
 
+In dispatch mode, line 1 of the report, above `## Review Summary`, is `reviewed-by: second-shift review-lead (v<release>)`. `<release>` is the content of `<skill dir>/../../.claude-plugin/release`. When that file is absent, the line is `reviewed-by: second-shift review-lead`. Synthesis-only mode writes no such line.
+
 Combine all findings into one report with this structure:
 
 ```

@@ -285,10 +285,14 @@ fixture rel; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf '
 RUN_RELEASE_FILE="$T/release-rel" run_case "$d"; expect approved "(rel) a stamped plugin builds to approved"
 grep -qE "^1\. Line 1, exactly: 'built-by: second-shift run [0-9TZ]+-[0-9]+ \(v17\.12\.2\)'\.$" "$FAKE_GH/prompt-1.txt" \
   && ok "(rel) the built-by line names the release the plugin shipped in" || bad "(rel) built-by line: $(grep 'Line 1, exactly' "$FAKE_GH/prompt-1.txt")"
+grep -qE "^Your \`reviewed-by:\` line is exactly 'reviewed-by: second-shift run [0-9TZ]+-[0-9]+ \(v17\.12\.2\)'\.$" "$FAKE_GH/prompt-2.txt" \
+  && ok "(rel) the review prompt gives the reviewed-by line with the release" || bad "(rel) reviewed-by line: $(grep 'reviewed-by' "$FAKE_GH/prompt-2.txt" | cut -c1-200)"
 fixture rel0; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 RUN_RELEASE_FILE="$T/no-such-release" run_case "$d"; expect approved "(rel0) an unstamped checkout builds to approved"
 grep -qE "^1\. Line 1, exactly: 'built-by: second-shift run [0-9TZ]+-[0-9]+'\.$" "$FAKE_GH/prompt-1.txt" \
   && ok "(rel0) without a release stamp the built-by line carries no version" || bad "(rel0) built-by line: $(grep 'Line 1, exactly' "$FAKE_GH/prompt-1.txt")"
+grep -qE "^Your \`reviewed-by:\` line is exactly 'reviewed-by: second-shift run [0-9TZ]+-[0-9]+'\.$" "$FAKE_GH/prompt-2.txt" \
+  && ok "(rel0) without a release stamp the reviewed-by line carries no version" || bad "(rel0) reviewed-by line: $(grep 'reviewed-by' "$FAKE_GH/prompt-2.txt" | cut -c1-200)"
 
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

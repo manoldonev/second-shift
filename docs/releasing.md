@@ -8,7 +8,7 @@ A feature PR never touches `plugins/*/.claude-plugin/plugin.json` `version`,
 `plugins/*/.claude-plugin/release` or `CHANGELOG.md` — CI rejects it (`scripts/check-frozen-files.sh`). All are computed by
 [`scripts/derive-release.sh`](../scripts/derive-release.sh) from conventional commit types
 and changed paths, and land on an accumulating **release PR**. `release` holds the release version that last bumped its
-plugin; `/dev-pipeline:run` puts it on the PR body's `built-by:` line.
+plugin; `/dev-pipeline:run` puts it on the PR body's `built-by:` line and the verdict's `reviewed-by:` line, `/dev-pipeline:review` on its verdict's `reviewed-by:` line, and a standalone review-lead on its report's `reviewed-by:` line.
 
 ## The flow
 
