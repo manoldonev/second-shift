@@ -186,7 +186,9 @@ SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOOLS="$(cd "$SKILL_DIR/../../tools" && pwd)"
 # derive-release.sh stamps the release into each plugin it bumps; a plugin installed before the first stamped release has none
 RELEASE="$(grep -xE 'v?[0-9]+\.[0-9]+\.[0-9]+' "${RUN_RELEASE_FILE:-$SKILL_DIR/../../.claude-plugin/release}" 2>/dev/null | head -n 1)"
-BUILT_BY="built-by: second-shift run $RUN_ID${RELEASE:+ (v${RELEASE#v})}"
+RUN_NAME="second-shift run $RUN_ID${RELEASE:+ (v${RELEASE#v})}"
+BUILT_BY="built-by: $RUN_NAME"
+REVIEWED_BY="reviewed-by: $RUN_NAME"
 
 # C1/C2: an absent file means the consumer configured nothing; a present-but-unparseable one is a refusal
 CONFIG="${SECOND_SHIFT_CONFIG:-$MAIN_ROOT/.claude/second-shift.config.json}"
@@ -1157,13 +1159,14 @@ REACH
     echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its body follows the verdict grammar below exactly. Never edit that comment afterwards."
   fi
   echo "Before you post, check your draft: run 'bash $TOOLS/verdict-check.sh <your draft in $SCRATCH> $WT/$RECORD_REL $SCRATCH/record-at-first.md' (the record at the head, then at $FIRST). It prints every rule the draft breaks. Fix the draft until it exits 0. The scheduler runs the same check on the comment you post. A comment that fails the check does not count: the scheduler posts no status and starts a new review."
+  echo "Your \`reviewed-by:\` line is exactly '$REVIEWED_BY'."
   echo
   # #991: the verdict grammar, stated once here and once in review/SKILL.md step 8; tools/verdict-check.sh enforces it
   grep -v 'LOCKSTEP-' <<'GRAMMAR'
 # LOCKSTEP-BEGIN verdict-grammar
 The verdict comment has these parts, in this order and nothing else:
-- Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`, `reason: ticket-unreadable` or `reason: seat-unavailable`.
-- `## Summary`, right after line 2, or line 3 when it is present. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
+- Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`, `reason: ticket-unreadable` or `reason: seat-unavailable`. When you were given a `reviewed-by:` line, it comes next, exactly as given.
+- `## Summary`, right after those lines. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
 - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
 - Fold the rows table. Put the line `<details><summary><N> rows: <k> honored, <k> departed, <k> violated, <k> undeterminable</summary>` and a blank line before the table, and the line `</details>` after it. N is the number of rows in the table, and each k is the number of rows with that score. Keep the scores in that order and leave out a score with no rows. Always write `rows`. Never write `<details open>`. A verdict that folds the table has a `## Summary`, so every row that is not honored stays visible. A table without the fold also passes.
 - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. Each finding id appears once in the verdict. A section with no findings holds the single line `None.`.

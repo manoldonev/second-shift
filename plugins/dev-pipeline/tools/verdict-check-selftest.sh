@@ -64,6 +64,13 @@ for r in ticket-unreadable seat-unavailable; do
 done
 check reason-other "$(printf 'verdict: needs-work\nreviewed: %s\nreason: reviewer-busy\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$SHA")"
 fails_with "(f3) a line 3 reason outside the grammar is text outside a section" "text outside a section: line 3: reason: reviewer-busy"
+BY='reviewed-by: second-shift run 20261106T182105Z-40385 (v17.13.0)'
+check by-line "$(printf 'verdict: approve\nreviewed: %s\n%s\n%s' "$SHA" "$BY" "$(body approve "$HEAD_ROWS" 'None.' | sed 1,2d)")"
+passes "(by1) a reviewed-by line right after the reviewed line passes"
+check by-reason "$(printf 'verdict: needs-work\nreviewed: %s\nreason: ticket-unreadable\n%s\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$SHA" "$BY")"
+passes "(by2) a reviewed-by line after a reason line passes"
+check by-first "$(printf 'verdict: needs-work\nreviewed: %s\n%s\nreason: ticket-unreadable\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$SHA" "$BY")"
+fails_with "(by3) a reason line after the reviewed-by line is text outside a section" "text outside a section: line 4: reason: ticket-unreadable"
 check new-form "$(body needs-work "$HEAD_ROWS" $'- [blocker] B1 src/a.ts:3 — the retry loops forever\n  Scenario: a 409 from the store → the worker never exits\n  Fix: stop after three tries\n- [blocker] B2 [design-faithful-reviewer] src/b.tsx:9 — a raw hex color\n  Scenario: the dark theme → the text is unreadable\n  Fix: use the text token')"
 passes "(v2) a needs-work in the session's finding form, a dispatched reviewer's finding included, passes"
 check panel-notes "$(body approve "$HEAD_ROWS" 'None.' $'\n## Panel\n\n| Reviewer | Verdict |\n| --- | --- |\n| Scope | Pass |\n\n## Notes\n\nrevised after reading the account of the build: nothing changed.\n- [blocker] B9 quoted in prose, not a finding\n### a sub-heading is prose too')"

@@ -181,12 +181,14 @@ review.
 
    **Post ONE PR comment.** Post it through [`gh-bot.sh`](../../tools/gh-bot.sh) when its
    `--status` is `ok`, and through plain `gh` otherwise. Pass the body with `--body-file`. The body
-   follows this grammar exactly. The review prompt of `run.sh` states the same grammar:
+   follows this grammar exactly. The review prompt of `run.sh` states the same grammar.
+
+   Your `reviewed-by:` line is exactly `reviewed-by: second-shift review (v<release>)`. `<release>` is the content of `<this skill's base directory>/../../.claude-plugin/release`. When that file is absent, the line is `reviewed-by: second-shift review`.
 
    <!-- LOCKSTEP-BEGIN verdict-grammar -->
    The verdict comment has these parts, in this order and nothing else:
-   - Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`, `reason: ticket-unreadable` or `reason: seat-unavailable`.
-   - `## Summary`, right after line 2, or line 3 when it is present. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
+   - Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`, `reason: ticket-unreadable` or `reason: seat-unavailable`. When you were given a `reviewed-by:` line, it comes next, exactly as given.
+   - `## Summary`, right after those lines. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
    - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
    - Fold the rows table. Put the line `<details><summary><N> rows: <k> honored, <k> departed, <k> violated, <k> undeterminable</summary>` and a blank line before the table, and the line `</details>` after it. N is the number of rows in the table, and each k is the number of rows with that score. Keep the scores in that order and leave out a score with no rows. Always write `rows`. Never write `<details open>`. A verdict that folds the table has a `## Summary`, so every row that is not honored stays visible. A table without the fold also passes.
    - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. Each finding id appears once in the verdict. A section with no findings holds the single line `None.`.
