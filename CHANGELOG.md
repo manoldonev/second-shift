@@ -4,6 +4,58 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.14.0
+
+### `dev-pipeline` 17.12.0 → 17.13.0
+
+- **fix(review): a structure the ticket prescribes is not a requirement, and over-engineering is always a finding (#1193)** (#1193)
+  reviews no longer flag a missing internal structure that a
+  ticket's scope or prose prescribed, and raise over-engineering as a
+  finding instead of a prose remark: in the plain review, the lane
+  verdict, review-lead's report and scope-completeness-reviewer.
+  Acceptance criteria stay binding.
+  Migration: none.
+- **feat: review verdicts and reports name the release that reviewed them (#1195)** (#1195)
+  pipeline verdicts and standalone review-lead reports carry a
+  'reviewed-by:' line naming the second-shift release, e.g.
+  'reviewed-by: second-shift run <id> (v17.13.0)'. A plugin installed before
+  release stamps existed writes the line without a version.
+  Migration: none.
+- **fix(dev-pipeline): grant a check led by NAME=value words as it is typed (#1200)** (#1200)
+  a configured check that starts with `NAME=value` assignments is now granted to the BUILD session as typed, so the build can run it instead of being denied.
+  Migration: none.
+- **fix(dev-pipeline): format the decision record before its first commit (#1199)** (#1199)
+  the decision record's first commit is formatted by the consumer's locally installed prettier when the main checkout has one, so a format gate over changed files no longer fails on the record. With no local prettier the record is committed as before.
+  Migration: none.
+- **fix(dev-pipeline): an exit-format runner that cannot start is red (#1198)** (#1198)
+  under a `format: exit` test runner, fails-without-the-change reds on exit 126 or 127 and names the runner and the code, instead of counting a runner that never started as a failing test. A tagged test that itself runs something the change adds must fail on the record commit's tree with another exit code.
+  Migration: none.
+
+### `intake-toolkit` 8.7.0 → 8.7.1
+
+- **fix(intake): stage files and the interview protocol are read whole (#1196)** (#1196)
+  /intake-toolkit:intake now tells the agent to read each stage
+  file and the plan-interview protocol whole with the Read tool, never
+  through a sed script or other command-string read.
+  Migration: none.
+
+### `review-toolkit` 11.8.0 → 11.9.0
+
+- **fix(review): a structure the ticket prescribes is not a requirement, and over-engineering is always a finding (#1193)** (#1193)
+  reviews no longer flag a missing internal structure that a
+  ticket's scope or prose prescribed, and raise over-engineering as a
+  finding instead of a prose remark: in the plain review, the lane
+  verdict, review-lead's report and scope-completeness-reviewer.
+  Acceptance criteria stay binding.
+  Migration: none.
+- **feat: review verdicts and reports name the release that reviewed them (#1195)** (#1195)
+  pipeline verdicts and standalone review-lead reports carry a
+  'reviewed-by:' line naming the second-shift release, e.g.
+  'reviewed-by: second-shift run <id> (v17.13.0)'. A plugin installed before
+  release stamps existed writes the line without a version.
+  Migration: none.
+- **fix(review-toolkit): the planted corpus check rejects two cases on one instance (#1197)** (#1197)
+
 ## v17.13.0
 
 ### `dev-pipeline` 17.11.2 → 17.12.0
