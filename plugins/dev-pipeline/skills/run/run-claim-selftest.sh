@@ -105,6 +105,15 @@ granted 'jq -n 1' "$ral" || miss="$miss [review: jq -n 1]"
 granted 'shasum x' "$ral" && miss="$miss [review granted: shasum x]"
 for c in 'xargs rm x' 'cat /etc/passwd' 'cat /dev/null /etc/passwd' 'rm -rf x'; do granted "$c" && miss="$miss [granted: $c]"; done
 [ -n "$wt" ] && [ -z "$miss" ] && ok "(vg) each command of a piped or chained check is granted by its own text, rm never; worktree scripts and the review's jq are, its shasum is not" || bad "(vg) allowlist wrong:$miss"
+# a check led by NAME=value words is granted as the session sees it typed, and to the build alone; other values and names stay denied
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"design":{"provider":"figma","liveRender":{"command":"RENDER_ENV=1 cp a b","smokeCommand":"true"}}}' fixture ve $'- SKIP_STRESS=1 bash -c true --jobs 10\n- ONE=1 TWO=2 true --all\n- LIST=a,b true --any' $'\n## Design\n\nDesign: none — a wording change, nothing renders\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(ve) checks led by NAME=value words"
+bal=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-1.txt" | tail -n 1); ral=$(grep -A1 -x -- '--allowedTools' "$FAKE_GH/args-2.txt" | tail -n 1); miss=""
+for c in 'SKIP_STRESS=1 bash -c true --jobs 10' 'ONE=1 TWO=2 true --all' 'RENDER_ENV=1 cp a b' 'bash -c true --jobs 10'; do granted "$c" || miss="$miss [$c]"; done
+for c in 'SKIP_STRESS=2 bash -c true' 'OTHER=1 bash -c true' 'ONE=1 cat x' 'TWO=2 true --all'; do granted "$c" && miss="$miss [granted: $c]"; done
+granted 'RENDER_ENV=1 cp a b' "$ral" && miss="$miss [review granted: RENDER_ENV=1 cp a b]"
+[[ "$bal" == *LIST=* ]] && miss="$miss [a rule holds LIST=a,b]"
+[ -z "$miss" ] && ok "(ve) the build is granted a NAME=value-led check as typed, the review is not, and no other value or name is" || bad "(ve) allowlist wrong:$miss"
 FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture v2
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
 OUT="$( cd "$d/main" && bash "$RUN" GH-42 --build-model opus 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"

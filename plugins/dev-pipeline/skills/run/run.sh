@@ -388,14 +388,25 @@ xargs_runs() { # xargs_runs <segment>: the command an xargs segment runs — its
   done
   printf '%s' "${a[*]:i}"
 }
+env_led() { # env_led <segment>: its leading NAME=value words and the word they lead to, as typed; nothing when it has none, or when , ( ) * or { would break the rule
+  [[ "$1" =~ ^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)+([^[:space:]]+) ]] || return 0
+  case "${BASH_REMATCH[2]}" in *=*) return 0 ;; esac
+  case "${BASH_REMATCH[0]}" in *[,\(\)\*\{]*) return 0 ;; esac
+  printf '%s' "${BASH_REMATCH[0]}"
+}
 cmd_grants() { # cmd_grants <command> [xargs]: one ',Bash(...)' rule per command of a pipeline or chain, each checked on its own by the session
   # the first by its first word; every later one by its exact text, or, cut before a word holding , ( ) * or {, by that
   # prefix plus * — never one bare word, and never one led (or, through xargs, run) by rm, a shell, env, eval, exec, sudo, nohup, cd or python3.
-  # With xargs (the build's, #1048 D-2), a later xargs segment also grants the command it runs on its own, by its text so cut, plus *
-  local seg first=1 kept lead words run
+  # With xargs (the build's, #1048 D-2), a later xargs segment also grants the command it runs on its own, by its text so cut, plus *,
+  # and a first command led by NAME=value words is also granted as typed, since the session matches those words too
+  local seg first=1 kept lead words run led
   while IFS= read -r seg; do
     seg="$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<<"$seg")"; [ -n "$seg" ] || continue
-    if [ "$first" -eq 1 ]; then first=0; printf ',Bash(%s*)' "$(first_word "$seg")"; continue; fi
+    if [ "$first" -eq 1 ]; then
+      first=0; printf ',Bash(%s*)' "$(first_word "$seg")"
+      if [ "${2:-}" = xargs ]; then led="$(env_led "$seg")"; [ -n "$led" ] && printf ',Bash(%s*)' "$led"; fi
+      continue
+    fi
     kept="$(awk '{ if (match($0, /(^|[[:space:]])[^[:space:]]*[,()*{]/)) { s = substr($0, 1, RSTART - 1); sub(/[[:space:]]+$/, "", s); print "cut " s } else print "whole " $0 }' <<<"$seg")"
     if [ "${kept%% *}" = whole ]; then printf ',Bash(%s)' "$seg"; kept="$seg"
     else
