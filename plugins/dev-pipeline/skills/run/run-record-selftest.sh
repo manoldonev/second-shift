@@ -208,6 +208,39 @@ git -C "$d/main" worktree remove --force "$d/wt/42"; git -C "$d/main" branch -q 
 printf 'build-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect approved "(ae5) [AC-3] the committed record is read off origin"
 grep -q 'record: already committed on second-shift/42' <<<"$OUT" && ok "(ae5) the receipt is not consulted" || bad "(ae5) $(grep 'record:' <<<"$OUT")"
 
+# (fr) the main checkout's local prettier formats the record before its commit, and anything but a whitespace-only result
+# goes back to the receipt's bytes
+fake_prettier() { # fake_prettier <body>: the local install, whose body edits "$2", the record it is handed
+  mkdir -p "$d/main/node_modules/.bin"
+  printf '#!/usr/bin/env bash\npwd -P > %q\nprintf "%%s\\n" "$@" > %q\n%s\n' "$d/fmt-cwd" "$d/fmt-args" "$1" > "$d/main/node_modules/.bin/prettier"
+  chmod +x "$d/main/node_modules/.bin/prettier"
+}
+committed_record() { git -C "$d/origin.git" show second-shift/42:docs/plans/main-42-decisions.md 2>/dev/null; }
+committed_is_receipt() { cmp -s <(committed_record) "$d/main/.claude/pipeline-state/42-ledger.md"; }
+fixture fr1
+# shellcheck disable=SC2016  # the fake's own script, expanded when it runs
+fake_prettier 'sed -i.bak -E "s/^\| (D-1|ID) \|/| \1       |/; s/^\| --- \|/| --------- |/" "$2"; rm -f "$2.bak"'
+receipt_sum="$(cksum < "$d/main/.claude/pipeline-state/42-ledger.md")"
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(fr1) a padded record passes the first-commit readers and the verdict check"
+grep -qF '| D-1       | a | b |' <<<"$(committed_record)" && grep -qF '| ID       | Decision |' <<<"$(committed_record)" && ok "(fr1) the first commit carries the formatted table" || bad "(fr1) committed: $(committed_record | grep -m 1 'D-1')"
+[ "$(tr '\n' ' ' < "$d/fmt-args" 2>/dev/null)" = '--write docs/plans/main-42-decisions.md ' ] && [[ "$(cat "$d/fmt-cwd" 2>/dev/null)" == */fr1/wt/42 ]] \
+  && ok "(fr1) prettier writes the record from the worktree, where the consumer's config and ignore file resolve" || bad "(fr1) args: $(cat "$d/fmt-args" 2>/dev/null) cwd: $(cat "$d/fmt-cwd" 2>/dev/null)"
+[ "$(cksum < "$d/main/.claude/pipeline-state/42-ledger.md")" = "$receipt_sum" ] && ok "(fr1) the receipt on disk is not touched" || bad "(fr1) the receipt changed"
+fr_restored() { # fr_restored <case> <prettier body> <the log line's reason> <what it proves>
+  fixture "$1"; fake_prettier "$2"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "($1) $4: the run goes on"
+  committed_is_receipt && grep -qF "record: $3" <<<"$OUT" && ok "($1) $4: the first commit is the receipt's bytes and the log says why" || bad "($1) $(grep 'record:' <<<"$OUT" | tr '\n' '|') committed: $(committed_record | head -n 5 | tr '\n' '|')"
+}
+# shellcheck disable=SC2016  # the fakes' own scripts, expanded when they run
+{
+  fr_restored fr2 'sed -i.bak "s/^Receipt: v3$/Receipt: v3 and the next paragraph, wrapped in/" "$2"; rm -f "$2.bak"' 'prettier changed more than whitespace' "a rewritten 'Receipt:' line"
+  fr_restored fr3 'sed -i.bak "s/^## Decision Ledger$/## Decisions/" "$2"; rm -f "$2.bak"' 'prettier changed more than whitespace' "a rewritten ledger heading"
+  fr_restored fr4 'sed -i.bak "s/^| ID | Decision |/| Id | Decision |/" "$2"; rm -f "$2.bak"' 'prettier changed more than whitespace' "a rewritten table header"
+  fr_restored fr5 'sed -i.bak "s/^- true$/- \\\\*true/" "$2"; rm -f "$2.bak"' 'prettier changed more than whitespace' "an escaped check command"
+  fr_restored fr6 ': > "$2"; echo boom >&2; exit 1' 'prettier failed' "a prettier that truncates the file and exits 1"
+}
+fixture fr7; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(fr7) no local prettier"
+committed_is_receipt && ! grep -q 'record: .*prettier\|record: formatted' <<<"$OUT" && ok "(fr7) no prettier resolves: the receipt's bytes, and nothing said" || bad "(fr7) $(grep 'record:' <<<"$OUT" | tr '\n' '|')"
+
 # (pc) #1039: the scheduler checks the build's test-first plan covers every AC of the record at FIRST. The receipt is
 # the fixture moved to v4 with a Test intent section over non-contiguous ids (AC-1 AC-2 AC-8, AC-2 exempt), so the
 # launch's real lint passes it before the run reads it back from the record commit

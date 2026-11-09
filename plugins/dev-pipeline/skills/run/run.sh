@@ -501,6 +501,19 @@ receipt_version() { # the highest `Receipt: v<N>` line in the receipt; none is v
   local v; v="$(sed -n 's/^[Rr][Ee][Cc][Ee][Ii][Pp][Tt]:[[:space:]]*v\([0-9][0-9]*\).*$/\1/p' "$RECORD" | sort -n | tail -n 1)"
   printf '%s' "$((10#${v:-1}))"
 }
+# what the record's readers key on, all of them line-anchored: each line's text and whether it is indented. Cell padding, table
+# rule rows, blank lines and the spaces prettier trims inside a code span do not count
+record_shape() { sed -E '/^[[:space:]]*$/d; /^[[:space:]]*\|[[:space:]:|-]+\|[[:space:]]*$/d; s/^[[:space:]]+/>/; s/[[:space:]]+//g' "$1"; }
+format_record() { # a consumer's format gate covers the record commit's own file
+  # the main checkout's install, because the setup lanes have not run in this worktree yet. From $WT, so its config and ignore file apply
+  local p="$MAIN_ROOT/node_modules/.bin/prettier" log="$STATE/format-record.log" why=""
+  [ -x "$p" ] || return 0
+  if ! bounded_group 60 "$log" "$(printf '%q --write %q' "$p" "$RECORD_REL")"; then why="prettier failed"
+  elif [ "$(record_shape "$WT/$RECORD_REL")" != "$(record_shape "$RECORD")" ]; then why="prettier changed more than whitespace"; fi
+  if [ -z "$why" ]; then say "record: formatted by $p"; return 0; fi
+  say "record: $why — committing the receipt's bytes ($log)"
+  cp "$RECORD" "$WT/$RECORD_REL" || terminal env-record-commit "could not restore the record at $RECORD_REL"
+}
 
 # -- configured checks (rows C15-C22, G2-G4, G8, G10) --
 commands_key() { # the sole key, else the main checkout's directory name (the pre-commit hook's rule)
@@ -1801,6 +1814,7 @@ BASE_START="$(git -C "$WT" merge-base "origin/$BASE_NAME" HEAD 2>/dev/null)" || 
 [ -n "$BASE_START" ] || terminal env-base-unreadable "cannot resolve the merge-base of origin/$BASE_NAME and $BRANCH"
 if ! git -C "$WT" cat-file -e "HEAD:$RECORD_REL" 2>/dev/null; then # the record is the branch's first commit, pushed before any build
   mkdir -p "$WT/$(dirname "$RECORD_REL")" && cp "$RECORD" "$WT/$RECORD_REL" || terminal env-record-commit "could not place the record at $RECORD_REL"
+  format_record
   git -C "$WT" add "$RECORD_REL" || terminal env-record-commit "could not stage the record"
   if [ "$BOT_OK" -eq 1 ]; then SECOND_SHIFT_CONFIG="${CONFIG:-}" bash "$TOOLS/bot-commit.sh" -C "$WT" -q -m "docs: add the decision record" -- "$RECORD_REL" || terminal env-record-commit "bot-commit.sh could not commit the record"
   else git -C "$WT" commit -q -m "docs: add the decision record" -- "$RECORD_REL" || terminal env-record-commit "could not commit the record"; fi
