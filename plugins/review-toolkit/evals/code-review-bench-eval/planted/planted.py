@@ -496,6 +496,12 @@ def check_corpus(root: Path, pilot_ids: frozenset = PILOT,
             counts[truth["class"]] += 1
         if truth.get("class") == "P4" and truth.get("pattern") in PATTERNS:
             patterns[truth["pattern"]] += 1
+    by_instance = collections.defaultdict(list)
+    for case in everything:
+        by_instance[str(case.get("instance", "")).strip()].append(case["id"])
+    for instance, ids in sorted(by_instance.items()):
+        if instance and len(ids) > 1:
+            problems.append(f"corpus: instance {instance} is held by {', '.join(ids)}")
     cases = [c for c in everything if c["id"] not in pilot_ids]
     for c in CLASSES:
         if counts[c] < MIN_PER_CLASS:

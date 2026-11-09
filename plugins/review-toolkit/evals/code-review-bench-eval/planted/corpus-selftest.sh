@@ -2,8 +2,8 @@
 # corpus-selftest.sh — the shipped corpus passes `planted.py check`, and a copy that lacks any part a case
 # must carry, or holds a marker, or falls short of a class or a P4 pattern, or a new case that misses the
 # size floor or the distraction rule, or an upstream above 40% of the cases, or a runner case whose runner
-# the gate cannot run, or a promoted or pilot case that breaks a rule, or an instance in neither form, fails
-# naming it. The pilot checks inject a fixture id as PILOT; pilot cases fill no count. No network and no model.
+# the gate cannot run, or a promoted or pilot case that breaks a rule, or an instance in neither form, or two
+# cases on one instance, fails naming it. The pilot checks inject a fixture id as PILOT; pilot cases fill no count. No network and no model.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASS=0 FAIL=0
@@ -192,7 +192,10 @@ expect_red "$R" "dayjs at 16 of 39 cases" "corpus: https://github.com/iamkun/day
 R="$(copy cap-40)"; for id in k2v7ad s4w9mf x7c3nh fx6cim kx5vdb la2swf mn7cuh qb3hzm ug5nrb; do rm -r "$R/cases/$id"; done
 out="$(check "$R")"; rc=$?
 [ "$rc" -eq 0 ] && ! grep -q 'more than 40%' <<<"$out" && ok "dayjs at exactly 16 of 40 cases passes" || bad "cap at 40%: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
-R="$(copy cap-readme)"; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do cp -R "$R/cases/g8r2ub" "$R/cases/g8r$(printf '%03d' "$i" | tr 0-9 a-j)"; done
+R="$(copy cap-readme)"; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  id="g8r$(printf '%03d' "$i" | tr 0-9 a-j)"; cp -R "$R/cases/g8r2ub" "$R/cases/$id"
+  edit_case "$R" "$id" ".pr += $i | .instance = \"anuraghazra__github-readme-stats-\(.pr)\""
+done
 out="$(check "$R")"; rc=$?
 [ "$rc" -ne 0 ] && [ "$out" = "check: corpus: https://github.com/anuraghazra/github-readme-stats holds 34 of 69 cases (49.3%), more than 40%" ] \
   && ok "readme-stats at 34 of 69 cases fails on its share alone" || bad "readme-stats cap: rc=$rc $(head -n 3 <<<"$out" | tr '\n' '|')"
@@ -234,6 +237,8 @@ R="$(copy instance-odd)"; edit_case "$R" f6t2gy '.instance = "dayjs-1209"'
 expect_red "$R" "an instance in neither form" "f6t2gy: instance 'dayjs-1209' is neither iamkun__dayjs-1209 nor iamkun__dayjs-pr1209"
 R="$(copy instance-other-pr)"; edit_case "$R" f6t2gy '.instance = "iamkun__dayjs-pr1"'
 expect_red "$R" "an instance that names another PR" "f6t2gy: instance 'iamkun__dayjs-pr1' is neither"
+R="$(copy instance-duplicate)"; cp -R "$R/cases/q7d2hv" "$R/cases/q9w8er"
+expect_red "$R" "two cases on one instance" "corpus: instance $(jq -r .instance "$HERE/cases/q7d2hv/case.json") is held by q7d2hv, q9w8er"
 
 echo "== a runner case declares a runner the gate can run =="
 RO=overlays/anuraghazra__github-readme-stats-jest/config.json
