@@ -25,7 +25,7 @@ TRACKER=github; GH=gh; GH_READ=gh; BOT_OK=0; MCP_ALLOW=""; RENDER_CMD=""; DESIGN
 case "${JOINED:-}" in true|false) : ;; *) echo "lane-render: JOINED must be true or false" >&2; exit 2 ;; esac
 LANE_DRAFT="$SCRATCH/verdict-draft-1.md"; DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"; MAIN_ROOT="$WT"
 PLAIN_PROMPT_FILE="$HERE/../../../../dev-pipeline/skills/run/plain-review.md"; REVIEW_BASH_MS="$(inner_ms 3600 120)"
-PLANS_DIR=docs/plans
+PLANS_DIR=docs/plans; REVIEWED_BY="reviewed-by: second-shift run planted"
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"; PLAN_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-plan.md"
 RECORD="$WT/$RECORD_REL"
 CONFIG="$WT/.claude/second-shift.config.json"; CONFIG_JSON="$(cat "$CONFIG" 2>/dev/null)" || CONFIG_JSON="{}"
