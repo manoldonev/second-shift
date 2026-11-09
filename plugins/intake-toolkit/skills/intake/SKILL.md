@@ -23,6 +23,9 @@ and follow it there:
 | Interview | `$SKILL_DIR/interview.md` | per ticket, or per slice | the Decision Ledger, Open Regions and Surface Inventory |
 | Receipt | `$SKILL_DIR/receipt.md` | per ticket, or per slice | `.claude/pipeline-state/{issue}-ledger.md`, linted clean |
 
+Read each stage file, and the `plan-interview` protocol the Interview points to, whole with the
+Read tool, never through a `sed` script or other command-string read.
+
 Load `interviewing-baseline` (Skill tool) before the first question: it owns the loop rules, the
 Decision Ledger and the receipt contract every stage writes into.
 
