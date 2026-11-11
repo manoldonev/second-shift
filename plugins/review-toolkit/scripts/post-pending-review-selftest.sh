@@ -78,9 +78,14 @@ grep -q '^<details><summary>dev: lane vs blind' "$T/joined.md" && grep -q '^- \[
 
 # setup <name> <head> <base> <commit>... — one PR state
 setup() { S="$T/$1"; mkdir -p "$S"; echo "$2" > "$S/head"; echo "$3" > "$S/base"; shift 3; printf '%s\n' "$@" > "$S/commits"; }
-run() { PATH="$T/bin:$PATH" FAKE_GH="$S" bash "$TOOL" --repo o/r --worktree "$G" 7 "$@" > "$S/out" 2> "$S/err"; }
+run() {
+  local rc
+  PATH="$T/bin:$PATH" FAKE_GH="$S" bash "$TOOL" --repo o/r --worktree "$G" 7 "$@" > "$S/out" 2> "$S/err"; rc=$?
+  [ ! -f "$S/payload.json" ] || jq -r .body "$S/payload.json" > "$S/body.txt"
+  return "$rc"
+}
 creates() { grep -c '^api --method POST repos/o/r/pulls/7/reviews ' "$S/calls" 2>/dev/null; }
-body() { jq -r .body "$S/payload.json"; }
+body() { cat "$S/body.txt"; }
 
 echo "== post-pending-review.sh =="
 
@@ -92,14 +97,14 @@ setup head "$H1" "$BASE" "$H1"; run "$T/joined.md"; rc=$?
   && [ "$(jq -r .commit_id "$S/payload.json")" = "$(body | sed -n '2s/^reviewed: //p')" ] \
   && ok "(p2) the body's lines 1 and 2 are the report's head lines, and commit_id is line 2's sha" || bad "(p2) $(body | sed -n 1,2p)"
 [ "$(body | grep -E '^##+ ')" = "$(grep -E '^##+ ' "$T/joined.md")" ] \
-  && body | grep -qxF -- '- kb/auth.md — the token is now scoped (change gap)' \
+  && grep -qxF -- '- kb/auth.md — the token is now scoped (change gap)' "$S/body.txt" \
   && [ "$(body | grep '^<!-- plain-vs-lane: ')" = "$(grep '^<!-- plain-vs-lane: ' "$T/joined.md")" ] \
   && [ "$(body | tail -1)" = "$(grep '^<!-- plain-vs-lane: ' "$T/joined.md")" ] \
-  && ! body | grep -qE 'dev: lane vs blind|Lane session:|Blind session:|blind review, as written|<details|\[note\] N1' \
+  && ! grep -qE 'dev: lane vs blind|Lane session:|Blind session:|blind review, as written|<details|\[note\] N1' "$S/body.txt" \
   && ok "(p3) the body keeps every section, the KB block and the machine line, and drops the dev block, cost line and blind draft" \
   || bad "(p3) $(body)"
-body | grep -qxF 'Ping `@jdoe` and `@acme/platform-team`; mail jdoe@example.com; `@not-a-mention` stays.' \
-  && body | grep -qxF '@fenced stays' \
+grep -qxF 'Ping `@jdoe` and `@acme/platform-team`; mail jdoe@example.com; `@not-a-mention` stays.' "$S/body.txt" \
+  && grep -qxF '@fenced stays' "$S/body.txt" \
   && jq -e '.comments[] | select(.line == 20) | .body == "[Security] Token leaks to `@jdoe` in the log."' "$S/payload.json" >/dev/null \
   && ok "(p4) a bare @handle and @org/team are backticked in the body and an inline comment; an email and an @ in code are not" \
   || bad "(p4) $(body | sed -n 3,8p) comments=$(jq -c .comments "$S/payload.json")"
@@ -132,7 +137,7 @@ GH="$T/bin/gh-bot.sh" run "$T/joined.md"; rc=$?
 
 setup nojoin "$H1" "$BASE" "$H1"; run "$T/lead.md"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(creates)" = 1 ] && [ "$(body | sed -n 1p)" = 'reviewed-by: second-shift review-lead (v9)' ] \
-  && [ "$(body | sed -n 2p)" = "reviewed: $H1" ] && ! body | grep -q 'plain-vs-lane' && [ "$(jq -r .commit_id "$S/payload.json")" = "$H1" ] \
+  && [ "$(body | sed -n 2p)" = "reviewed: $H1" ] && ! grep -q 'plain-vs-lane' "$S/body.txt" && [ "$(jq -r .commit_id "$S/payload.json")" = "$H1" ] \
   && ok "(p10) a report with no machine line is posted the same way, with both head lines" || bad "(p10) rc=$rc err=$(cat "$S/err")"
 
 setup nobase "$H1" 1111111111111111111111111111111111111111 "$H1"; run "$T/joined.md"; rc=$?
@@ -145,7 +150,7 @@ setup badreport "$H1" "$BASE" "$H1"; sed 2d "$T/lead.md" > "$S/report.md"; run "
 
 allowed='^(repo view --json nameWithOwner|api user|pr view 7 --repo o/r --json headRefOid,baseRefOid|api repos/o/r/pulls/7/(commits|reviews) --paginate|api --method POST repos/o/r/pulls/7/reviews --input [^ ]+)$'
 other="$(cat "$T"/*/calls | grep -vE "$allowed")"
-[ -z "$other" ] && ! cat "$T"/*/calls | grep -q statuses \
+[ -z "$other" ] && [ -s "$T/head/calls" ] && ! grep -q statuses "$T"/*/calls \
   && ok "(p13) across every case gh saw no statuses call and no write besides the one review create" || bad "(p13) other calls: $other"
 
 echo "post-pending-review-selftest: $PASS passed, $FAIL failed"
