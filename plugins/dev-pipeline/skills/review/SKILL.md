@@ -299,9 +299,7 @@ review.
      that its GitHub App does not have "Commit statuses: write". Never retry it as yourself in
      the place of the bot.
 
-   On an `approve` whose status posted, mark the PR ready for review with the same `gh`
-   (`gh pr ready <pr>`). A lane PR stays a draft until a review approves its head, because GitHub
-   refuses to merge a draft. If that fails, say so in a plain PR comment. Then stop.
+   Then stop. Leave a draft PR a draft, approve included: the operator marks it ready for review.
 
 ## Rules that are not negotiable
 

@@ -19,9 +19,9 @@ posts on it and the review's verdict comment.
 The table below is this adapter's operation contract. The scheduler's tracker-sensitive
 operations are tabulated in [`../README.md`](../README.md#the-pipeline-dev-pipelinerun).
 
-> **A draft until approved.** Under both trackers the build opens a draft PR and the scheduler
-> keeps it one — turning a ready PR back into a draft — until a review approves its head; only
-> then is it marked ready for review. GitHub refuses to merge a draft.
+> **A draft until the operator says otherwise.** Under both trackers the build opens a draft PR and
+> the scheduler keeps it one — turning a ready PR back into a draft — for the whole run, approve
+> included. The operator marks it ready for review.
 
 ## Prerequisite
 
@@ -45,7 +45,7 @@ is a fetch-time prerequisite failure, surfaced by the intake surface.
 | **create-sub-tickets** (`sub-issues` verdict) | Present ≤5 recommended sub-ticket specs to the operator; make **no** JIRA writes. The operator creates and re-queues them. |
 | **close-out** | *no-op.* |
 | **branch name** | `<branchPrefix><key-lowercased>`; `branchPrefix` is a per-user identifier + `/` (e.g. `jdoe/` → `jdoe/proj-540`). |
-| **PR ticket reference** | Fill the repo’s `pull_request_template.md` `### Jira Items` with `Closes [<KEY>]`; the branch/PR are still on GitHub (`gh pr create`, ready — see **Ready, never draft** above). |
+| **PR ticket reference** | Fill the repo’s `pull_request_template.md` `### Jira Items` with `Closes [<KEY>]`; the branch/PR are still on GitHub (`gh pr create --draft` — see **A draft until the operator says otherwise** above). |
 
 ## Deriving `branchPrefix` (the user identifier)
 
