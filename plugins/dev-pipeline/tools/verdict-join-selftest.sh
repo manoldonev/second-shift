@@ -79,6 +79,11 @@ printf '%s\n' "$OUT" | grep -qxF 'Joined review: the blind review ran past 3600s
   && printf '%s\n' "$OUT" | grep -qxF '**Ready to merge?** With fixes' && printf '%s\n' "$OUT" | grep -qF '"plain_returned":false' \
   && ok "(r9) with no plain draft the report stands and its Notes say why" || bad "(r9) $OUT"
 
+{ printf '%s\n' 'reviewed-by: second-shift review-lead (v1)' 'reviewed: 0123456789abcdef0123456789abcdef01234567'; cat "$T/lead.md"; } > "$T/lead-head.md"
+OUT="$(bash "$TOOL" "$T/lead-head.md" "$T/plain.md" --format report)"
+[ "$(printf '%s\n' "$OUT" | sed -n 1,3p)" = "$(sed -n 1,3p "$T/lead-head.md")" ] \
+  && ok "(r9b) the reviewed-by line 1 and the reviewed line 2 above the first ## pass through the join unchanged" || bad "(r9b) $(printf '%s\n' "$OUT" | sed -n 1,3p)"
+
 bash "$TOOL" "$T/lead.md" "$T/plain.md" --format bogus >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 2 ] && ok "(r10) an unknown --format is usage: exit 2" || bad "(r10) rc=$RC"
 

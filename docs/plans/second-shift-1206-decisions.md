@@ -43,6 +43,8 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-25 | Does the head line touch the review-lead-synth eval? | No. Synthesis-only mode writes no header lines. cited (convention): plugins/review-toolkit/skills/review-lead/SKILL.md:709 | codebase-derived | fact |
 | D-26 | How are AC-11 and AC-12 held? | Exempt. Both are skill prose, and CI runs no model session. The review scores them from the SKILL.md diff. | user-answered | intent |
 | D-27 | How is AC-13 held? | Holds. A `verdict-join-selftest.sh` case keeps a report's two head lines. It passes without the change. | user-answered | intent |
+| D-28 | Is the machine line mention-escaped? | No. The `<!-- plain-vs-lane: … -->` line is copied byte for byte. GitHub renders nothing inside an HTML comment, so it notifies no one. Added in build: escaping would change the JSON paths that the extractor reads. | user-delegated | intent |
+| D-29 | How does the script read the PR's commits for D-7? | From the REST list of the PR's commits, paginated. GitHub returns at most 250 commits there, so a reviewed sha past the 250th is refused as off-PR. Added in build: the ticket names no source, and this list is documented with its ceiling. | user-delegated | intent |
 
 Options weighed:
 - D-1: a per-run opt-in, a repo config switch, a config default with an override, or always. The operator chose an offer on every run.
