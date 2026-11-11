@@ -152,7 +152,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     return "- " site(j, i) " — " (j ? lcell(j) : pcell(i, rx[r])) extra(r)
   }
   function mv(k) { return pf == "" ? "null" : m[k] + 0 }
-  # loc() keeps only JSON-safe characters, and ids are [BNH]<n> or a section label, so no value here needs escaping
+  # loc() keeps only JSON-safe characters, and an id is [BNH]<n>, "?" or empty (report-format lane), so no value here needs escaping
   function q(s) { return s == "" || s == "?" ? "null" : "\"" s "\"" }
   function fent(src, id, c, l, pr, pa,   p) {
     p = l; sub(/:[0-9]+$/, "", p)
