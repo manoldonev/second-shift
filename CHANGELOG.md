@@ -4,6 +4,22 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v17.14.1
+
+### `dev-pipeline` 17.13.0 → 17.13.1
+
+- **fix(dev-pipeline): an approve leaves the PR a draft for the operator (#1207)** (#1207)
+  an approving review no longer marks the lane PR ready for
+  review; it stays a draft until the operator marks it ready.
+  Migration: mark an approved lane PR ready by hand before merging.
+
+### `second-shift` 13.6.2 → 13.6.3
+
+- **fix(dev-pipeline): an approve leaves the PR a draft for the operator (#1207)** (#1207)
+  an approving review no longer marks the lane PR ready for
+  review; it stays a draft until the operator marks it ready.
+  Migration: mark an approved lane PR ready by hand before merging.
+
 ## v17.14.0
 
 ### `dev-pipeline` 17.12.0 → 17.13.0
