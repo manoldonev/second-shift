@@ -1326,6 +1326,12 @@ plain_collect() { # plain_collect <attempt>: waits for the plain session and cou
   plain_draft "$STATE/plain-$1.json" "$d" || { PLAIN_WHY="the blind review returned no verdict"; return 1; }
   cp "$d" "$STATE/plain-verdict-$1.md" && PLAIN_OK=1
 }
+other_comments() { # other_comments <attempt> <start-iso>: the other reviewers' comments on the PR at the review's start, read as the operator; no file when a read fails
+  local repo err
+  repo="$(repo_slug)" || { say "other comments: not counted — the repo slug could not be read"; return 0; }
+  err="$(GH="$GH_READ" bash "$TOOLS/other-comments.sh" --repo "$repo" -C "$MAIN_ROOT" "$PR" "$2" "$STATE/other-comments-$1.json" 2>&1 >/dev/null)" \
+    || say "other comments: not counted — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"
+}
 join_verdicts() { # join_verdicts <lane draft> <plain draft or ''> <why plain is missing> [verdict-join.sh flags]: the joined verdict on stdout
   local l="$1" p="$2" w="$3"; shift 3
   bash "$TOOLS/verdict-join.sh" "$l" "$p" --why "$w" "$@"
@@ -1540,7 +1546,7 @@ joined_post() { # joined_post <attempt>: joins the lane draft with the plain one
   [ -s "$LANE_DRAFT" ] || { JOINED_MISS="the review session wrote no verdict draft to $LANE_DRAFT"; return 1; }
   [ "$PLAIN_OK" -eq 1 ] && p="$STATE/plain-verdict-$1.md"
   cp "$LANE_DRAFT" "$STATE/lane-verdict-$1.md" 2>/dev/null
-  join_verdicts "$LANE_DRAFT" "$p" "${PLAIN_WHY:-the blind review did not return}" --ticket "$PLAIN_TICKET" \
+  join_verdicts "$LANE_DRAFT" "$p" "${PLAIN_WHY:-the blind review did not return}" --ticket "$PLAIN_TICKET" --other-comments "$STATE/other-comments-$1.json" \
     --lane-cost "$(jq -r '.total_cost_usd | numbers' "$STATE/review-$1.json" 2>/dev/null)" --lane-wall "$(session_wall "$STATE/review-$1.start" "$STATE/review-$1.end")" \
     --plain-cost "$(jq -r '.total_cost_usd | numbers' "$STATE/plain-$1.json" 2>/dev/null)" --plain-wall "$(session_wall "$STATE/plain-$1.start" "$STATE/plain-$1.end")" \
     > "$j" || { JOINED_MISS="the lane and plain drafts could not be joined"; return 1; }
@@ -2028,7 +2034,7 @@ while :; do
       review_prompt "$PR" "$INPUT" "$REJECTED" > "$STATE/review-$RA.prompt"
       PLAIN_OK=0; PLAIN_WHY=""; PLAIN_TICKET=false
       [ "$JOINED" = false ] || plain_start "$RA" || say "plain review: not started — $PLAIN_WHY"
-      start="$(now)"; date +%s > "$STATE/review-$RA.start"
+      start="$(now)"; [ "$JOINED" = false ] || other_comments "$RA" "$start"; date +%s > "$STATE/review-$RA.start"
       spawn review "$REVIEW_MODEL" "$RA" "$(review_allowlist)" 300 "$STATE/review-$RA.prompt"; rrc=$?
       date +%s > "$STATE/review-$RA.end"
       [ "$JOINED" = false ] || [ -z "$PLAIN_PID" ] || plain_collect "$RA" || say "plain review: $PLAIN_WHY"

@@ -37,6 +37,9 @@ Provenance legend: `user-answered` = the operator chose. `codebase-derived` = a 
 | D-21 | The blind `ticket-unavailable` note | It has no entry, as it is in no count and no row today. cited (convention): plugins/dev-pipeline/tools/verdict-join.sh:26 | codebase-derived | fact |
 | D-22 | The lane bot's login form | It is `<appName>[bot]`. run: `grep -n 'APP_NAME}\[bot\]' plugins/dev-pipeline/tools/bot-commit.sh` → `185:BOT_LOGIN="${APP_NAME}[bot]"` | codebase-derived | fact |
 | D-23 | The run.sh test rule | The run.sh change lands with a `run*-selftest.sh` case that fails without it. cited (convention): CLAUDE.md:132 | codebase-derived | fact |
+| D-24 | The tool's name and the join's flag | The tool is `tools/other-comments.sh`. verdict-join.sh takes its file as `--other-comments <file>`. A comment whose author account was deleted (`user: null`) counts under `ghost`. Added in build: no row named the tool, the flag or a deleted author. | user-delegated | intent |
+| D-25 | How verdict-join.sh writes the count | It writes only the `at`, `total` and `by_author` keys of the file. It writes `<` and `>` as `<` and `>`, so a value cannot close the HTML comment that holds the line. Added in build: D-10 checks the shape but does not say what is written. | user-delegated | intent |
+| D-26 | review-lead with no PR | review-lead counts only when `gh pr view --json number` prints a PR number for the branch. With none, it writes no file, and the field is null. Added in build: review-lead takes no PR number as input. | user-delegated | intent |
 
 Options weighed:
 

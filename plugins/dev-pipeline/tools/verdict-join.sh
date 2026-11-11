@@ -4,6 +4,7 @@
 # Usage:
 #   verdict-join.sh <lane-draft> <plain-draft or ''> [--why <why plain is missing>] [--format verdict|report]
 #                   [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>] [--ticket true|false]
+#                   [--other-comments <other-comments.sh output>]
 #
 # --format report joins a review-lead report instead of a lane verdict, by the same rules: its blockers are the
 # bullets under `## Critical`, an agreed one becomes `- [lane+blind] …`, a plain-only one is added there as
@@ -23,19 +24,23 @@
 # columns beside a long path, and a nested entry per pair was too tall to skim); then both verdicts, both sessions (a lane passed no cost and no wall is "not
 # measured"), plain's draft as written, and one `<!-- plain-vs-lane: {json} -->` line for scripts that aggregate
 # across PRs. Its `lane_only` and `plain_only` count blockers only; `m_<lane>_<plain>` count pairs by class (b
-# blocker, n note, d dismissed, 0 absent). A plain `ticket-unavailable` note, with or without a site before
-# it, means plain reviewed the diff alone; it is in no count and no row. Sites are a proxy: two findings at one site
+# blocker, n note, d dismissed, 0 absent). Its `findings` lists one entry per finding of each review, in the dev list's
+# order, capped at 150 with `findings_omitted` counting the rest; findings the join matched share a `pair` number.
+# Its `other_comments` is the --other-comments file when that file has the tool's shape, else null. A plain
+# `ticket-unavailable` note, with or without a site before it, means plain reviewed the diff alone; it is in no count
+# and no row. Sites are a proxy: two findings at one site
 # are paired whatever they say, and a first-sentence excerpt stops at an abbreviation's period.
 #
 # Exit: 0 the joined verdict on stdout · 2 usage, or the lane draft cannot be read.
 set -uo pipefail
-usage() { echo "usage: verdict-join.sh <lane-draft> <plain-draft or ''> [--why <text>] [--format verdict|report] [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>] [--ticket true|false]" >&2; exit 2; }
+usage() { echo "usage: verdict-join.sh <lane-draft> <plain-draft or ''> [--why <text>] [--format verdict|report] [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>] [--ticket true|false] [--other-comments <file>]" >&2; exit 2; }
 [ $# -ge 2 ] || usage
 lane="$1" plain="$2"; shift 2
-why="the blind review did not return" fmt=verdict lc="" pc="" lw="" pw="" ticket=true
+why="the blind review did not return" fmt=verdict lc="" pc="" lw="" pw="" ticket=true ocf=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --why) why="${2-}"; shift 2 ;;
+    --other-comments) ocf="${2-}"; shift 2 ;;
     --ticket) ticket="${2-}"; shift 2; case "$ticket" in true|false) : ;; *) usage ;; esac ;;
     --format) fmt="${2-}"; case "$fmt" in verdict|report) : ;; *) usage ;; esac; shift 2 ;;
     --lane-cost) lc="${2-}"; shift 2 ;;
@@ -48,12 +53,17 @@ done
 [ -f "$lane" ] && [ -r "$lane" ] || { echo "verdict-join: cannot read the lane draft $lane" >&2; exit 2; }
 [ -z "$plain" ] || [ -r "$plain" ] || plain=""
 num() { case "$1" in ''|*[!0-9.]*|.*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
+OC=""
+[ -z "$ocf" ] || [ ! -r "$ocf" ] || OC="$(jq -sc 'if length == 1 and (.[0] | type == "object" and (.at | type) == "string" and (.total | type) == "number" and (.by_author | type) == "object")
+    then .[0] | {at, total, by_author} else null end' "$ocf" 2>/dev/null | sed 's/</\\u003c/g; s/>/\\u003e/g')" || OC=""
+export OC="${OC:-null}"
 
 # shellcheck disable=SC2016  # an awk program, not shell
 awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report ] && echo 1 || echo 0)" -v lc="$(num "$lc")" -v pc="$(num "$pc")" -v lw="$(num "$lw")" -v pw="$(num "$pw")" '
-  # the first path:line in s: an extensionless path (Makefile:12) counts; a URL host:port, a bare id (B1:2) or a time does not
+  # the first path:line in s: an extensionless path (Makefile:12) counts; a URL host:port, a bare id (B1:2) or a time does not.
+  # A segment may hold a balanced [..], [[..]] or (..) group without a slash (app/[id]/page.tsx), so [x](a.ts:1) yields a.ts:1
   function loc(s,   m, p, pre) {
-    while (match(s, /[A-Za-z0-9_@.\/-]+:[0-9]+/)) {
+    while (match(s, /([A-Za-z0-9_@.\/-]|\[\[[A-Za-z0-9_@.-]+\]\]|\[[A-Za-z0-9_@.-]+\]|\([A-Za-z0-9_@.-]+\))+:[0-9]+/)) {
       m = substr(s, RSTART, RLENGTH); pre = RSTART > 1 ? substr(s, RSTART - 1, 1) : ""; s = substr(s, RSTART + RLENGTH)
       p = m; sub(/:[0-9]+$/, "", p)
       if (pre == ":" || index(m, "//") || p ~ /^[BNH][0-9]+$/ || p ~ /^[0-9.]+$/) continue
@@ -142,6 +152,26 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     return "- " site(j, i) " — " (j ? lcell(j) : pcell(i, rx[r])) extra(r)
   }
   function mv(k) { return pf == "" ? "null" : m[k] + 0 }
+  # loc() keeps only JSON-safe characters, and ids are [BNH]<n> or a section label, so no value here needs escaping
+  function q(s) { return s == "" || s == "?" ? "null" : "\"" s "\"" }
+  function fent(src, id, c, l, pr, pa,   p) {
+    p = l; sub(/:[0-9]+$/, "", p)
+    nfl++; fl[nfl] = "{\"src\":\"" src "\",\"id\":" q(id) ",\"class\":\"" word(c) "\",\"path\":" q(p) ",\"line\":" (l == "" ? "null" : lineof(l)) ",\"pair\":" (pr ? pr : "null") (pa == "" ? "" : ",\"posted_as\":\"" pa "\"") "}"
+  }
+  function lent(j, pr) { fent("lane", rep ? "" : llab[j], lcls[j], lloc[j], pr, "") }
+  function bent(i, pr) { fent("blind", plab[i], pcl[i], plc[i], pr, i <= np && !pmatch[i] ? (rep ? "[blind]" : newid[i]) : "") }
+  function flist(   r, x, j, i, k, pr, s) {
+    if (pf == "") for (j = 1; j <= nl; j++) lent(j, 0)
+    for (r = 1; r <= nr; r++) {
+      x = so[r]; j = rj[x]; i = ri[x]; pr = (j && i) ? ++npair : 0
+      if (j) lent(j, pr)
+      if (i && i <= np && pmatch[i]) { for (k = 1; k <= np; k++) if (pmatch[k] == pmatch[i]) bent(k, pr) }
+      else if (i) bent(i, pr)
+    }
+    if (pf != "") for (j = 1; j <= nl; j++) if (!luse[j] && lcls[j] == "d") lent(j, 0)
+    for (k = 1; k <= nfl && k <= 150; k++) s = s (k > 1 ? "," : "") fl[k]
+    return s
+  }
   function bare(   i, s) {
     for (i = 1; i <= nraw; i++) { s = praw[i]; gsub(/^[ \t]+|[ \t]+$/, "", s); if (s != "" && s !~ /^verdict: (approve|needs-work)$/ && s != "## Findings" && s != "None.") return 0 }
     return 1
@@ -156,8 +186,9 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     }
     print "```"; print ""; print "</details>"; print ""
   }
-  function devblock(   g, j, r, a, dd, la, pa, lv, rv, jv, pvs, cites) {
+  function devblock(   g, j, r, a, dd, la, pa, lv, rv, jv, pvs, cites, fs) {
     if (pf != "") pair2()
+    fs = flist()
     for (j = 1; j <= nl; j++) { if (lcls[j] == "n") lnotes++; if (lcls[j] == "d") ldis++; if (tolower(lfull[j]) ~ /(plain|blind) review/) cites++ }
     a = m["b_b"] + m["n_n"]; dd = m["n_b"] + m["d_b"] + m["b_n"] + m["d_n"]; la = m["b_0"] + m["n_0"]; pa = m["0_b"] + m["0_n"]
     print ""
@@ -185,8 +216,9 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     print ""
     if (pf != "" && !bare()) fold()
     printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s", nb, np, na, nb - na, nadd, pnotes, (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
-    printf ",\"v\":2,\"format\":\"%s\",\"lane_verdict\":%s,\"plain_verdict\":%s,\"lane_notes\":%d,\"lane_dismissed\":%d,\"lane_cites_plain\":%d,\"plain_merged\":%s", (rep ? "report" : "verdict"), (lv == "" ? "null" : "\"" lv "\""), (pv == "" ? "null" : "\"" pv "\""), lnotes, ldis, cites, (pf == "" ? "null" : merged + 0)
-    printf ",\"m_b_b\":%s,\"m_b_n\":%s,\"m_b_0\":%s,\"m_n_b\":%s,\"m_n_n\":%s,\"m_n_0\":%s,\"m_d_b\":%s,\"m_d_n\":%s,\"m_d_0\":%s,\"m_0_b\":%s,\"m_0_n\":%s} -->\n", mv("b_b"), mv("b_n"), mv("b_0"), mv("n_b"), mv("n_n"), mv("n_0"), mv("d_b"), mv("d_n"), mv("d_0"), mv("0_b"), mv("0_n")
+    printf ",\"v\":3,\"format\":\"%s\",\"lane_verdict\":%s,\"plain_verdict\":%s,\"lane_notes\":%d,\"lane_dismissed\":%d,\"lane_cites_plain\":%d,\"plain_merged\":%s", (rep ? "report" : "verdict"), (lv == "" ? "null" : "\"" lv "\""), (pv == "" ? "null" : "\"" pv "\""), lnotes, ldis, cites, (pf == "" ? "null" : merged + 0)
+    printf ",\"m_b_b\":%s,\"m_b_n\":%s,\"m_b_0\":%s,\"m_n_b\":%s,\"m_n_n\":%s,\"m_n_0\":%s,\"m_d_b\":%s,\"m_d_n\":%s,\"m_d_0\":%s,\"m_0_b\":%s,\"m_0_n\":%s", mv("b_b"), mv("b_n"), mv("b_0"), mv("n_b"), mv("n_n"), mv("n_0"), mv("d_b"), mv("d_n"), mv("d_0"), mv("0_b"), mv("0_n")
+    printf ",\"findings\":[%s],\"findings_omitted\":%d,\"other_comments\":%s} -->\n", fs, (nfl > 150 ? nfl - 150 : 0), ENVIRON["OC"]
     print ""
     print "</details>"
   }
