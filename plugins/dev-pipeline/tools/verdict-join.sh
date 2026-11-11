@@ -60,6 +60,7 @@ export OC="${OC:-null}"
 
 # shellcheck disable=SC2016  # an awk program, not shell
 awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report ] && echo 1 || echo 0)" -v lc="$(num "$lc")" -v pc="$(num "$pc")" -v lw="$(num "$lw")" -v pw="$(num "$pw")" '
+  # LOCKSTEP-BEGIN verdict-join-loc
   # the first path:line in s: an extensionless path (Makefile:12) counts; a URL host:port, a bare id (B1:2) or a time does not.
   # A segment may hold a balanced [..], [[..]] or (..) group without a slash (app/[id]/page.tsx), so [x](a.ts:1) yields a.ts:1
   function loc(s,   m, p, pre) {
@@ -71,6 +72,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     }
     return ""
   }
+  # LOCKSTEP-END verdict-join-loc
   function near(a, b,   pa, pb, d) {
     if (a == "" || b == "") return 0
     pa = a; sub(/:[0-9]+$/, "", pa); pb = b; sub(/:[0-9]+$/, "", pb); if (pa != pb) return 0

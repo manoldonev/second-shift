@@ -129,6 +129,7 @@ The Scope Completeness Gate (see Synthesis Rules) is the one exception — its F
 15. Write the knowledge-base contributions, when the repo declares a sink (see Knowledge-base contributions below)
 16. Synthesize report
 17. Join the plain review's blockers into the report (see "The plain review" below), and give the joined report
+18. Offer to post the report on the branch's PR as a pending review (see "Posting the report" below)
 
 ## Review Depth Routing
 
@@ -499,7 +500,8 @@ The plain review's out dir is never written down: each block derives it again wi
 alone.
 
 **When it runs.** In dispatch mode only. Skip it in synthesis-only mode: the pipeline that drove you runs its own.
-Run this check. If it prints `false`, skip the plain review. If it fails, skip the plain review and end the report
+Do not start it when Routing has already voided the round (the design-fidelity reviewer of an armed spec cannot be
+dispatched, Step 4b-void case 2): say in the void report that the blind review did not run. Run this check. If it prints `false`, skip the plain review. If it fails, skip the plain review and end the report
 with `## Notes` and one line naming the error it printed:
 
 ```bash
@@ -547,17 +549,83 @@ bash "$PT/verdict-join.sh" "<scratch dir>/lead-report.md" "$P" --format report \
   --why "$(cat "$O/why" 2>/dev/null || echo 'the blind review did not return')" \
   --ticket "$(cat "$O/ticket" 2>/dev/null || echo false)" \
   --plain-cost "$(jq -r '.total_cost_usd | numbers' "$O/result.json" 2>/dev/null)" \
-  --plain-wall "$(cat "$O/wall" 2>/dev/null)" "$@"
+  --plain-wall "$(cat "$O/wall" 2>/dev/null)" "$@" > "<scratch dir>/report.md" && cat "<scratch dir>/report.md"
 ```
 
 The `set --` line passes the count only when the installed `verdict-join.sh` names `--other-comments` in its usage
 line: an older one exits on a flag it does not know.
 
-Give its output as your report, unchanged. The script tags an agreed blocker `[lane+blind]`, adds a plain-only one
+Give its output as your report, unchanged. `<scratch dir>/report.md` holds it for "Posting the report". The script tags an agreed blocker `[lane+blind]`, adds a plain-only one
 under `## Critical` as `[blind]`, and turns `Ready to merge?` to `No` when it adds one. It ends the report with a
 folded `dev: lane vs blind` block that sets every finding of both reviews side by side and holds the blind review's draft as
 written. When the plain review did not return, the report stands as you wrote it and its
 `## Notes` says why. Never edit, drop or soften a `[blind]` blocker after the join.
+
+**A void round runs no join.** When Step 4b-void voids the round after the plain review started, wait for the
+background run to finish as above. Do not run the join block: it would add the blind blockers to a report that
+does not exist. Give the "review did not run" report. Under it, give the line `The blind review alone, not joined:`
+and the output of this block in a `text` fence:
+
+```bash
+PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" || exit 1
+O="$(bash "$PT/plain-review.sh" out-dir <head sha>)" || exit 1
+if [ -s "$O/verdict.md" ]; then cat "$O/verdict.md"; else echo "It did not return: $(cat "$O/why" 2>/dev/null || echo 'no reason was written')."; fi
+```
+
+A void round offers no post (see "Posting the report").
+
+## Posting the report
+
+**Process step 18, after you give the report.** The report can go on the branch's PR as a pending review: a review
+that only the person who ran this session can see, until they edit and submit it in the GitHub UI. It is offered on
+every PR, the reviewer's own or another's. Nothing is posted without the reviewer's yes.
+
+**When there is no offer.** In each case below, offer nothing and end with the one line given:
+
+- Synthesis-only mode: `The report was not posted: synthesis-only mode does not post.`
+- A void round (Step 4b-void): `The report was not posted: the review did not run.`
+- No open PR for the branch. Run `gh pr view --json number,state --jq 'select(.state == "OPEN") | .number'`. When
+  it prints nothing or fails: `The report was not posted: this branch has no open PR. To post a review of a PR,
+  check it out with gh pr checkout <n> and review again.`
+- No person to answer: the session runs headless, or it has no `AskUserQuestion` tool: `The report was not posted:
+  no one is here to answer the offer.`
+
+**The report to post.** `<scratch dir>/report.md` holds the joined report. When the join did not run (the plain
+review is off, or the installed dev-pipeline has none), write the report you gave to that file first. It has no
+machine line and is posted the same way.
+
+**Just before the offer,** check the PR's head and commits against the report's line 2, with nothing written:
+
+```bash
+bash "<skill dir>/../../scripts/post-pending-review.sh" --check <pr number> "<scratch dir>/report.md"
+```
+
+On a non-zero exit there is no offer: say `The report was not posted:` and the reason the script printed. That covers
+a reviewed sha that is not one of the PR's commits (an unpushed commit, a rebased branch) and a pending review of
+yours already on the PR. On exit 0, the script may print `the PR has moved on: …`; give that line, as printed, above
+the offer.
+
+**The offer.** Ask one `AskUserQuestion`. The question: `Post this report on PR #<n> as a pending review?` The first
+option: `Post as pending review`, described as `A pending review under your own gh account, on commit <first 12
+characters of the head sha>. Only you see it until you submit it in the GitHub UI.` When the check printed the
+moved-on line, add to that description: `The PR has moved on since this review; the review sits on the older commit.`
+The second option: `Do not post`, described as `The report stays in this session.`
+
+**On yes,** run:
+
+```bash
+bash "<skill dir>/../../scripts/post-pending-review.sh" --worktree "$(git rev-parse --show-toplevel)" <pr number> "<scratch dir>/report.md"
+```
+
+The script reads the sha from the report's line 2 and runs the same checks again just before it posts, so a push
+after the offer still gets its moved-on line. Give everything it printed,
+as it printed it. On exit 0, the review is posted; its output names the review, the inline comments, and a PR that
+has moved on past the reviewed head. On any other exit, say `The report was not posted:` and the reason the script
+printed. Never run it again, and never post the report another way: not through `gh-bot.sh`, not as an issue
+comment, not under another account. A pending review that already exists is the reviewer's to submit or delete in
+the GitHub UI.
+
+**On no,** say `The report was not posted.`
 
 ## Synthesis Rules
 
@@ -722,7 +790,7 @@ Apply **Plan/Spec Awareness** above — the three checks (missing requirements, 
 
 ### Report structure
 
-In dispatch mode, line 1 of the report, above `## Review Summary`, is `reviewed-by: second-shift review-lead (v<release>)`. `<release>` is the content of `<skill dir>/../../.claude-plugin/release`. When that file is absent, the line is `reviewed-by: second-shift review-lead`. Synthesis-only mode writes no such line.
+In dispatch mode, line 1 of the report, above `## Review Summary`, is `reviewed-by: second-shift review-lead (v<release>)`. `<release>` is the content of `<skill dir>/../../.claude-plugin/release`. When that file is absent, the line is `reviewed-by: second-shift review-lead`. Line 2 is `reviewed: <head sha>`: the full sha the plain review uses as `<head sha>`, what `git rev-parse HEAD` printed for the head you review. Write it as a plain line, never as a `## ` heading: the join passes every line above the first `## ` through unchanged, and a heading there would be read as a report section. Synthesis-only mode writes neither line.
 
 Combine all findings into one report with this structure:
 
