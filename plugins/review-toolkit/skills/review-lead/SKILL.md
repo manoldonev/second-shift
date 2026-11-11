@@ -594,10 +594,22 @@ every PR, the reviewer's own or another's. Nothing is posted without the reviewe
 review is off, or the installed dev-pipeline has none), write the report you gave to that file first. It has no
 machine line and is posted the same way.
 
+**Just before the offer,** check the PR's head and commits against the report's line 2, with nothing written:
+
+```bash
+bash "<skill dir>/../../scripts/post-pending-review.sh" --check <pr number> "<scratch dir>/report.md"
+```
+
+On a non-zero exit there is no offer: say `The report was not posted:` and the reason the script printed. That covers
+a reviewed sha that is not one of the PR's commits (an unpushed commit, a rebased branch) and a pending review of
+yours already on the PR. On exit 0, the script may print `the PR has moved on: …`; give that line, as printed, above
+the offer.
+
 **The offer.** Ask one `AskUserQuestion`. The question: `Post this report on PR #<n> as a pending review?` The first
 option: `Post as pending review`, described as `A pending review under your own gh account, on commit <first 12
-characters of the head sha>. Only you see it until you submit it in the GitHub UI.` The second option: `Do not post`,
-described as `The report stays in this session.`
+characters of the head sha>. Only you see it until you submit it in the GitHub UI.` When the check printed the
+moved-on line, add to that description: `The PR has moved on since this review; the review sits on the older commit.`
+The second option: `Do not post`, described as `The report stays in this session.`
 
 **On yes,** run:
 
@@ -605,7 +617,8 @@ described as `The report stays in this session.`
 bash "<skill dir>/../../scripts/post-pending-review.sh" --worktree "$(git rev-parse --show-toplevel)" <pr number> "<scratch dir>/report.md"
 ```
 
-The script reads the sha from the report's line 2 and the PR's head just before it posts. Give everything it printed,
+The script reads the sha from the report's line 2 and runs the same checks again just before it posts, so a push
+after the offer still gets its moved-on line. Give everything it printed,
 as it printed it. On exit 0, the review is posted; its output names the review, the inline comments, and a PR that
 has moved on past the reviewed head. On any other exit, say `The report was not posted:` and the reason the script
 printed. Never run it again, and never post the report another way: not through `gh-bot.sh`, not as an issue

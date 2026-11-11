@@ -11,6 +11,9 @@
 - [ ] 1.7 Selftest: across every case the fake gh records no statuses call and no write besides the one review create (plugins/review-toolkit/scripts/post-pending-review-selftest.sh) [AC-9]
 - [ ] 1.8 Selftest: a report that never went through the join has no machine line and is posted with both head lines (plugins/review-toolkit/scripts/post-pending-review-selftest.sh) [AC-10]
 - [ ] 1.9 Write post-pending-review.sh, with loc() held as a lockstep pair with verdict-join.sh (plugins/review-toolkit/scripts/post-pending-review.sh, plugins/dev-pipeline/tools/verdict-join.sh)
+- [ ] 1.10 Selftest: the PR's head posts even when the PR's commit list, capped at 250, does not reach it (plugins/review-toolkit/scripts/post-pending-review-selftest.sh) [AC-1]
+- [ ] 1.11 Selftest: --check writes nothing, says a non-head PR commit has moved on, and exits non-zero on an off-PR sha or an existing pending review (plugins/review-toolkit/scripts/post-pending-review-selftest.sh) [AC-6] [AC-7]
+- [ ] 1.12 Accept the head before the commit-list lookup, and add --check, the checks alone with no write (plugins/review-toolkit/scripts/post-pending-review.sh)
 
 ## 2. The join keeps the head lines
 
@@ -21,3 +24,4 @@
 - [ ] 3.1 Report structure: line 2 `reviewed: <sha>` in dispatch mode (plugins/review-toolkit/skills/review-lead/SKILL.md)
 - [ ] 3.2 The void path: a Routing void starts no plain review; a later void runs no join and shows the blind draft labeled as the blind review alone (plugins/review-toolkit/skills/review-lead/SKILL.md)
 - [ ] 3.3 The final offer step: one AskUserQuestion, the script run on yes, and the no-offer messages (plugins/review-toolkit/skills/review-lead/SKILL.md)
+- [ ] 3.4 The offer step runs the script's --check before the AskUserQuestion: no offer on a refusal, the moved-on line above the offer (plugins/review-toolkit/skills/review-lead/SKILL.md)

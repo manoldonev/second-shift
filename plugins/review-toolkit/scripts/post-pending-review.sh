@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # post-pending-review.sh — posts a review-lead report on its PR as a pending review, under the caller's own gh login.
 #
-# Usage: post-pending-review.sh [--repo <owner/name>] [--worktree <dir>] <pr> <report>
+# Usage: post-pending-review.sh [--check] [--repo <owner/name>] [--worktree <dir>] <pr> <report>
 #
 # The report's line 1 is its `reviewed-by: second-shift review-lead` line and line 2 its `reviewed: <full sha>` line.
-# That sha is the review's commit_id. It must be one of the PR's commits; when it is not the PR's head, the review is
-# still posted and the output says the PR has moved on. A pending review of the caller's already on the PR blocks the
-# post: nothing is created or deleted.
+# That sha is the review's commit_id. It must be the PR's head or one of its commits; when it is not the head, the
+# review is still posted and the output says the PR has moved on. A pending review of the caller's already on the PR
+# blocks the post: nothing is created or deleted. --check runs only these checks, before the offer, and writes nothing.
 #
 # The body is the report without its folded `dev: lane vs blind` block; the block's hidden machine line is kept, byte
 # for byte. Each Critical or Warning finding whose first path:line is inside a hunk of `<PR base>...<sha>`, diffed in
@@ -14,12 +14,14 @@
 # inline comments and the output says why. An @-mention outside code is wrapped in backticks, so no one is notified.
 #
 # Writes: the one review creation, through plain gh. A failed create is reported and never retried.
-# Exit: 0 posted · 1 refused or failed, the reason on stderr · 2 usage, or the report lacks its two head lines.
+# Exit: 0 posted, or --check found it postable · 1 refused or failed, the reason on stderr · 2 usage, or the report
+# lacks its two head lines.
 set -uo pipefail
-usage() { echo "usage: post-pending-review.sh [--repo <owner/name>] [--worktree <dir>] <pr> <report>" >&2; exit 2; }
-REPO="" WT="."
+usage() { echo "usage: post-pending-review.sh [--check] [--repo <owner/name>] [--worktree <dir>] <pr> <report>" >&2; exit 2; }
+REPO="" WT="." CHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --check) CHECK=1; shift ;;
     --repo) REPO="${2-}"; shift 2 ;;
     --worktree) WT="${2-}"; shift 2 ;;
     --*) usage ;;
@@ -48,21 +50,29 @@ me="$(gh api user 2>/dev/null | jq -r '.login // empty' 2>/dev/null)"
 refs="$(gh pr view "$PR" --repo "$REPO" --json headRefOid,baseRefOid 2>/dev/null | jq -r '"\(.headRefOid // "") \(.baseRefOid // "")"' 2>/dev/null)"
 read -r HEAD BASE <<<"$refs"
 [ -n "${HEAD:-}" ] && [ -n "${BASE:-}" ] || die "PR #$PR could not be read"
-commits="$(gh api "repos/$REPO/pulls/$PR/commits" --paginate 2>/dev/null | jq -r '.[].sha' 2>/dev/null)" \
-  || die "the commits of PR #$PR could not be read"
-grep -qx "$SHA" <<<"$commits" \
-  || die "the reviewed commit $SHA is not one of PR #$PR's commits (its head is $HEAD); nothing posted"
+# The commit list stops at 250, so the head is accepted without it.
+if [ "$SHA" != "$HEAD" ]; then
+  commits="$(gh api "repos/$REPO/pulls/$PR/commits" --paginate 2>/dev/null | jq -r '.[].sha' 2>/dev/null)" \
+    || die "the commits of PR #$PR could not be read"
+  grep -qx "$SHA" <<<"$commits" \
+    || die "the reviewed commit $SHA is not one of PR #$PR's commits (its head is $HEAD); nothing posted"
+fi
 pending="$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate 2>/dev/null \
   | jq -r --arg me "$me" '.[] | select(.state == "PENDING" and (.user.login // "") == $me) | "\(.id) \(.html_url // "")"' 2>/dev/null)" \
   || die "the reviews of PR #$PR could not be read"
 [ -z "$pending" ] || die "you already have a pending review on PR #$PR: $(head -1 <<<"$pending"); nothing created or deleted. Submit or delete it in the GitHub UI, then post again"
+if [ "$CHECK" = 1 ]; then
+  echo "the report can be posted on PR #$PR at $SHA"
+  [ "$SHA" = "$HEAD" ] || echo "the PR has moved on: its head is now $HEAD, and the report reviewed $SHA"
+  exit 0
+fi
 
 inline=1 why=""
 git -C "$WT" cat-file -e "$BASE^{commit}" 2>/dev/null \
   || GIT_TERMINAL_PROMPT=0 git -C "$WT" fetch --quiet --no-tags origin "$BASE" >/dev/null 2>&1
 if ! git -C "$WT" cat-file -e "$BASE^{commit}" 2>/dev/null; then inline=0 why="the PR's base commit $BASE could not be fetched"
 elif ! git -C "$WT" cat-file -e "$SHA^{commit}" 2>/dev/null; then inline=0 why="the reviewed commit $SHA is not in $WT"
-elif ! git -C "$WT" -c core.quotePath=false diff --no-color --no-ext-diff -M -U3 --src-prefix=a/ --dst-prefix=b/ "$BASE...$SHA" > "$T/diff" 2>/dev/null
+elif ! git -C "$WT" -c core.quotePath=false -c diff.interHunkContext=0 diff --no-color --no-ext-diff -M -U3 --src-prefix=a/ --dst-prefix=b/ "$BASE...$SHA" > "$T/diff" 2>/dev/null
 then inline=0 why="git diff $BASE...$SHA failed"
 fi
 : > "$T/hunks"

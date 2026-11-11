@@ -6,7 +6,8 @@
 # head lines, every section, the KB block and the machine line, and drops the dev block; @-mentions outside code are
 # backticked; a Critical or Warning finding inside a hunk of base...sha is one right-side inline comment; a sha that
 # is a PR commit but not the head posts with a moved-on line, one outside the PR posts nothing; an existing pending
-# review blocks the post; a failed create is reported once, never through gh-bot.sh; no write besides the create.
+# review blocks the post; a failed create is reported once, never through gh-bot.sh; no write besides the create; the
+# head posts without the capped commit list; --check runs the same refusals and the moved-on line and writes nothing.
 # The joined report comes from the real verdict-join.sh, resolved the way review-lead resolves it.
 #
 # Operator-safe: a fake gh on PATH, a local git fixture, no network. Exit code = number of failed checks.
@@ -84,6 +85,8 @@ run() {
   [ ! -f "$S/payload.json" ] || jq -r .body "$S/payload.json" > "$S/body.txt"
   return "$rc"
 }
+check() { PATH="$T/bin:$PATH" FAKE_GH="$S" bash "$TOOL" --check --repo o/r --worktree "$G" 7 "$T/joined.md" > "$S/out" 2> "$S/err"; }
+writes() { grep -cE -- '--method|-X ' "$S/calls" 2>/dev/null; }
 creates() { grep -c '^api --method POST repos/o/r/pulls/7/reviews ' "$S/calls" 2>/dev/null; }
 body() { cat "$S/body.txt"; }
 
@@ -144,6 +147,25 @@ setup nobase "$H1" 1111111111111111111111111111111111111111 "$H1"; run "$T/joine
 [ "$rc" -eq 0 ] && [ "$(creates)" = 1 ] && jq -e 'has("comments") | not' "$S/payload.json" >/dev/null \
   && grep -qxF "no inline comments: the PR's base commit 1111111111111111111111111111111111111111 could not be fetched" "$S/out" \
   && ok "(p11) a base commit that cannot be fetched posts the review with no inline comments and says why" || bad "(p11) rc=$rc out=$(cat "$S/out") err=$(cat "$S/err")"
+
+setup capped "$H1" "$BASE" "$BASE"; run "$T/joined.md"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(creates)" = 1 ] && [ "$(jq -r .commit_id "$S/payload.json")" = "$H1" ] && ! grep -q 'moved on' "$S/out" \
+  && ok "(p14) the PR's head posts even when the PR's commit list, capped at 250, does not reach it" || bad "(p14) rc=$rc err=$(cat "$S/err")"
+
+setup checkhead "$H1" "$BASE" "$H1"; check; rc=$?
+[ "$rc" -eq 0 ] && [ "$(writes)" = 0 ] && grep -qxF "the report can be posted on PR #7 at $H1" "$S/out" && ! grep -q 'moved on' "$S/out" \
+  && ok "(p15) --check on the PR head exits 0, says it can be posted and writes nothing" || bad "(p15) rc=$rc out=$(cat "$S/out") err=$(cat "$S/err")"
+setup checkmoved "$H2" "$BASE" "$H1" "$H2"; check; rc=$?
+[ "$rc" -eq 0 ] && [ "$(writes)" = 0 ] && grep -qxF "the PR has moved on: its head is now $H2, and the report reviewed $H1" "$S/out" \
+  && ok "(p16) --check on a PR commit that is not the head says the PR has moved on, before any post" || bad "(p16) rc=$rc out=$(cat "$S/out") err=$(cat "$S/err")"
+setup checkoffpr "$H2" "$BASE" "$H2"; check; rc=$?
+[ "$rc" -eq 1 ] && [ "$(writes)" = 0 ] && grep -qF "the reviewed commit $H1 is not one of PR #7's commits" "$S/err" \
+  && ok "(p17) --check on a sha outside the PR's commits exits 1 with the reason, so nothing is offered" || bad "(p17) rc=$rc err=$(cat "$S/err")"
+setup checkpending "$H1" "$BASE" "$H1"
+printf '%s' '[{"id":55,"state":"PENDING","user":{"login":"tester"},"html_url":"https://github.com/o/r/pull/7#pullrequestreview-55"}]' > "$S/reviews.json"
+check; rc=$?
+[ "$rc" -eq 1 ] && [ "$(writes)" = 0 ] && grep -qF 'pending review on PR #7: 55 ' "$S/err" \
+  && ok "(p18) --check with a pending review of the caller's exits 1 and names it" || bad "(p18) rc=$rc err=$(cat "$S/err")"
 
 setup badreport "$H1" "$BASE" "$H1"; sed 2d "$T/lead.md" > "$S/report.md"; run "$S/report.md"; rc=$?
 [ "$rc" -eq 2 ] && [ ! -e "$S/calls" ] && ok "(p12) a report with no reviewed line on line 2 is refused before any gh call" || bad "(p12) rc=$rc"
