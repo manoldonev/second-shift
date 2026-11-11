@@ -1085,7 +1085,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   echo "The PR title and every commit message say what changed. Never put $([ "$TRACKER" = github ] && echo "#$ISSUE" || echo "$ISSUE") in them. The ticket's one link is the PR body's Closes line."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through the repo's bot identity. Never use plain git commit. Run it exactly as '$TOOLS/bot-commit.sh -C $WT -F <a message file you wrote with Write>'. Start the command with the bare path. Do not put bash before it. Run each --amend through bot-commit.sh too. A plain --amend makes you the committer and gives no warning."
   if [ "$1" -eq 1 ]; then
-    echo "When the checks you ran are green, commit and push branch $BRANCH to origin. If no PR is open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME'. Leave it a draft: the scheduler marks it ready for review only when a review approves its head."
+    echo "When the checks you ran are green, commit and push branch $BRANCH to origin. If no PR is open for this branch, open a DRAFT PR against $BASE_NAME with 'gh pr create --draft --base $BASE_NAME'. Leave it a draft: the operator marks it ready for review."
     echo "Write the PR body for the human who reviews it. Use short sentences and the active voice. Put one fact in each sentence. Use the same word for the same thing. Do not use idioms, metaphors or abstract words. Put what the reviewer must know first. State each fact once: a later section cites the row id and does not repeat the fact. Keep the body under 500 words, not counting the Checks table. A limit never removes a record row, a deferred decision, a skipped command or a test you think is wrong. If they do not fit, shorten the wording and cut the changes first. Write the body in this order:"
     echo "1. Line 1, exactly: '$BUILT_BY'."
     echo "2. The repo's pull request template, when it has one. Keep its headings and their order. Fill its sections with what changes for the users of this code and why, and with the changes. Do not add a '## What this changes' heading of your own. When the repo has no template, write '## What this changes' and then '## Changes'. What this changes has at most 80 words. It says what changes for the users of this code, and why. It does not describe the implementation. Give the changes grouped by area, in at most 8 bullets, with at most 20 words in each bullet. Do not repeat a decision or a default that another section states. When you cite a record row or an acceptance criterion, put its id in parentheses after the sentence that states it. Do not write a list of ids without the facts they stand for."
@@ -1588,24 +1588,16 @@ minimize_earlier_verdicts() {
   fi
   STATUS_NOTES="${STATUS_NOTES}verdicts: earlier ones NOT all minimized — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-300)"$'\n'; say "verdicts: could not minimize every earlier verdict on PR #$PR"
 }
-# -- the draft hold (rows E22, E23): GitHub refuses to merge a draft, so a lane PR stays one until a review approves its
-# head; the scheduler owns both flips. A flip that fails is reported in the run block, never fatal --
+# -- the draft hold (row E22): a lane PR stays a draft through the run, since marking it ready triggers paid review bots;
+# the operator marks it ready by hand. A flip that fails is reported in the run block, never fatal --
 DRAFT_NOTES=""
 pr_hold_draft() { # after every build: a ready PR is turned back into a draft
   local err
   [ "$PR_DRAFT" = false ] || return 0
   if err="$("$GH" pr ready "$PR" --undo 2>&1 >/dev/null)"; then
-    PR_DRAFT=true; say "pr: #$PR turned back into a draft — it is marked ready only when a review approves its head"
+    PR_DRAFT=true; say "pr: #$PR turned back into a draft — the operator marks it ready for review"
   else
     DRAFT_NOTES="${DRAFT_NOTES}pr: NOT turned into a draft — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200); it stayed mergeable before its review"$'\n'; say "pr: could not turn #$PR into a draft"
-  fi
-}
-pr_mark_ready() { # approved at this head: the one flip out of draft
-  local err
-  if err="$("$GH" pr ready "$PR" 2>&1 >/dev/null)"; then
-    DRAFT_NOTES="${DRAFT_NOTES}pr: marked ready for review — approved at $HEAD_SHA"$'\n'; say "pr: #$PR marked ready for review"
-  else
-    DRAFT_NOTES="${DRAFT_NOTES}pr: still a draft — marking it ready failed ($(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)); mark it ready by hand"$'\n'; say "pr: could not mark #$PR ready for review"
   fi
 }
 # -- the run block (rows E14-E16, I13, I14): in the PR BODY under the old lane's marker, at every terminal once a PR exists.
@@ -1616,7 +1608,7 @@ run_summary() { # <terminal slug>
   printf '%s%s' "$STATUS_NOTES" "$DRAFT_NOTES" | awk '
     /^status: NOT posted/ { printf " · status NOT posted" } /^verdict notice: NOT posted/ { printf " · verdict notice NOT posted" }
     /^verdicts: earlier ones NOT all minimized/ { printf " · verdicts NOT all minimized" }
-    /^pr: NOT turned into a draft/ { printf " · NOT a draft" } /^pr: still a draft/ { printf " · still a draft" }'
+    /^pr: NOT turned into a draft/ { printf " · NOT a draft" }'
 }
 run_report() { # <terminal slug>: the block's content, between its markers
   echo "## second-shift run"; echo
@@ -2101,5 +2093,4 @@ case "$ifrc" in
   8) terminal closeout-inflight "approved, but $WT still holds work nothing else has a copy of ($INFLIGHT_REASON) — the ticket is still claimed and PR #$PR is still open" ;;
   *) terminal closeout-inflight-unreadable "approved, but whether $WT still holds work could not be evaluated ($INFLIGHT_REASON)" ;;
 esac
-pr_mark_ready
 terminal approved "PR #$PR approved at $HEAD_SHA after $ROUND round(s), \$$(usd "$COST")"

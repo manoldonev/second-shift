@@ -12,7 +12,7 @@
 # Re-runs the checker on the POSTED body. A passing body posts `success` (approve) or `failure`
 # (needs-work) on <sha> under context `second-shift/review`, linking <target-url>. A failing body posts
 # nothing and prints the failed rules. It does nothing else: minimizing earlier verdicts, the head
-# re-check and `gh pr ready` stay with the session.
+# re-check stay with the session.
 #
 # --recheck is for a verdict comment edited after it was posted: the body is read by comment id through
 # $GH, then checked as above. There a failing body, or an approve's red plan coverage, posts `error` on

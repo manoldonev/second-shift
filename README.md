@@ -105,7 +105,7 @@ On JIRA there is no label to add: launching the run in step 8 is how you queue i
 /dev-pipeline:run 42
 ```
 
-The real run takes the ticket and works in a separate checkout at `../your-repo-worktrees/42`. Its first commit is your intake record, at `docs/plans/your-repo-42-decisions.md`. Each round, a fresh build session writes code and opens or updates a **draft** PR, second-shift runs your checks itself, and a fresh review session posts one PR comment that starts with `verdict: approve` or `verdict: needs-work` and scores every decision in the record. A `needs-work` verdict starts another round; an approve marks the PR ready for review. Don't push to the run's branch while it works: a review only counts for the commit it read.
+The real run takes the ticket and works in a separate checkout at `../your-repo-worktrees/42`. Its first commit is your intake record, at `docs/plans/your-repo-42-decisions.md`. Each round, a fresh build session writes code and opens or updates a **draft** PR, second-shift runs your checks itself, and a fresh review session posts one PR comment that starts with `verdict: approve` or `verdict: needs-work` and scores every decision in the record. A `needs-work` verdict starts another round; an approve ends the run with the PR still a draft, for you to mark ready for review. Don't push to the run's branch while it works: a review only counts for the commit it read.
 
 The build and review sessions run without permission prompts, inside that checkout, with a fixed tool list: file edits, `git`, a few `gh` PR and issue commands, and the program each of your check commands starts with (for `yarn test`, that is `yarn`). Those checks run on your machine, in the shell that launched the run, not in CI: a database or service they need has to be up before you launch.
 
@@ -135,7 +135,7 @@ It does the same setup as a run (takes the ticket, cuts the worktree, commits yo
 /dev-pipeline:review <pr>
 ```
 
-An approve marks the PR ready for review. What you give up: second-shift does not re-run your checks, apply its caps, or loop rounds on this path. Making the checks green is yours.
+An approve leaves the PR a draft; you mark it ready for review. What you give up: second-shift does not re-run your checks, apply its caps, or loop rounds on this path. Making the checks green is yours.
 
 ### If something goes wrong
 

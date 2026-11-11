@@ -202,16 +202,15 @@ hcmd=$(jq -r '.hooks.PermissionRequest[0].hooks[0].command // empty' <<<"$bset" 
 
 # (w) round-eight parity: PR conventions asserted, a stopped run still leaves its block,
 #     claimed-elsewhere exits 2, second run's block is its own
-# E22 E23: a lane PR is a draft until a review approves its head — GitHub refuses to merge a draft
-fixture w1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(w1) [E22 E23] a ready PR from the build"
-[ "$(cut -d' ' -f2 "$FAKE_GH/ready-calls" 2>/dev/null | tr '\n' ' ')" = "undo ready " ] && ok "(w1) [E22 E23] turned into a draft after the build, marked ready only on the approve" || bad "(w1) flips: $(tr '\n' '|' < "$FAKE_GH/ready-calls" 2>/dev/null)"
-[ ! -f "$FAKE_GH/draft" ] && grep -q 'marked ready for review — approved at' "$FAKE_GH/pr-body.md" && ok "(w1) [E23] the approved PR is ready and its run block says so" || bad "(w1) still a draft, or no note in the run block"
+# E22: a lane PR stays a draft through the run, approve included — the operator marks it ready
+fixture w1; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(w1) [E22] a ready PR from the build"
+[ "$(cut -d' ' -f2 "$FAKE_GH/ready-calls" 2>/dev/null | tr '\n' ' ')" = "undo " ] && [ -f "$FAKE_GH/draft" ] && ok "(w1) [E22] turned into a draft after the build, and still a draft after the approve" || bad "(w1) flips: $(tr '\n' '|' < "$FAKE_GH/ready-calls" 2>/dev/null)"
 fixture w1d; printf 'build-pr-draft\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(w1d) [E22] a draft PR is no finding"
-[ "$(cut -d' ' -f2 "$FAKE_GH/ready-calls" 2>/dev/null | tr '\n' ' ')" = "ready " ] && ok "(w1d) [E22 E23] a draft is left a draft, then marked ready on the approve" || bad "(w1d) flips: $(tr '\n' '|' < "$FAKE_GH/ready-calls" 2>/dev/null)"
-fixture w1n; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 1; expect rounds-spent "(w1n) [E23] needs-work, then the rounds are spent"
-[ -f "$FAKE_GH/draft" ] && ! grep -q ' ready$' "$FAKE_GH/ready-calls" 2>/dev/null && ok "(w1n) [E23] a run that ends without an approve leaves the PR a draft" || bad "(w1n) flips: $(tr '\n' '|' < "$FAKE_GH/ready-calls" 2>/dev/null)"
-fixture w1f; printf 'build-pr-draft\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; echo 'HTTP 403: Resource not accessible by integration' > "$FAKE_GH/ready-fail"; run_case "$d"; expect approved "(w1f) [E23] a flip that fails is not fatal"
-grep -q 'still a draft — marking it ready failed (HTTP 403' "$FAKE_GH/pr-body.md" && ok "(w1f) [E23] the run block names the failed flip and its reason" || bad "(w1f) run block: $(grep 'draft' "$FAKE_GH/pr-body.md" 2>/dev/null | head -2 | tr '\n' '|')"
+[ ! -s "$FAKE_GH/ready-calls" ] && ok "(w1d) [E22] a draft is never flipped, approve included" || bad "(w1d) flips: $(tr '\n' '|' < "$FAKE_GH/ready-calls" 2>/dev/null)"
+fixture w1n; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d" --max-rounds 1; expect rounds-spent "(w1n) [E22] needs-work, then the rounds are spent"
+[ -f "$FAKE_GH/draft" ] && ! grep -q ' ready$' "$FAKE_GH/ready-calls" 2>/dev/null && ok "(w1n) [E22] a run that ends without an approve leaves the PR a draft" || bad "(w1n) flips: $(tr '\n' '|' < "$FAKE_GH/ready-calls" 2>/dev/null)"
+fixture w1f; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; echo 'HTTP 403: Resource not accessible by integration' > "$FAKE_GH/ready-fail"; run_case "$d"; expect approved "(w1f) [E22] a flip that fails is not fatal"
+grep -q 'NOT turned into a draft — HTTP 403' "$FAKE_GH/pr-body.md" && ok "(w1f) [E22] the run block names the failed flip and its reason" || bad "(w1f) run block: $(grep 'draft' "$FAKE_GH/pr-body.md" 2>/dev/null | head -2 | tr '\n' '|')"
 fixture w1b; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_CLOSES=lower run_case "$d"; expect approved "(w1b) a lowercase 'closes #42' is accepted, as the old gate matched it"
 fixture w2; printf 'build-pr-nobody\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; RUN_CHECKS_RED_MAX=2 run_case "$d"; expect checks-red-spent "(w2) a PR body without built-by/Closes is sent back, then spent"
 grep -q "Closes #42" "$FAKE_GH/prompt-2.txt" && ok "(w2) the convention finding reaches the next build prompt" || bad "(w2) finding not in the next prompt"

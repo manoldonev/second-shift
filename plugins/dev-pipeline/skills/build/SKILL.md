@@ -1,6 +1,6 @@
 ---
 name: build
-description: The interactive BUILD, the build half of /dev-pipeline:run, run in THIS session so that the operator can steer it. run.sh claims the ticket, creates the worktree and commits the intake record as the first commit of the branch. Then it gives you the same build prompt that an unattended run spawns. You build to a draft PR. Then /dev-pipeline:review grades the PR in a fresh session. On an approve, it marks the PR ready. Needs a completed intake, the same as /dev-pipeline:run.
+description: The interactive BUILD, the build half of /dev-pipeline:run, run in THIS session so that the operator can steer it. run.sh claims the ticket, creates the worktree and commits the intake record as the first commit of the branch. Then it gives you the same build prompt that an unattended run spawns. You build to a draft PR. Then /dev-pipeline:review grades the PR in a fresh session. The PR stays a draft until the operator marks it ready. Needs a completed intake, the same as /dev-pipeline:run.
 ---
 
 # build
