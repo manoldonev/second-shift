@@ -99,7 +99,11 @@ case "$sub" in
                  for a in "$@"; do case "$a" in id=*) echo "${FAKE_GH_AS:-operator} ${a#id=}" >> "$S/minimized" ;; esac; done; echo '{}' ;;
   # users/<login> is bot-commit.sh's `--jq .id` lookup: a numeric id, as real gh prints it. The '{}' default once
   # passed for an id, which bot-commit.sh now refuses (#1068).
-  api*)         case "$path" in *comments*) cat "$S/comments.json" ;; *pulls*) echo '{"body":"built-by: fake"}' ;; users/*) echo 4242 ;; *) echo '{}' ;; esac ;;
+  # inline review comments and reviews: one array each, [] when the case writes none, as GitHub lists them
+  api*)         case "$path" in
+                  *pulls/*/comments*) [ -f "$S/inline-unreadable" ] && { echo "HTTP 502: Bad Gateway" >&2; exit 1; }; cat "$S/inline-comments.json" 2>/dev/null || echo '[]' ;;
+                  *pulls/*/reviews*) cat "$S/reviews.json" 2>/dev/null || echo '[]' ;;
+                  *comments*) cat "$S/comments.json" ;; *pulls*) echo '{"body":"built-by: fake"}' ;; users/*) echo 4242 ;; *) echo '{}' ;; esac ;;
   *) echo "fake gh: unhandled $sub $*" >&2; exit 1 ;;
 esac
 EOF

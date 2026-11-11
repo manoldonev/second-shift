@@ -523,6 +523,18 @@ bash "$PT/plain-review.sh" run --worktree "$(git rev-parse --show-toplevel)" --b
 
 With no `--out`, the run writes to `out-dir <head sha>` and first clears what an earlier run left there.
 
+**Count the other reviewers' comments (Process step 6).** When the branch has a PR, record how many comments other
+reviewers had on it when your review started. `gh pr view --json number --jq .number` prints its number. When it
+prints none, skip this. Otherwise run:
+
+```bash
+PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" && [ -f "$PT/other-comments.sh" ] && \
+bash "$PT/other-comments.sh" <pr number> "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<scratch dir>/other-comments.json"
+```
+
+It prints nothing, and it is skipped when the installed dev-pipeline has no such tool. Never open that file: only
+the join block reads it. When a read fails, it writes no file, and the joined report records the count as null.
+
 **Join it (Process step 17).** Wait for the background run to finish. Never end the turn before it does. Write your
 synthesized report to `<scratch dir>/lead-report.md` exactly as you would give it. Then:
 
@@ -530,12 +542,16 @@ synthesized report to `<scratch dir>/lead-report.md` exactly as you would give i
 PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" || exit 1
 O="$(bash "$PT/plain-review.sh" out-dir <head sha>)" || exit 1
 P=""; [ -s "$O/verdict.md" ] && P="$O/verdict.md"
+set --; grep -q '^usage().*--other-comments' "$PT/verdict-join.sh" && set -- --other-comments "<scratch dir>/other-comments.json"
 bash "$PT/verdict-join.sh" "<scratch dir>/lead-report.md" "$P" --format report \
   --why "$(cat "$O/why" 2>/dev/null || echo 'the blind review did not return')" \
   --ticket "$(cat "$O/ticket" 2>/dev/null || echo false)" \
   --plain-cost "$(jq -r '.total_cost_usd | numbers' "$O/result.json" 2>/dev/null)" \
-  --plain-wall "$(cat "$O/wall" 2>/dev/null)"
+  --plain-wall "$(cat "$O/wall" 2>/dev/null)" "$@"
 ```
+
+The `set --` line passes the count only when the installed `verdict-join.sh` names `--other-comments` in its usage
+line: an older one exits on a flag it does not know.
 
 Give its output as your report, unchanged. The script tags an agreed blocker `[lane+blind]`, adds a plain-only one
 under `## Critical` as `[blind]`, and turns `Ready to merge?` to `No` when it adds one. It ends the report with a

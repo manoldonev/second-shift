@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016  # expected lines hold literal backticks
 # verdict-join-selftest.sh — behavioral selftest for tools/verdict-join.sh --format report, the join review-lead's
-# report goes through. The lane-verdict format is driven through run.sh in skills/run/run-joined-selftest.sh.
+# report goes through. The lane-verdict format is driven through run.sh in skills/run/run-joined-selftest.sh; the
+# machine line's findings list and other_comments are checked here under both formats.
 #
 # INVARIANTS GUARDED: a plain blocker within 3 lines of a Critical bullet tags it [lane+blind]; any other is added
 # under Critical as [blind] and flips Ready to merge from With fixes or Yes to No, but never touches an existing No;
@@ -51,7 +52,7 @@ INV='.lane_blockers == .m_b_b + .m_b_n + .m_b_0 and .lane_notes == .m_n_b + .m_n
 PAIRS="$(printf '%s\n' '**blind only: blocker** (1)' '- `src/c.ts:3` — B2: off by one _(added as [blind])_' \
   '**agreed: blocker** (1)' '- `src/a.ts:10` (blind :12) — lane Critical [Security]: injection · blind B1: the same injection' \
   '**lane only: note** (1)' '- `src/b.ts:5` — Warning [Performance]: slow' '**blind only: note** (1)' '- `src/d.ts:1` — N1: style')"
-[ "$(jq -c '[.lane_blockers,.plain_blockers,.agreed,.lane_only,.plain_only,.plain_notes_dropped,.flipped,.plain_returned,.lane_cost_usd,.plain_wall_s,.v,.format,.lane_verdict,.plain_verdict]' <<<"$JSON" 2>/dev/null)" = '[1,2,1,0,1,1,true,true,1.2,40,2,"report","with-fixes","needs-work"]' ] \
+[ "$(jq -c '[.lane_blockers,.plain_blockers,.agreed,.lane_only,.plain_only,.plain_notes_dropped,.flipped,.plain_returned,.lane_cost_usd,.plain_wall_s,.v,.format,.lane_verdict,.plain_verdict]' <<<"$JSON" 2>/dev/null)" = '[1,2,1,0,1,1,true,true,1.2,40,3,"report","with-fixes","needs-work"]' ] \
   && jq -e "$INV" <<<"$JSON" >/dev/null \
   && grep -qxF '<details><summary>dev: lane vs blind — 1 agreed, 0 rated differently, 1 lane alone, 2 blind alone; blind flipped the verdict</summary>' <<<"$DEV" \
   && [ "$(pairs "$DEV")" = "$PAIRS" ] \
@@ -153,6 +154,63 @@ OUT="$(bash "$TOOL" "$T/lead-clean.md" "$T/plain-many.md" --format report)"
 [ "$(printf '%s\n' "$OUT" | grep -c '^- `src/n')" -eq 40 ] && printf '%s\n' "$OUT" | grep -qxF '**blind only: note** (45)' && printf '%s\n' "$OUT" | grep -qx '5 more pairs are counted in the machine line.' \
   && jq -e '.m_0_n == 45' <<<"$(devjs "$OUT")" >/dev/null \
   && ok "(r20) the list stops at 40 pairs and says how many more the machine line counts" || bad "(r20) pairs=$(printf '%s\n' "$OUT" | grep -c '^- `')"
+
+V2KEYS='["lane_blockers","plain_blockers","agreed","lane_only","plain_only","plain_notes_dropped","flipped","plain_returned","lane_cost_usd","plain_cost_usd","lane_wall_s","plain_wall_s","ticket","v","format","lane_verdict","plain_verdict","lane_notes","lane_dismissed","lane_cites_plain","plain_merged","m_b_b","m_b_n","m_b_0","m_n_b","m_n_n","m_n_0","m_d_b","m_d_n","m_d_0","m_0_b","m_0_n"]'
+v3ok() { jq -e --argjson k "$V2KEYS" '. as $l | .v == 3 and (.findings | type) == "array" and all($k[]; . as $x | $l | has($x))' <<<"$1" >/dev/null 2>&1; }
+printf '%s\n' 'verdict: needs-work' 'reviewed: abc' '' '## Findings' '' '- [blocker] B1 src/a.ts:10 — injection' '  Scenario: a quote → the query breaks' \
+  '- [note] N1 src/b.ts:5 — slow' '- [note] N2 src/z.ts:40 — Dismissed. not reachable' > "$T/lane-v.md"
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 src/a.ts:9 — injection' '- [blocker] B2 src/a.ts:11 — injection again' \
+  '- [blocker] B3 src/c.ts:3 — off by one' '- [note] the docs are stale' > "$T/plain-v.md"
+OUT="$(bash "$TOOL" "$T/lane-v.md" "$T/plain-v.md")"; RJ="$(devjs "$OUT")"
+OUTR="$(bash "$TOOL" "$T/lead.md" "$T/plain.md" --format report)"; RR="$(devjs "$OUTR")"
+v3ok "$RJ" && v3ok "$RR" && [ "$(jq -r .format <<<"$RJ")" = verdict ] && [ "$(jq -r .format <<<"$RR")" = report ] \
+  && ok "(r22) the machine line is v3 and carries a findings array and every v2 field, under --format verdict and --format report" || bad "(r22) verdict=$RJ report=$RR"
+WANT='[{"src":"blind","id":"B3","class":"blocker","path":"src/c.ts","line":3,"pair":null,"posted_as":"B2"},{"src":"lane","id":"B1","class":"blocker","path":"src/a.ts","line":10,"pair":1},{"src":"blind","id":"B1","class":"blocker","path":"src/a.ts","line":9,"pair":1},{"src":"blind","id":"B2","class":"blocker","path":"src/a.ts","line":11,"pair":1},{"src":"lane","id":"N1","class":"note","path":"src/b.ts","line":5,"pair":null},{"src":"blind","id":null,"class":"note","path":null,"line":null,"pair":null},{"src":"lane","id":"N2","class":"dismissed","path":"src/z.ts","line":40,"pair":null}]'
+[ "$(jq -c .findings <<<"$RJ")" = "$WANT" ] && [ "$(jq .findings_omitted <<<"$RJ")" = 0 ] && grep -qx -- '- \[blocker\] B2 \[blind\] src/c.ts:3 — off by one' <<<"$OUT" \
+  && ok "(r23) one entry per finding in the dev list's order: two blind blockers merged onto lane B1 share its pair, the added one is posted_as B2, a lone dismissal comes last, a missing id or site is null" \
+  || bad "(r23) findings=$(jq -c .findings <<<"$RJ")"
+WANT='[{"src":"blind","id":"B2","class":"blocker","path":"src/c.ts","line":3,"pair":null,"posted_as":"[blind]"},{"src":"lane","id":null,"class":"blocker","path":"src/a.ts","line":10,"pair":1},{"src":"blind","id":"B1","class":"blocker","path":"src/a.ts","line":12,"pair":1},{"src":"lane","id":null,"class":"note","path":"src/b.ts","line":5,"pair":null},{"src":"blind","id":"N1","class":"note","path":"src/d.ts","line":1,"pair":null}]'
+[ "$(jq -c .findings <<<"$RR")" = "$WANT" ] \
+  && ok "(r24) under --format report a lane entry's id is null and an added blind blocker is posted_as [blind]" || bad "(r24) findings=$(jq -c .findings <<<"$RR")"
+
+RJ="$(devjs "$(bash "$TOOL" "$T/lane-v.md" '')")"; RR="$(devjs "$(bash "$TOOL" "$T/lead.md" '' --format report)")"
+[ "$(jq -c '[.findings[] | [.src, .id, .class, .line, .pair]]' <<<"$RJ")" = '[["lane","B1","blocker",10,null],["lane","N1","note",5,null],["lane","N2","dismissed",40,null]]' ] \
+  && [ "$(jq -c '[.findings[] | [.src, .id, .class, .line]]' <<<"$RR")" = '[["lane",null,"blocker",10],["lane",null,"note",5]]' ] \
+  && [ "$(jq -c '[.findings[] | select(.src == "blind")] | length' <<<"$(devjs "$(bash "$TOOL" "$T/lead.md" "$T/plain-noticket.md" --format report)")")" = 0 ] \
+  && ok "(r25) with no blind draft every lane finding has an entry in draft order; the ticket-unavailable note has none" || bad "(r25) verdict=$RJ report=$RR"
+
+{ printf '%s\n' 'verdict: needs-work' 'reviewed: abc' '' '## Findings' ''
+  for i in $(seq 160); do printf -- '- [blocker] B%s src/module-%s/handler-%s.ts:%s — the handler drops the retry header\n  Scenario: a 503 → the request is lost\n' "$i" "$i" "$i" "$i"; done; } > "$T/lane-320.md"
+{ printf '%s\n' 'verdict: approve' '## Findings'; for i in $(seq 160); do printf -- '- [note] N%s lib/other-%s/thing-%s.ts:%s — a naming nit\n' "$i" "$i" "$i" "$i"; done; } > "$T/plain-320.md"
+OUT="$(bash "$TOOL" "$T/lane-320.md" "$T/plain-320.md")"; RJ="$(devjs "$OUT")"
+[ "$(jq '.findings | length' <<<"$RJ")" = 150 ] && [ "$(jq .findings_omitted <<<"$RJ")" = 170 ] && [ "$(printf '%s\n' "$OUT" | wc -c)" -lt 65536 ] \
+  && ok "(r26) a join of 320 findings lists 150 entries, counts 170 omitted, and stays under 65,536 bytes ($(printf '%s\n' "$OUT" | wc -c | tr -d ' '))" \
+  || bad "(r26) entries=$(jq '.findings | length' <<<"$RJ") omitted=$(jq .findings_omitted <<<"$RJ") bytes=$(printf '%s\n' "$OUT" | wc -c)"
+
+printf '%s\n' '{"at":"2026-01-02T03:04:05Z","total":2,"by_author":{"greptile-apps[bot]":2}}' > "$T/oc.json"
+printf '%s\n' '{"at":"2026-01-02T03:04:05Z","total":"2","by_author":{}}' > "$T/oc-shape.json"
+printf '%s\n' '{"at":' > "$T/oc-broken.json"
+printf '%s\n' '{"at":"x-->y<","total":0,"by_author":{}}' > "$T/oc-angle.json"
+ocv() { devjs "$(bash "$TOOL" "$T/lane-v.md" "$T/plain-v.md" "$@")" | jq -c '.other_comments'; }
+[ "$(ocv --other-comments "$T/oc.json")" = '{"at":"2026-01-02T03:04:05Z","total":2,"by_author":{"greptile-apps[bot]":2}}' ] \
+  && [ "$(devjs "$(bash "$TOOL" "$T/lead.md" "$T/plain.md" --format report --other-comments "$T/oc.json")" | jq -c '.other_comments.by_author')" = '{"greptile-apps[bot]":2}' ] \
+  && [ "$(ocv)" = null ] && [ "$(ocv --other-comments "$T/absent.json")" = null ] && [ "$(ocv --other-comments "$T/oc-broken.json")" = null ] \
+  && [ "$(ocv --other-comments "$T/oc-shape.json")" = null ] && [ "$(ocv --other-comments "$T/oc-angle.json")" = '{"at":"x-->y<","total":0,"by_author":{}}' ] \
+  && OUT="$(bash "$TOOL" "$T/lane-v.md" "$T/plain-v.md" --other-comments "$T/oc-angle.json")" && [[ -n "$OUT" && "$OUT" != *'-->y'* ]] \
+  && ok "(r27) --other-comments emits the count file as other_comments; no flag, an absent file, invalid JSON or a wrong shape give null; '>' cannot close the comment" \
+  || bad "(r27) good=$(ocv --other-comments "$T/oc.json") none=$(ocv) broken=$(ocv --other-comments "$T/oc-broken.json") shape=$(ocv --other-comments "$T/oc-shape.json")"
+
+printf '%s\n' '## Critical (must fix before merge)' '- [Routing] app/users/[id]/page.tsx:12 (confidence: 90) — the param is read as a number' \
+  '- [Security] src/a.ts:10 (confidence: 90) — injection' '' '## Warnings (should fix)' '- [Style] app/(shop)/[[...slug]]/page.tsx:3 (confidence: 80) — dead branch' '' \
+  '**Ready to merge?** With fixes' > "$T/lead-routes.md"
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 app/posts/[id]/page.tsx:12 — the param is read as a number' \
+  '- [blocker] B2 see [x](src/a.ts:10) — injection' > "$T/plain-routes.md"
+OUT="$(bash "$TOOL" "$T/lead-routes.md" "$T/plain-routes.md" --format report)"; RR="$(devjs "$OUT")"
+printf '%s\n' "$OUT" | grep -qxF -- '- [lane+blind] [Security] src/a.ts:10 (confidence: 90) — injection' \
+  && printf '%s\n' "$OUT" | grep -qxF -- '- [Routing] app/users/[id]/page.tsx:12 (confidence: 90) — the param is read as a number' \
+  && printf '%s\n' "$OUT" | grep -qxF -- '- [blind] app/posts/[id]/page.tsx:12 — the param is read as a number' \
+  && [ "$(jq -c '[.findings[] | [.src, .path, .line, (.pair != null)]]' <<<"$RR")" = '[["blind","app/posts/[id]/page.tsx",12,false],["lane","app/users/[id]/page.tsx",12,false],["lane","src/a.ts",10,true],["blind","src/a.ts",10,true],["lane","app/(shop)/[[...slug]]/page.tsx",3,false]]' ] \
+  && ok "(r28) a route path is read whole, [x](src/a.ts:10) yields src/a.ts:10, and two route files at one line do not pair" || bad "(r28) findings=$(jq -c .findings <<<"$RR") $(printf '%s\n' "$OUT" | grep '^- ')"
 
 echo "verdict-join-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

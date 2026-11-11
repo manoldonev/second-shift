@@ -39,6 +39,16 @@ review.
 2. Check out the PR head. Confirm that `git rev-parse HEAD` equals `headRefOid`. You review that
    sha, and you name it.
 
+   **Count the other reviewers' comments.** Record how many comments other reviewers had on the PR
+   when your review started:
+
+   ```bash
+   bash <this skill's base directory>/../../tools/other-comments.sh <pr> "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <your scratch dir>/other-comments.json
+   ```
+
+   It prints nothing. Never open that file: only the join block reads it. When a read fails, it
+   writes no file, and the joined verdict records the count as null. Go on with the review.
+
    **Start the plain review.** It is the record-blind review that `run.sh` runs beside the lane
    review: one headless session with Read, Grep and Glob only, in a copy of the head with no `.git`
    and no plans directory, given the diff and the ticket. Run it unless
@@ -249,6 +259,7 @@ review.
    bash <this skill's base directory>/../../tools/verdict-join.sh <your draft> "$P" \
      --why "$(cat "$O/why" 2>/dev/null || echo 'the blind review did not return')" \
      --ticket "$(cat "$O/ticket" 2>/dev/null || echo false)" \
+     --other-comments <your scratch dir>/other-comments.json \
      --plain-cost "$(jq -r '.total_cost_usd | numbers' "$O/result.json" 2>/dev/null)" \
      --plain-wall "$(cat "$O/wall" 2>/dev/null)" > <joined draft>
    ```

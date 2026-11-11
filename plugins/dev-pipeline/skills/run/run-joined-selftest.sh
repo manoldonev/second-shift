@@ -40,7 +40,7 @@ grep -q '^# a change$' "$pp" && grep -q 'Do the thing in src/a.ts' "$pp" && ! gr
   && ok "(j1) the lane review may not comment and is told to write its draft" || bad "(j1) lane allowlist/prompt: $(grep -o 'Bash(gh pr comment[^,]*' "$FAKE_GH/args-2.txt")"
 [ "$(grep -c '^verdict: ' "$FAKE_GH/pr-comment-bodies" 2>/dev/null)" -eq 1 ] && [ "$(jq length "$FAKE_GH/comments.json")" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" \
   && ok "(j1) the scheduler posts one joined verdict, binds it and posts success" || bad "(j1) posted: $(tr '\n' '|' < "$FAKE_GH/pr-comment-bodies" 2>/dev/null)"
-devblock_last 1 && jq -e '.v == 2 and .format == "verdict" and .lane_blockers == 0 and .plain_blockers == 0 and .agreed == 0 and .flipped == false and .plain_returned == true
+devblock_last 1 && jq -e '.v == 3 and (.findings | type) == "array" and .format == "verdict" and .lane_blockers == 0 and .plain_blockers == 0 and .agreed == 0 and .flipped == false and .plain_returned == true
     and .lane_cost_usd == 1 and .plain_cost_usd == 0.5 and (.lane_wall_s | type) == "number" and .plain_wall_s >= 2 and .ticket == true' <<<"$(devjson 1)" >/dev/null \
   && has_posted 1 -x -- '- Verdict: lane approve · blind approve · joined approve.' && has_posted 1 -x 'No finding to compare.' && has_posted 1 'Blind session: [$]0.50, [0-9]* s, returned\.$' \
   && ok "(j1) [AC-10] the verdict ends with the folded dev block: no-flip counts, both sessions' cost and wall time, and its JSON line" || bad "(j1) dev block: $(devjson 1) $(posted 1 | tail -n 9 | tr '\n' '|')"
@@ -190,6 +190,23 @@ grep -qx -- '- \[blocker\] B1 \[lane+blind\] Makefile:12 — the test target ski
   && [ "$(grep -cxF -- '- `Makefile:12` (blind :13) — lane B1: the test target skips the new suite · blind B1: the test target skips the new suite' "$d/v1.md")" -eq 1 ] \
   && grep -qxF -- '- (no site) — B2: the docs at https://ci.test:443 still name the old target _(added as B2)_' "$d/v1.md" \
   && ok "(j13) Makefile:12 and Makefile:13 merge into one [lane+blind] finding; the URL blocker has no site and is added as [blind]" || bad "(j13) first verdict: $(grep '^- ' "$d/v1.md" | tr '\n' '|')"
+
+# (j14) another reviewer's inline comment and review on the PR before the review starts are counted in the posted line,
+# read as the operator; the operator's own comment and one posted after the start are not
+fixture j14; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-blocker-agree\nplain-approve\n' > "$FAKE_PLAIN_PLAN"
+jq -n '[{user:{login:"greptile-apps[bot]",type:"Bot"},created_at:"2020-01-01T00:00:00Z",body:"a finding"},
+        {user:{login:"tester",type:"User"},created_at:"2020-01-01T00:00:00Z",body:"a reply"},
+        {user:{login:"late",type:"User"},created_at:"2999-01-01T00:00:00Z",body:"after the start"}]' > "$FAKE_GH/inline-comments.json"
+jq -n '[{user:{login:"greptile-apps[bot]",type:"Bot"},submitted_at:"2020-01-01T00:00:00Z",body:"summary",state:"COMMENTED"}]' > "$FAKE_GH/reviews.json"
+run_case "$d"; expect approved "(j14) a review on a PR another reviewer had commented on"
+devblock_last 1 && jq -e '.v == 3 and .other_comments.total == 2 and .other_comments.by_author == {"greptile-apps[bot]": 2} and (.other_comments.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T"))
+    and ([.findings[] | [.src, .class, .pair]] == [["lane","blocker",1],["blind","blocker",1],["lane","note",2],["blind","note",2]])' <<<"$(devjson 1)" >/dev/null \
+  && [ "$(grep -c '^verdict: ' "$FAKE_GH/pr-comment-bodies")" -eq 2 ] && ! grep -q 'breaks the verdict grammar' <<<"$OUT" \
+  && ok "(j14) the posted line counts the other reviewer's inline comment and review at the start, lists each finding, and passes verdict-check.sh" || bad "(j14) dev=$(devjson 1)"
+fixture j14u; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"; touch "$FAKE_GH/inline-unreadable"
+run_case "$d"; expect approved "(j14u) the inline comments cannot be read"
+devblock_last 1 && jq -e 'has("other_comments") and .other_comments == null' <<<"$(devjson 1)" >/dev/null && grep -q 'other comments: not counted' <<<"$OUT" \
+  && ok "(j14u) a failed read posts other_comments null, never 0, and the run says so" || bad "(j14u) dev=$(devjson 1)"
 
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
