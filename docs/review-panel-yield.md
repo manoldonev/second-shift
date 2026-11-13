@@ -24,6 +24,9 @@ git log --all --diff-filter=AM --date=short --pretty='%H %ad' --name-only -- 'do
 
 then `git rev-parse <sha>:<path>` per version, deduplicated on the blob.
 
+**The records are no longer in the tree; the derivation needs a full clone.** A shallow or
+single-branch clone does not hold the history that `git log --all` reads.
+
 **Dedup on the blob, not the commit.** A record committed on its lane branch and again on `main` at
 merge is one round; counting commits inflates every denominator. Here 68 versions collapse to 56
 rounds.

@@ -38,8 +38,7 @@ shift || true
 # Two overrides, both forced by what this agent expects and this repo does not have.
 #
 # 1. THE DIFF. The reviewer's own Process step 1 is "diff against the configured base branch", but
-#    in an eval there is no branch checked out — the fixture file IS the diff. Same shape as
-#    ../../../review-toolkit/evals/security-reviewer-eval/run.sh.
+#    in an eval there is no branch checked out — the fixture file IS the diff.
 # 2. THE DESIGN-SYSTEM REFERENCE. The agent loads `.claude/second-shift/design-tokens/*.md` to
 #    ground every rule it applies. second-shift has no FE app and no such reference, so the eval
 #    ships a synthetic two-surface one (a fixed-theme surface and a branded host-relative surface)

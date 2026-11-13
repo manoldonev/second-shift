@@ -151,11 +151,11 @@ last_target() { jq -r --arg t "$1" 'select(.tool == $t) | .target' "$LEDGERS/$TS
 # Test 5 — path-bearing tools carry file_path (AC-1)
 echo "Test 5 — Read/Edit/Write → target=file_path"
 feed "{\"session_id\":\"$TSID\",\"cwd\":\"$TREE\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/repo/stages/9-open-pr.md\"}}"
-feed "{\"session_id\":\"$TSID\",\"cwd\":\"$TREE\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/repo/docs/plans/acme-244.md\"}}"
+feed "{\"session_id\":\"$TSID\",\"cwd\":\"$TREE\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/repo/docs/notes/scratch.md\"}}"
 t=$(last_target Read)
 [ "$t" = "/repo/stages/9-open-pr.md" ] && ok "Read target=$t" || fail "Read target=$t"
 t=$(last_target Write)
-[ "$t" = "/repo/docs/plans/acme-244.md" ] && ok "Write target=$t" || fail "Write target=$t"
+[ "$t" = "/repo/docs/notes/scratch.md" ] && ok "Write target=$t" || fail "Write target=$t"
 
 # Test 6 — Skill/Workflow identity, incl. the Workflow name fallback (AC-3)
 echo "Test 6 — Skill → skill; Workflow → scriptPath else name"

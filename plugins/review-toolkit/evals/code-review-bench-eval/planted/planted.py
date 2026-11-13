@@ -16,17 +16,8 @@ Subcommands, model-free unless named:
   verify    build every case, check a runner case's expected stop, and print each ground-truth range at
             the head (network; npm for a runner case)
   run       the operator's recipe: the judge's calibration, the reviews, the judge, the report (billed); with
-            --pilot, the plain arm on the pilot cases only, and no changelog row; with --arm blind-prove, alone,
-            three sessions per case-run: hunt names candidate breaks in the neutral `after` checkout, prove turns
-            them into commands, the harness runs each in `before` and `after`, and intent writes plain's verdict
+            --pilot, the plain arm on the pilot cases only, and no changelog row
   cases     right, wrong and noise per case, run and arm from a results file, and the right rate over a set of ids
-  compare   the blind-prove arm's results beside plain's and the lane's stored ones, per case and run and in total;
-            with --pm1, PM-1's PASS or FAIL per criterion
-  probe     build a case's neutral before and after checkouts, install each, run one command in both and print
-            DIFFERS, SAME or UNPROVEN as JSON (network for the installs; none for the command where
-            sandbox-exec exists)
-  bound-probe  prove's `probe` in a blind-prove case-run: one command on that run's prepared checkouts, bound
-            by a binding file, with no case id in its output
 """
 from __future__ import annotations
 
@@ -34,13 +25,11 @@ import argparse
 import asyncio
 import collections
 import datetime as dt
-import fcntl
 import fnmatch
 import importlib.util
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -75,20 +64,10 @@ FROZEN = frozenset("""
 PILOT = frozenset()
 # former pilot cases now scored, which keep the pilot's truth range outside every hunk
 PROMOTED = frozenset("fx6cim kx5vdb la2swf mn7cuh qb3hzm ug5nrb".split())
-# PM-1's pre-registered sets: the held-out cases, and the one case a hand probe ran on, reported apart
-HELD_OUT = ("q7d2hv", "g8r2ub", "b6r1vy", "s4w9mf", "d6m1zo")
-APART = "r2n5ax"
-HAND_PROBED = "mn7cuh"
-PM1_LEAD = 6
 NO_PILOT = "--pilot: there are no pilot cases; PILOT is empty"
 ARMS = ("plain", "lane")
-BLIND_PROVE = "blind-prove"
 # run.sh's default review: the lane review and its record-blind plain review in parallel, joined into one verdict
 JOINED = "joined"
-STAGES = ("hunt", "prove", "intent")
-MAX_COST_USD = 3.0
-MAX_PROBES = 8
-PROBE_SHOWN = 2000
 SENDBACK_SCORES = ("violated", "undeterminable")
 CASE_ID_RE = re.compile(r"[a-z0-9]{6}")
 CLASS_IN_ID_RE = re.compile(r"p[1-5]|ctl|ctrl")
@@ -111,12 +90,6 @@ REVIEW_MAX_TURNS = 300
 DISALLOWED = "AskUserQuestion,EnterWorktree,ExitWorktree"
 FINDING_RE = re.compile(r"^- \[(blocker|note)\] ([BNH]\d+) ?(.*)$")
 LOC_RE = re.compile(r"([A-Za-z0-9_@./\[\]-]+\.[A-Za-z0-9]+):(\d+)(?:\s*[-–]\s*(\d+))?")
-QUOTE_RE = re.compile(r'["“”]([^"“”]*)["“”]')
-GROUND_MIN = 20
-SITE_WINDOW = 3
-EXCERPT = 200
-EXPECT_TOKENS = ("expect(", "assert", "toBe", "toEqual")
-TEST_PATH_RE = re.compile(r"(^|/)(tests?|__tests__|specs?)/|[._-](test|spec)\.[A-Za-z0-9]+$")
 BARE_PATH_RE = re.compile(r"[A-Za-z0-9_@.\[\]-]*(?:/[A-Za-z0-9_@.\[\]-]+)*/[A-Za-z0-9_@\[\]-][A-Za-z0-9_@.\[\]-]*\.[A-Za-z0-9]+")
 
 
@@ -640,256 +613,6 @@ def build(case: dict, arm: str, dest: Path, clones: Path, root: Path) -> dict:
             "record_rel": record_rel(case), "plan_rel": plan_rel(case)}
 
 
-# --- the probe ---------------------------------------------------------------------------------
-
-PROBE_SIDES = ("before", "after")
-PROBE_TIMEOUT_S = 120
-PROBE_INSTALL_TIMEOUT_S = 1800
-PROBE_SANDBOX = "(version 1)(allow default)(deny network*)"
-VERDICTS = ("DIFFERS", "SAME", "UNPROVEN")
-TIMING_RE = re.compile(r"^\s*(Time|Duration|Start at|Done in|Finished in)\b|\(\d+(?:\.\d+)? ?m?s\)\s*$")
-
-
-class Unproven(RuntimeError):
-    pass
-
-
-def probe_cache(case: dict, clones: Path) -> Path:
-    return clones / f"{upstream_key(case)}.probe" / case["base"]
-
-
-def neutral_checkout(case: dict, side: str, dest: Path, store: Path, root: Path) -> None:
-    """The base and the overlay, then for `after` the patch without its plan file, each under a subject that
-    names nothing of the case. No remote, no FETCH_HEAD, no reflog."""
-    dest.mkdir(parents=True)
-    git(["init", "-q", str(dest)], cwd=dest.parent)
-    git(["fetch", "-q", "--depth", "1", "--no-tags", str(store), f"refs/bases/{case['base']}"], cwd=dest)
-    git(["checkout", "-q", "-b", side, "FETCH_HEAD"], cwd=dest)
-    t0 = int(git(["log", "-1", "--format=%ct"], cwd=dest))
-    ov = root / "overlays" / case["overlay"]
-    (dest / ".claude" / "second-shift").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(ov / "review-context.md", dest / ".claude" / "second-shift" / "review-context.md")
-    shutil.copyfile(ov / "config.json", dest / ".claude" / "second-shift.config.json")
-    git(["add", "-f", ".claude/second-shift/review-context.md", ".claude/second-shift.config.json"], cwd=dest)
-    commit(dest, "chore: add the review configuration", t0 + 3600)
-    if side == "after":
-        r = subprocess.run(["git", *GIT_CFG, "apply", "--index", "--whitespace=nowarn", str(case["dir"] / "patch.diff")],
-                           cwd=dest, text=True, capture_output=True)
-        if r.returncode:
-            raise Unproven(f"the patch does not apply to the base: {r.stderr.strip()[:300]}")
-        git(["rm", "-q", "--cached", "--ignore-unmatch", plan_rel(case)], cwd=dest)
-        (dest / plan_rel(case)).unlink(missing_ok=True)
-        commit(dest, "change", t0 + 7200)
-    (dest / ".git" / "FETCH_HEAD").unlink(missing_ok=True)
-    git(["reflog", "expire", "--expire=now", "--all"], cwd=dest)
-
-
-def package_manager(co: Path) -> tuple[str, list[str]] | None:
-    """The install the base names: its packageManager through corepack, else npm. None without a package.json."""
-    try:
-        pkg = json.loads((co / "package.json").read_text())
-    except OSError:
-        return None
-    except ValueError as e:
-        raise Unproven(f"package.json does not parse: {e}")
-    pm = str(pkg.get("packageManager") or "").split("@", 1)[0]
-    if pm == "yarn":
-        return "yarn", ["corepack", "yarn", "install", "--immutable"]
-    if pm == "pnpm":
-        return "pnpm", ["corepack", "pnpm", "install", "--frozen-lockfile"]
-    if pm and pm != "npm":
-        raise Unproven(f"packageManager {pkg['packageManager']!r} is neither npm, yarn nor pnpm")
-    if (co / "package-lock.json").is_file():
-        return "npm", ["npm", "ci", "--no-audit", "--no-fund"]
-    return "npm", ["npm", "install", "--no-audit", "--no-fund"]
-
-
-def run_step(argv: list[str], co: Path, env: dict, what: str, side: str) -> None:
-    try:
-        r = subprocess.run(argv, cwd=co, env=env, text=True, capture_output=True, timeout=PROBE_INSTALL_TIMEOUT_S)
-    except subprocess.TimeoutExpired:
-        raise Unproven(f"the {what} in {side} ran past {PROBE_INSTALL_TIMEOUT_S} s")
-    except OSError as e:
-        raise Unproven(f"the {what} in {side} could not start: {e}")
-    if r.returncode:
-        raise Unproven(f"the {what} in {side} exited {r.returncode}: {(r.stdout + r.stderr).strip()[-400:]}")
-
-
-def probe_env(case: dict, clones: Path, bindir: Path) -> dict:
-    cache = probe_cache(case, clones)
-    return {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
-            "npm_config_cache": str(cache / "npm"), "npm_config_store_dir": str(cache / "pnpm-store"),
-            "YARN_CACHE_FOLDER": str(cache / "yarn"), "YARN_ENABLE_GLOBAL_CACHE": "false",
-            "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"}
-
-
-def probe_install(case: dict, cos: dict[str, Path], clones: Path, root: Path, env: dict) -> str | None:
-    """Each side's own install, with its package manager's stores in one cache per upstream and base (named by
-    probe_env), then the overlay's probe.json setup. An npm base with no lockfile installs `before` unpinned and
-    pins `after`, and every later probe on the base, to the lockfile it generated. Returns the lockfile's origin."""
-    cache = probe_cache(case, clones)
-    cache.mkdir(parents=True, exist_ok=True)
-    setup = ""
-    pj = root / "overlays" / case["overlay"] / "probe.json"
-    if pj.is_file():
-        try:
-            setup = str(json.loads(pj.read_text()).get("setup") or "")
-        except ValueError as e:
-            raise Unproven(f"{pj.name} of overlay {case['overlay']} does not parse: {e}")
-    pm = package_manager(cos["before"])
-    lockfile = None if pm is None else "committed"
-    generated = cache / "package-lock.json"
-    for side, co in cos.items():
-        excludes = ["node_modules/"]
-        if pm is not None:
-            name, argv = pm
-            if name == "npm" and not (co / "package-lock.json").is_file() or lockfile == "generated":
-                lockfile = "generated"
-                if generated.is_file():
-                    shutil.copyfile(generated, co / "package-lock.json")
-                    argv = ["npm", "ci", "--no-audit", "--no-fund"]
-                excludes.append("/package-lock.json")
-            if not shutil.which(argv[0], path=env["PATH"]):
-                raise Unproven(f"the base installs with {name}, and no {argv[0]} is on PATH")
-            run_step(argv, co, env, f"{name} install", side)
-            if lockfile == "generated" and not generated.is_file():
-                if not (co / "package-lock.json").is_file():
-                    raise Unproven(f"npm install in {side} generated no package-lock.json")
-                shutil.copyfile(co / "package-lock.json", generated)
-        if setup:
-            run_step(["bash", "-c", setup], co, env, f"{pj.name} setup", side)
-        (co / ".git" / "info").mkdir(exist_ok=True)
-        with (co / ".git" / "info" / "exclude").open("a") as f:
-            f.write("".join(f"{e}\n" for e in excludes))
-    return lockfile
-
-
-def run_side(cmd: str, co: Path, env: dict, timeout: int, sandbox: str | None) -> dict:
-    argv = ["bash", "-c", cmd]
-    if sandbox:
-        argv = [sandbox, "-p", PROBE_SANDBOX, *argv]
-    p = subprocess.Popen(argv, cwd=co, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE, text=True, errors="replace", start_new_session=True)
-    try:
-        out, err = p.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        os.killpg(p.pid, 9)
-        out, err = p.communicate()
-        return {"rc": None, "out": out, "err": err, "timed_out": True}
-    return {"rc": p.returncode, "out": out, "err": err}
-
-
-def normalize(text: str, co: Path) -> str:
-    for root in sorted({str(co), str(co.resolve())}, key=len, reverse=True):
-        text = text.replace(root, "<ROOT>")
-    return "\n".join(l for l in text.split("\n") if not TIMING_RE.search(l))
-
-
-def compare(sides: dict[str, dict], cos: dict[str, Path]) -> tuple[str, str]:
-    for side, r in sides.items():
-        if r.get("timed_out"):
-            return "UNPROVEN", f"the command in {side} ran past its timeout"
-    differ = [label for key, label in (("rc", "exit code"), ("out", "stdout"), ("err", "stderr"))
-              if (sides["before"][key] if key == "rc" else normalize(sides["before"][key], cos["before"]))
-              != (sides["after"][key] if key == "rc" else normalize(sides["after"][key], cos["after"]))]
-    return ("DIFFERS", "the " + ", ".join(differ) + " differ") if differ else ("SAME", "")
-
-
-class Prober:
-    """A case's neutral `before` and `after` checkouts under <dest>, built and installed once by prepare(). Each
-    run() puts both back on their commit, runs one bash command in each, and puts them back again, so many
-    commands share one build and none sees what another wrote."""
-
-    def __init__(self, case: dict, dest: Path, clones: Path, root: Path):
-        self.case, self.dest, self.clones, self.root = case, dest, clones, root
-        self.cos = {side: dest / side for side in PROBE_SIDES}
-        self.sandbox = shutil.which("sandbox-exec")
-        self.env = probe_env(case, clones, dest / "bin")
-        self.lockfile = None
-
-    def prepare(self) -> None:
-        bindir = self.dest / "bin"
-        bindir.mkdir(parents=True)
-        for pm in ("yarn", "pnpm"):
-            (bindir / pm).write_text(f'#!/usr/bin/env bash\nexec corepack {pm} "$@"\n')
-            (bindir / pm).chmod(0o755)
-        try:
-            store = base_store(self.case, self.clones)
-            for side, co in self.cos.items():
-                neutral_checkout(self.case, side, co, store, self.root)
-        except BuildError as e:
-            raise Unproven(str(e))
-        self.lockfile = probe_install(self.case, self.cos, self.clones, self.root, self.env)
-
-    def reset(self) -> None:
-        # the CLI of a session whose cwd is a checkout writes its own state under .claude/, which stays
-        for co in self.cos.values():
-            git(["checkout", "-q", "--", "."], cwd=co)
-            git(["clean", "-qfd", "-e", "/.claude/"], cwd=co)
-
-    def run(self, cmd: str, probe_dir: Path | None, timeout: int) -> dict:
-        env = {**self.env, **({"PROBE_DIR": str(probe_dir)} if probe_dir is not None else {})}
-        self.reset()
-        sides = {side: run_side(cmd, co, env, timeout, self.sandbox) for side, co in self.cos.items()}
-        self.reset()
-        verdict, reason = compare(sides, self.cos)
-        return {"verdict": verdict, "reason": reason, **{side: {k: r[k] for k in ("rc", "out", "err")} for side, r in sides.items()}}
-
-
-def probe(case: dict, cmd: str, dest: Path, clones: Path, root: Path, probe_dir: Path | None, timeout: int) -> dict:
-    """The case's neutral `before` and `after` checkouts under <dest>, each with its own install, then one
-    bash command in each and one verdict. Model-free; a failure outside the command is UNPROVEN."""
-    p = Prober(case, dest, clones, root)
-    out = {"case": case["id"], "verdict": "UNPROVEN", "reason": "", "sandbox": "sandbox-exec" if p.sandbox else "none",
-           "lockfile": None, "dest": str(dest), "before": None, "after": None}
-    try:
-        p.prepare()
-    except Unproven as e:
-        out["reason"] = str(e)
-        return out
-    out["lockfile"] = p.lockfile
-    out.update(p.run(cmd, probe_dir, timeout))
-    return out
-
-
-def write_probe_files(files, d: Path) -> str:
-    """A probe's `files`, an object of relative file name to text, written under <d>. Returns why they could
-    not be, or an empty string."""
-    if files is None:
-        return ""
-    if not isinstance(files, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in files.items()):
-        return "files is not an object of file name to text"
-    for name, text in files.items():
-        rel = Path(name)
-        if not name or rel.is_absolute() or ".." in rel.parts:
-            return f"the file name {name!r} is not a relative path inside the probe dir"
-        (d / rel).parent.mkdir(parents=True, exist_ok=True)
-        (d / rel).write_text(text)
-    return ""
-
-
-def bound_probe(binding: Path, cmd: str, files_json: str | None) -> dict:
-    """Prove's `probe`: one command on the case-run's prepared checkouts, with its files in a new dir under
-    prove's scratch. The output names no case, no checkout and no path the harness chose."""
-    b = json.loads(binding.read_text())
-    root = Path(b["root"])
-    p = Prober(load_case(root / "cases" / b["case"]), Path(b["dest"]), Path(b["clones"]), root)
-    try:
-        files = json.loads(files_json) if files_json is not None else None
-    except ValueError as e:
-        return {"verdict": "UNPROVEN", "reason": f"--files does not parse: {e}", "before": None, "after": None}
-    d = Path(tempfile.mkdtemp(prefix="probe-", dir=b["scratch"]))
-    err = write_probe_files(files, d)
-    if err:
-        return {"verdict": "UNPROVEN", "reason": err, "before": None, "after": None}
-    with binding.open() as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        r = p.run(cmd, d, PROBE_TIMEOUT_S)
-    for side in PROBE_SIDES:
-        r[side] = {"rc": r[side]["rc"], "out": normalize(r[side]["out"], p.cos[side]), "err": normalize(r[side]["err"], p.cos[side])}
-    return r
-
-
 def bash_parses(chunk: str) -> bool:
     return subprocess.run(["bash", "-n"], input=chunk, text=True, capture_output=True).returncode == 0
 
@@ -1252,72 +975,6 @@ def case_report(records: list[dict], ids: list[str]) -> str:
     return "\n".join(out)
 
 
-def compare_totals(records: list[dict], arm: str, ids) -> dict:
-    """An arm's counts over <ids>, out of every case-run it attempted: an unscored one counts as not right."""
-    rs = [r for r in records if r["arm"] == arm and r["case"] in ids]
-    scores = [r["score"] for r in rs if r.get("score")]
-    return {"n": len(rs), **{k: sum(s[k] for s in scores) for k in ("right", "wrong", "noise", "harm")}}
-
-
-def pm1_report(records: list[dict], cases: dict[str, dict]) -> list[str]:
-    bugs = sorted(PROMOTED | set(HELD_OUT))
-    controls = sorted(c for c, case in cases.items() if case["truth"]["class"] == CONTROL)
-    arm, plain = compare_totals(records, BLIND_PROVE, bugs), compare_totals(records, "plain", bugs)
-    lead = arm["right"] - plain["right"]
-    held = {a: compare_totals(records, a, HELD_OUT)["right"] for a in (BLIND_PROVE, "lane")}
-    worse = [(c, compare_totals(records, BLIND_PROVE, [c])["harm"], compare_totals(records, "plain", [c])["harm"]) for c in controls]
-    worse = [w for w in worse if w[1] > w[2]]
-    verdicts = [lead >= PM1_LEAD, held[BLIND_PROVE] >= held["lane"], not worse]
-    pf = ["PASS" if v else "FAIL" for v in verdicts]
-    return [
-        f"PM-1 bug cases: {pf[0]} — {BLIND_PROVE} right {arm['right']} of {arm['n']}, plain right {plain['right']} of {plain['n']}, "
-        f"{lead:+d} over the {len(bugs)} bug cases outside {APART}; it needs at least +{PM1_LEAD}",
-        f"PM-1 note: {HAND_PROBED} stays in the bug cases, and a hand probe touched it before the run",
-        f"PM-1 held-out: {pf[1]} — {BLIND_PROVE} right {held[BLIND_PROVE]}, lane right {held['lane']} over {' '.join(HELD_OUT)}; "
-        "it needs no fewer than the lane",
-        f"PM-1 controls: {pf[2]} — " + ("; ".join(f"{c}: {BLIND_PROVE} blocked in {a} runs, plain in {p}" for c, a, p in worse)
-                                         or f"no control of {len(controls)} is blocked in more runs than plain blocked it"),
-        f"PM-1: {'PASS' if all(verdicts) else 'FAIL'}"]
-
-
-def compare_report(arm_records: list[dict], stored: list[dict], cases: dict[str, dict], ids: list[str], pm1: bool) -> str:
-    """The blind-prove arm's records beside plain's and the lane's stored ones: right, wrong, noise and harm per
-    case and run, the totals over <ids> (or every case either file holds) with APART on its own line, and with
-    <pm1> PM-1's verdict per criterion over its pre-registered sets."""
-    records = [r for r in arm_records if r["arm"] == BLIND_PROVE] + [r for r in stored if r["arm"] in ARMS]
-    order = (BLIND_PROVE, *ARMS)
-    want = list(dict.fromkeys(ids)) or sorted({r["case"] for r in records})
-    out = ["case    run  arm          right wrong noise harm"]
-    for cid in want:
-        for arm in order:
-            for r in sorted((r for r in records if r["case"] == cid and r["arm"] == arm), key=lambda r: r["run"]):
-                s = r.get("score")
-                out.append(f"{cid:<7} {r['run']:>3}  {arm:<11} " + (f"{s['right']:>5} {s['wrong']:>5} {s['noise']:>5} {s['harm']:>4}" if s
-                                                                     else f"unscored ({r.get('status')})"))
-    total = [c for c in want if c != APART]
-    t = {a: compare_totals(records, a, total) for a in order}
-    out.append(f"totals over {len(total)} cases" + (f", {APART} apart" if APART in want else "") + "; an unscored case-run counts as not right")
-    out += [f"{a}: right {t[a]['right']} of {t[a]['n']} case-runs, wrong {t[a]['wrong']}, noise {t[a]['noise']}, harm {t[a]['harm']}" for a in order]
-    out.append(f"right, {BLIND_PROVE} against plain: {t[BLIND_PROVE]['right'] - t['plain']['right']:+d}")
-    held = [c for c in total if c in HELD_OUT]
-    if held:
-        out.append(f"held-out {' '.join(held)}: {BLIND_PROVE} right {compare_totals(records, BLIND_PROVE, held)['right']}, "
-                   f"lane right {compare_totals(records, 'lane', held)['right']}")
-    for c in (c for c in total if cases.get(c, {}).get("truth", {}).get("class") == CONTROL):
-        out.append(f"control {c}: {BLIND_PROVE} blocked in {compare_totals(records, BLIND_PROVE, [c])['harm']} runs, "
-                   f"plain in {compare_totals(records, 'plain', [c])['harm']}")
-    if APART in want:
-        out.append(f"{APART}, apart: " + ", ".join(f"{a} right {x['right']} of {x['n']}" for a in order
-                                                   for x in (compare_totals(records, a, [APART]),)))
-    for a in order:
-        absent = [c for c in want if not any(r["arm"] == a and r["case"] == c for r in records)]
-        if absent:
-            out.append(f"{a}: no record for {', '.join(absent)}")
-    if pm1:
-        out += pm1_report(records, cases)
-    return "\n".join(out)
-
-
 # --- the sessions ----------------------------------------------------------------------------
 
 def session_args(arm: str, r: dict, sid: str, model: str) -> list[str]:
@@ -1483,366 +1140,6 @@ async def joined_review(case: dict, r: dict, root: Path, bindir: Path, model: st
             "resolved_model": bench.resolved_model(envelope, model) if bench else model}
 
 
-# --- the blind-prove arm ---------------------------------------------------------------------
-
-def parse_block(text: str, name: str, key: str) -> tuple[list[dict], dict]:
-    """The items of the last fenced block whose info string is <name>: a JSON array of objects, each with a
-    non-empty string <key>. A missing or unparsable block is zero items; the second item says which."""
-    blocks = re.findall(rf"^```{re.escape(name)}[ \t]*\n(.*?)^```[ \t]*$", text, re.M | re.S)
-    if not blocks:
-        return [], {"block": "missing", "items": 0, "invalid": 0}
-    try:
-        items = json.loads(blocks[-1])
-    except ValueError as e:
-        return [], {"block": "unparsable", "error": str(e), "items": 0, "invalid": 0}
-    if not isinstance(items, list):
-        return [], {"block": "unparsable", "error": "not a JSON array", "items": 0, "invalid": 0}
-    good = [i for i in items if isinstance(i, dict) and isinstance(i.get(key), str) and i[key].strip()]
-    return good, {"block": "ok", "items": len(good), "invalid": len(items) - len(good)}
-
-
-def probe_blocks(candidates: list[dict], results: list[dict], dropped: int, cos: dict[str, Path]) -> str:
-    """What intent reads of the probes: one block per candidate, with each of its commands' verdict, and each
-    side's exit code and the head of its normalized stdout and stderr."""
-    sites = {str(c["id"]): c.get("site") for c in candidates}
-    order = list(dict.fromkeys([*sites, *(r["candidate"] for r in results)]))
-    out = []
-    for cid in order:
-        out.append(f"### {cid} at {sites.get(cid) or 'no site in the candidate list'}")
-        runs = [r for r in results if r["candidate"] == cid]
-        if not runs:
-            out += ["No command ran for this candidate.", ""]
-            continue
-        for r in runs:
-            out += [f"command: {r['cmd']}", f"verdict: {r['verdict']}" + (f" ({r['reason']})" if r["reason"] else "")]
-            for side in PROBE_SIDES:
-                s = r.get(side)
-                if not s:
-                    out.append(f"{side}: did not run")
-                    continue
-                out.append(f"{side}: exit code {s['rc'] if s['rc'] is not None else 'none, it timed out'}")
-                for k, label in (("out", "stdout"), ("err", "stderr")):
-                    text = normalize(s[k] or "", cos[side])
-                    out += [f"{side} {label}, normalized: the first {min(len(text), PROBE_SHOWN):,} of {len(text):,} characters, "
-                            f"capped at {PROBE_SHOWN:,}", "~~~~", text[:PROBE_SHOWN], "~~~~"]
-            out.append("")
-    if dropped:
-        out.append(f"{dropped} more command(s) did not run: at most {MAX_PROBES} run per review.")
-    return "\n".join(out).strip() + "\n" if out else "No command ran.\n"
-
-
-def envelope_problem(envelope: dict) -> str:
-    """Why a finished session failed, by tools/classify-capture.sh's rule: is_error, or a subtype other than
-    success. A max-turns stop says subtype error_max_turns with is_error false."""
-    if not envelope or envelope.get("parse_error"):
-        return "no-result"
-    if envelope.get("is_error") or envelope.get("subtype") != "success":
-        return str(envelope.get("subtype") or "error")
-    return ""
-
-
-def stage_violations(bench, sid: str, blind: list[Path], scratch: Path) -> list[str]:
-    """The bench's transcript scan once per path the stage may not open, merged."""
-    if not bench:
-        return []
-    hits: list[str] = []
-    for p in dict.fromkeys(str(q) for b in blind for q in (b, b.resolve())):
-        hits += [h for h in bench.blindness_violations(sid, Path(p), scratch, bench.BLIND_RE) if h not in hits]
-    return hits
-
-
-async def run_stage(stage: str, case: dict, s: dict, model: str, timeout_s: int, env: dict, bench, blind: list[Path]) -> dict:
-    """One stage session: <s> names its checkout, scratch, prompt file, allowlist and state dir."""
-    sid = str(uuid.uuid4())
-    state = Path(s["state"])
-    out_path, err_path = state / f"{stage}.stdout", state / f"{stage}.stderr"
-    rec = {"session": sid, "model": model, "session_stdout": str(out_path), "session_stderr": str(err_path)}
-    argv = session_args(stage, {**s, "case": case["id"]}, sid, model)
-    if s.get("bash_ms"):
-        argv += ["--settings", json.dumps({"env": {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
-                                                   "BASH_DEFAULT_TIMEOUT_MS": s["bash_ms"], "BASH_MAX_TIMEOUT_MS": s["bash_ms"]}})]
-    started = dt.datetime.now(dt.timezone.utc)
-    finished = await spawn_session(argv, Path(s["prompt"]), s["checkout"], env, out_path, err_path, timeout_s)
-    rec["wall_s"] = round((dt.datetime.now(dt.timezone.utc) - started).total_seconds())
-    if not finished:
-        return {**rec, "status": "timeout", "cost_usd": None}
-    text, envelope = session_result(out_path.read_bytes(), bench, f"{stage}/{case['id']}")
-    dirt = checkout_dirt(Path(s["checkout"]))
-    viol = stage_violations(bench, sid, blind, Path(s["scratch"]))
-    status = "modified-checkout" if dirt else "voided-blindness" if viol else envelope_problem(envelope) or "ok"
-    return {**rec, "status": status, "text": text, "cost_usd": envelope.get("total_cost_usd"), "num_turns": envelope.get("num_turns"),
-            "violations": viol, "dirt": dirt[:20], "resolved_model": bench.resolved_model(envelope, model) if bench else model}
-
-
-def squash(text: str) -> str:
-    return " ".join(text.split())
-
-
-def grounding_quote(text: str, sources: list[str]) -> str | None:
-    """The first double-quoted span, straight or curly, of at least GROUND_MIN characters after whitespace
-    normalization that appears verbatim in one of <sources>, which are already normalized."""
-    for m in QUOTE_RE.finditer(text):
-        q = squash(m[1])
-        if len(q) >= GROUND_MIN and any(q in s for s in sources):
-            return q
-    return None
-
-
-def site_of(site) -> tuple[str, int] | None:
-    m = LOC_RE.search(str(site or ""))
-    return (m[1].removeprefix("./"), int(m[2])) if m else None
-
-
-def overlay_test_globs(case: dict, root: Path) -> list[str]:
-    cfg = json.loads((root / "overlays" / case["overlay"] / "config.json").read_text())
-    return [g for r in overlay_runners(cfg) if isinstance(r, dict) for g in r.get("when") or [] if isinstance(g, str)]
-
-
-def is_test_file(path: str, globs: list[str]) -> bool:
-    return not path.endswith(".snap") and (TEST_PATH_RE.search(path) is not None or any(fnmatch.fnmatchcase(path, g) for g in globs))
-
-
-def removed_expectations(patch: str, globs: list[str]) -> list[dict]:
-    """Each `-` line of a test file that holds an expectation and that no `+` line of the patch re-adds, at
-    its base-side line."""
-    files = parse_patch(patch)
-    added = {t.strip() for rows in files.values() for k, _, t in rows if k == "+"}
-    return [{"path": f, "line": n, "text": t.strip()} for f, rows in files.items() if is_test_file(f, globs)
-            for k, n, t in rows if k == "-" and any(tok in t for tok in EXPECT_TOKENS) and t.strip() not in added]
-
-
-def excerpt(side: dict | None, co: Path | None) -> str:
-    if not side:
-        return "did not run"
-    rc = "timed out" if side.get("rc") is None else f"exit code {side['rc']}"
-    for k, label in (("out", "stdout"), ("err", "stderr")):
-        text = squash(normalize(side.get(k) or "", co) if co else side.get(k) or "")
-        if text:
-            return f'{rc}, {label} "{text[:EXCERPT]}"' + ("…" if len(text) > EXCERPT else "")
-    return f"{rc}, no output"
-
-
-def proof_items(candidates: list[dict], probes: list[dict], cos: dict[str, Path] | None) -> tuple[list[dict], list[str]]:
-    """One item per candidate with a DIFFERS among its probes, at its site, with hunt's text and the first
-    DIFFERS probe's evidence; and the ids of the proven candidates with no `path:line` site."""
-    items, unsited = [], []
-    named = {str(c["id"]) for c in candidates}
-    for c in candidates:
-        cid = str(c["id"])
-        p = next((p for p in probes if p["candidate"] == cid and p["verdict"] == "DIFFERS"), None)
-        if p is None:
-            continue
-        at = site_of(c.get("site"))
-        if not at:
-            unsited.append(cid)
-            continue
-        said = c.get("input") if isinstance(c.get("input"), str) and c["input"].strip() else json.dumps(c)
-        sides = "; ".join(f"{s}: {excerpt(p.get(s), (cos or {}).get(s))}" for s in PROBE_SIDES)
-        items.append({"path": at[0], "line": at[1], "source": cid, "body": f"{squash(said)} Proven: `{p['cmd']}` — {sides}."})
-    unsited += [cid for cid in dict.fromkeys(p["candidate"] for p in probes if p["verdict"] == "DIFFERS") if cid not in named]
-    return items, unsited
-
-
-def covers(f: dict, path: str, line: int) -> bool:
-    return bool(f.get("path")) and (path_matches(f["path"], path) or path_matches(path, f["path"])) \
-        and f.get("line") is not None and f["line"] - SITE_WINDOW <= line <= f["end"] + SITE_WINDOW
-
-
-def amend_verdict(text: str, items: list[dict], sources: list[str]) -> tuple[str, dict]:
-    """Intent's verdict with each item made a [blocker] unless a finding within SITE_WINDOW lines of its site
-    is a [blocker] or carries a grounding quote. An unquoted [note] there becomes the [blocker]; otherwise a
-    new Hn [blocker] is added. An approve that gains one becomes needs-work. A verdict with no verdict line or
-    no Findings section is left as written: the plain contract already makes it unscorable."""
-    v = parse_verdict(text)
-    log = {"verdict": v["verdict"], "added": [], "upgraded": [], "covered": []}
-    if not items or not v["verdict"] or not v["has_findings"]:
-        return text, {**log, "skipped": "" if not items else "no verdict line" if not v["verdict"] else "no Findings section"}
-    lines = text.replace("\r", "").split("\n")
-    at, last, nones, sec = [], 0, [], None
-    for i, line in enumerate(lines[1:], 1):
-        h = re.match(r"^## (.+?)\s*$", line)
-        if h:
-            sec = h[1].lower()
-            last = i if sec == "findings" else last
-            continue
-        if sec != "findings":
-            continue
-        if FINDING_RE.match(line):
-            at.append(i)
-        if line.strip() == "None.":
-            nones.append(i)
-        last = i if line.strip() else last
-    findings = [{**f, "at": i} for f, i in zip(v["findings"], at)]
-    n = max([int(f["id"][1:]) for f in findings if f["id"].startswith("H")] or [0])
-    new = []
-    for it in items:
-        here = [f for f in findings + new if covers(f, it["path"], it["line"])]
-        by = next((f for f in here if f["severity"] == "blocker" or grounding_quote(f["text"], sources)), None)
-        if by:
-            log["covered"].append({"source": it["source"], "by": by["id"]})
-            continue
-        note = here[0] if here else None
-        if note:
-            lines[note["at"]] = lines[note["at"]].replace("- [note]", "- [blocker]", 1)
-            note["severity"] = "blocker"
-            log["upgraded"].append({"source": it["source"], "id": note["id"]})
-            continue
-        n += 1
-        f = {"severity": "blocker", "id": f"H{n}", "path": it["path"], "line": it["line"], "end": it["line"],
-             "text": f"{it['path']}:{it['line']} — {it['body']}"}
-        new.append(f)
-        log["added"].append({"source": it["source"], "id": f["id"], "site": f"{it['path']}:{it['line']}"})
-    if new:
-        lines[last + 1:last + 1] = [f"- [blocker] {f['id']} {f['text']}" for f in new]
-        for i in sorted(nones, reverse=True):
-            del lines[i]
-    if v["verdict"] == "approve" and (new or log["upgraded"]):
-        lines[0] = "verdict: needs-work"
-        log["verdict"] = "needs-work"
-    return "\n".join(lines), log
-
-
-def verdict_rule(text: str, case: dict, root: Path, candidates: list[dict], probes: list[dict],
-                 cos: dict[str, Path] | None) -> tuple[str, dict]:
-    """The rule on intent's verdict: every proven candidate and every test expectation the case's diff
-    removes is a [blocker] at its site unless intent grounds it."""
-    items, unsited = proof_items(candidates, probes, cos)
-    for r in removed_expectations((case["dir"] / "patch.diff").read_text(), overlay_test_globs(case, root)):
-        items.append({"path": r["path"], "line": r["line"], "source": f"removed {r['path']}:{r['line']}",
-                      "body": f"The change removes the test expectation `{r['text']}`, and no line of the ticket or the record asks for its removal."})
-    sources = [squash((case["dir"] / name).read_text()) for name in ("ticket.md", "record.md")]
-    amended, log = amend_verdict(text, items, sources)
-    return amended, {**log, "unsited": unsited}
-
-
-def probe_wrapper(state: Path, binding: Path) -> Path:
-    """Prove's `probe` on its PATH, bound to its case-run. The case id lives in the binding under the state
-    dir, which prove may not open."""
-    bindir = state / "bin"
-    bindir.mkdir(parents=True, exist_ok=True)
-    w = bindir / "probe"
-    w.write_text("#!/usr/bin/env bash\n"
-                 f"exec python3 {shlex.quote(str(HERE / 'planted.py'))} bound-probe {shlex.quote(str(binding))} \"$@\"\n")
-    w.chmod(0o755)
-    return bindir
-
-
-async def blind_prove_one(case: dict, run_no: int, work: Path, clones: Path, root: Path, models: dict[str, str],
-                          timeout_s: int, max_cost: float, sem, bench=None, probe_fn=None) -> dict:
-    """Hunt reads the neutral `after` checkout and names candidate breaks; prove turns them into commands; the
-    harness runs each command in `before` and `after`; intent reads plain's checkout, the ticket, the record and
-    all of that, and writes a verdict in plain's form. A stage that fails, or a summed cost over <max_cost>,
-    stops the case-run at that stage. <probe_fn> stands in for Prober.run."""
-    async with sem:
-        rec = {"arm": BLIND_PROVE, "case": case["id"], "run": run_no, "models": dict(models), "max_cost_usd": max_cost,
-               "stages": {}, "candidates": [], "probes": [], "dropped": []}
-        stages = rec["stages"]
-        state = work / "state"
-        state.mkdir(parents=True, exist_ok=True)
-
-        def spent() -> float:
-            return round(sum(s.get("cost_usd") or 0 for s in stages.values()), 4)
-
-        def finish(status: str) -> dict:
-            rec.update(status=status, cost_usd=spent(),
-                       wall_s=sum(s.get("wall_s") or 0 for s in stages.values()) + sum(p["wall_s"] for p in rec["probes"]),
-                       resolved_models={k: s.get("resolved_model") for k, s in stages.items() if s.get("resolved_model")})
-            return rec
-
-        def stopped(stage: str) -> str | None:
-            st = stages[stage]["status"]
-            if st != "ok":
-                return f"{stage}: {st}"
-            if spent() > max_cost:
-                return f"{stage}: over the cost cap (${spent():.2f} of ${max_cost:.2f})"
-            return None
-
-        prober = Prober(case, work / "probe", clones, root)
-        try:
-            await asyncio.to_thread(prober.prepare)
-        except Unproven as e:
-            rec["problems"] = [str(e)]
-            return finish("build-failed")
-        run_probe = probe_fn or prober.run
-        after = prober.cos["after"]
-        shas = {"base": git(["rev-parse", "HEAD~1"], cwd=after), "head": git(["rev-parse", "HEAD"], cwd=after)}
-        blind = [root, work / "checkout", state]
-
-        scratch = work / "hunt-scratch"
-        scratch.mkdir()
-        tmpl = parse_arm(root / "arms" / "hunt.md")
-        (state / "hunt.prompt").write_text(tmpl["prompt"].format(checkout=after, scratch=scratch, **shas))
-        stages["hunt"] = await run_stage("hunt", case, {"checkout": str(after), "scratch": str(scratch), "state": str(state),
-                                                        "prompt": str(state / "hunt.prompt"), "allow": tmpl["allow"]},
-                                         models["hunt"], timeout_s, {**os.environ}, bench, blind)
-        why = stopped("hunt")
-        if why:
-            return finish(why)
-        hunt = stages["hunt"]["text"]
-        rec["candidates"], stages["hunt"]["handover"] = parse_block(hunt, "candidates", "id")
-
-        scratch = work / "prove-scratch"
-        scratch.mkdir()
-        binding = state / "probe-binding.json"
-        binding.write_text(json.dumps({"root": str(root), "case": case["id"], "dest": str(prober.dest),
-                                       "clones": str(clones), "scratch": str(scratch)}))
-        bindir = probe_wrapper(state, binding)
-        tmpl = parse_arm(root / "arms" / "prove.md")
-        (state / "prove.prompt").write_text(tmpl["prompt"].format(checkout=after, scratch=scratch, hunt=hunt, timeout=PROBE_TIMEOUT_S,
-                                                                  max_probes=MAX_PROBES, **shas))
-        stages["prove"] = await run_stage("prove", case, {"checkout": str(after), "scratch": str(scratch), "state": str(state),
-                                                          "prompt": str(state / "prove.prompt"), "allow": tmpl["allow"],
-                                                          "bash_ms": str((2 * PROBE_TIMEOUT_S + 60) * 1000)},
-                                          models["prove"], timeout_s,
-                                          {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}"}, bench, blind)
-        why = stopped("prove")
-        if why:
-            return finish(why)
-        prove = stages["prove"]["text"]
-        probes, stages["prove"]["handover"] = parse_block(prove, "probes", "cmd")
-        rec["dropped"] = probes[MAX_PROBES:]
-
-        for n, p in enumerate(probes[:MAX_PROBES], 1):
-            d = state / "probes" / str(n)
-            d.mkdir(parents=True)
-            started = dt.datetime.now(dt.timezone.utc)
-            err = write_probe_files(p.get("files"), d)
-            res = {"verdict": "UNPROVEN", "reason": err, "before": None, "after": None} if err else \
-                await asyncio.to_thread(run_probe, p["cmd"], d, PROBE_TIMEOUT_S)
-            rec["probes"].append({"candidate": str(p.get("candidate", "")), "cmd": p["cmd"], "files": p.get("files"), **res,
-                                  "wall_s": round((dt.datetime.now(dt.timezone.utc) - started).total_seconds())})
-
-        try:
-            b = build(case, "plain", work / "checkout", clones, root)
-        except BuildError as e:
-            rec["problems"] = [str(e)]
-            return finish("intent: build-failed")
-        scratch = work / "intent-scratch"
-        scratch.mkdir()
-        out = scratch / "verdict.md"
-        title, body = read_ticket(case)
-        tmpl = parse_arm(root / "arms" / "intent.md")
-        (state / "intent.prompt").write_text(tmpl["prompt"].format(
-            title=title, body=body.rstrip("\n"), checkout=b["checkout"], base=b["base"], head=b["head"], scratch=scratch, out=out,
-            record=(case["dir"] / "record.md").read_text(), hunt=hunt, prove=prove,
-            probes=probe_blocks(rec["candidates"], rec["probes"], len(rec["dropped"]), prober.cos)))
-        stages["intent"] = await run_stage("intent", case, {"checkout": b["checkout"], "scratch": str(scratch), "state": str(state),
-                                                            "prompt": str(state / "intent.prompt"), "allow": tmpl["allow"]},
-                                           models["intent"], timeout_s, {**os.environ}, bench, [case["dir"] / "case.json"])
-        stages["intent"].pop("text", None)
-        rec["checkout"] = b["checkout"]
-        why = stopped("intent")
-        if stages["intent"]["status"] != "timeout":
-            text = out.read_text() if out.exists() else None
-            if text is not None and not why:
-                rec["intent_verdict"] = text
-                text, rec["rule"] = verdict_rule(text, case, root, rec["candidates"], rec["probes"], prober.cos)
-            rec.update(collect("plain", text, None, None))
-        if why:
-            return finish(why)
-        return finish(rec["status"] if rec["status"] == "ok" else f"intent: {rec['status']}")
-
-
 # --- the operator's recipe -------------------------------------------------------------------
 
 def select_cases(cases: list[dict], ids: list[str], pilot: bool, pilot_ids: frozenset = PILOT) -> list[dict]:
@@ -1857,42 +1154,23 @@ def select_cases(cases: list[dict], ids: list[str], pilot: bool, pilot_ids: froz
 
 
 def run_arms(arms: list[str], pilot: bool) -> list[str]:
-    if BLIND_PROVE in arms and len(set(arms)) > 1:
-        raise ValueError("--arm blind-prove runs alone; drop --arm plain and --arm lane")
     if not pilot:
         return arms
-    for arm in ("lane", JOINED, BLIND_PROVE):
+    for arm in ("lane", JOINED):
         if arm in arms:
             raise ValueError(f"--pilot reviews with the plain arm only; drop --arm {arm}")
     return ["plain"]
 
 
-def stage_models(args) -> dict[str, str]:
-    return {s: (getattr(args, f"{s}_model", None) or "").strip() for s in STAGES}
+def model_problems(args) -> list[str]:
+    """Why the run's models cannot run its arms: an empty one."""
+    return [f"{name} is empty" for m, name in ((args.judge_model, "JUDGE_MODEL"), (args.reviewer_model, "REVIEWER_MODEL"))
+            if not (m or "").strip()]
 
 
-def model_problems(args, bench) -> list[str]:
-    """Why the run's models cannot run its arms: an empty one, or prove in hunt's family."""
-    p = [f"{name} is empty" for m, name in ((args.judge_model, "JUDGE_MODEL"),) if not (m or "").strip()]
-    if BLIND_PROVE not in args.arm:
-        return p + (["REVIEWER_MODEL is empty"] if not (args.reviewer_model or "").strip() else [])
-    models = stage_models(args)
-    p += [f"{s.upper()}_MODEL is empty" for s, m in models.items() if not m]
-    if models["hunt"] and models["prove"] and bench.family(models["hunt"]) == bench.family(models["prove"]):
-        p.append(f"prove model {models['prove']} is in hunt's family {bench.family(models['hunt'])}; prove runs on the other family")
-    return p
-
-
-def reviewer_models(r: dict) -> list[str]:
-    return [m for m in (r.get("resolved_model"), *(r.get("resolved_models") or {}).values()) if m]
-
-
-def model_segment(arm: str, records: list[dict], args, models: dict[str, str]) -> str:
+def model_segment(arm: str, records: list[dict], args) -> str:
     mine = [r for r in records if r["arm"] == arm]
-    if arm != BLIND_PROVE:
-        return f"model={'+'.join(sorted({r['resolved_model'] for r in mine if r.get('resolved_model')})) or args.reviewer_model}"
-    per = {s: "+".join(sorted({(r.get("resolved_models") or {}).get(s) for r in mine} - {None})) or models[s] for s in STAGES}
-    return "model=" + ", ".join(f"{s} {m}" for s, m in per.items())
+    return f"model={'+'.join(sorted({r['resolved_model'] for r in mine if r.get('resolved_model')})) or args.reviewer_model}"
 
 
 def writes_row(no_record: bool, pilot: bool) -> bool:
@@ -1939,21 +1217,14 @@ async def run_recipe(args, bench) -> None:
     by_id = {c["id"]: c for c in cases}
     bindir = install_gh(work_root / "bin")
     sem = asyncio.Semaphore(args.concurrency)
-    models = stage_models(args)
     for arm in ([] if args.rescore else args.arm):
         print(f"\n=== arm {arm}: {len(cases)} cases x {args.runs} runs ===", flush=True)
-        if arm == BLIND_PROVE:
-            records += await asyncio.gather(*(
-                blind_prove_one(c, n, work_root / arm / f"{c['id']}-{n}", clones, root, models, args.reviewer_timeout_s,
-                                args.max_cost, sem, bench)
-                for c in cases for n in range(1, args.runs + 1)))
-        else:
-            records += await asyncio.gather(*(
-                review_one(c, arm, n, work_root / arm / f"{c['id']}-{n}", clones, root, bindir, args.reviewer_model,
-                           args.reviewer_timeout_s, sem, bench)
-                for c in cases for n in range(1, args.runs + 1)))
+        records += await asyncio.gather(*(
+            review_one(c, arm, n, work_root / arm / f"{c['id']}-{n}", clones, root, bindir, args.reviewer_model,
+                       args.reviewer_timeout_s, sem, bench)
+            for c in cases for n in range(1, args.runs + 1)))
         write_results(cache, stamp, {"records": records, "calibration": cal, "sha": sha})
-    rev_fams = {bench.family(m) for r in records for m in reviewer_models(r)}
+    rev_fams = {bench.family(r["resolved_model"]) for r in records if r.get("resolved_model")}
     if rev_fams & judge_fams and not args.allow_same_family:
         sys.exit(f"[planted] judge family {judge_fams} equals reviewer family {rev_fams}; set JUDGE_MODEL to the other family")
 
@@ -1976,7 +1247,7 @@ async def run_recipe(args, bench) -> None:
     out = write_results(cache, stamp, {"records": records, "calibration": cal, "arms": arms, "gate": g, "sha": sha})
     for arm, runs in sorted(arms.items()):
         cl = [run["classes"] for run in runs.values()]
-        segs = [f"mode=planted", f"agent={arm}", f"sha={sha}", model_segment(arm, records, args, models),
+        segs = [f"mode=planted", f"agent={arm}", f"sha={sha}", model_segment(arm, records, args),
                 f"judge={'+'.join(cal['judge_resolved']) or args.judge_model}", f"cases={len(cases)}", f"runs={len(runs)}",
                 "net=" + ",".join(str(r["net"]) for r in runs.values()),
                 "gate_net=" + ",".join(str(r["gate_net"]) for r in runs.values()),
@@ -1987,8 +1258,6 @@ async def run_recipe(args, bench) -> None:
                                    f"right {tot['right']} wrong {tot['wrong']} noise {tot['noise']} of {tot['n']}") + f", unscorable {tot['unscorable']}")
         segs += [f"calib={cal['agreement']:.0%}", f"wall={max(r['wall_s'] for r in runs.values())}s",
                  f"cost=${sum(r['cost_usd'] for r in runs.values()):.2f}"]
-        if arm == BLIND_PROVE:
-            segs.append(f"cap=${args.max_cost:.2f}")
         segs.append(f"note=\"{args.note}\"")
         line = bench.kit.changelog_row(started, segs)
         if writes_row(args.no_record, args.pilot):
@@ -2087,32 +1356,6 @@ def cmd_cases(args) -> int:
     return 0
 
 
-def cmd_compare(args) -> int:
-    cases = {c["id"]: c for c in load_cases(Path(args.root))}
-    arm, stored = (json.loads(Path(p).read_text()).get("records") or [] for p in (args.arm_results, args.stored_results))
-    print(compare_report(arm, stored, cases, args.case, args.pm1))
-    return 0
-
-
-def cmd_probe(args) -> int:
-    root = Path(args.root)
-    case = find_case(root, args.case)
-    if args.timeout <= 0:
-        sys.exit("[planted] --timeout must be a positive number of seconds")
-    probe_dir = Path(args.dir).resolve() if args.dir else None
-    if probe_dir is not None and not probe_dir.is_dir():
-        sys.exit(f"[planted] --dir {args.dir} is not a directory")
-    if args.dest:
-        dest = Path(args.dest).resolve()
-        if dest.exists():
-            sys.exit(f"[planted] --dest {args.dest} already exists")
-    else:
-        dest = Path(tempfile.mkdtemp(prefix=f"planted-probe-{case['id']}-"))
-    out = probe(case, args.command, dest, Path(args.clones), root, probe_dir, args.timeout)
-    print(json.dumps(out, indent=1))
-    return 0
-
-
 def stop_problem(case: dict, b: dict) -> str:
     """Why the lane's stop is not the case's expected one: a stop on fails-without-the-change whose every red
     is a tagged test of a truth file passing on the record commit's tree. Empty when it is."""
@@ -2202,22 +1445,8 @@ def main() -> int:
     s.add_argument("--dest", required=True)
     s.add_argument("--case", action="append", default=[])
     s.add_argument("--clones", default=os.path.expanduser(os.path.join(cache_default, "bases")))
-    s = sub.add_parser("probe")
-    s.add_argument("case")
-    s.add_argument("--cmd", dest="command", required=True, help="a bash string, run with bash -c in each side's checkout")
-    s.add_argument("--dir", help="the probe's files, outside both checkouts; the command reads it as $PROBE_DIR")
-    s.add_argument("--timeout", type=int, default=PROBE_TIMEOUT_S, help="seconds per side")
-    s.add_argument("--dest", help="where the checkouts go; it must not exist; default a new temporary directory")
-    s.add_argument("--clones", default=os.path.expanduser(os.path.join(cache_default, "bases")))
-    s = sub.add_parser("bound-probe", help="prove's `probe`, bound to one case-run by a binding file; prints no case id")
-    s.add_argument("binding")
-    s.add_argument("--cmd", dest="command", required=True, help="a bash string, run with bash -c in each side's checkout")
-    s.add_argument("--files", help="a JSON object of file name to text, written into the dir the command reads as $PROBE_DIR")
     s = sub.add_parser("run")
-    s.add_argument("--arm", action="append", choices=(*ARMS, JOINED, BLIND_PROVE), default=[])
-    for stage in STAGES:
-        s.add_argument(f"--{stage}-model", default=os.environ.get(f"{stage.upper()}_MODEL"), help=f"the {BLIND_PROVE} arm's {stage} stage")
-    s.add_argument("--max-cost", type=float, default=MAX_COST_USD, help=f"USD per {BLIND_PROVE} case-run, summed over its stages")
+    s.add_argument("--arm", action="append", choices=(*ARMS, JOINED), default=[])
     s.add_argument("--case", action="append", default=[], help="restrict to these case ids; repeatable")
     s.add_argument("--runs", type=int, default=3)
     s.add_argument("--concurrency", type=int, default=3)
@@ -2237,18 +1466,11 @@ def main() -> int:
     s = sub.add_parser("cases")
     s.add_argument("results", help="a planted-results-*.json")
     s.add_argument("--case", action="append", default=[], help="a case id the right rate covers; repeatable; default every case")
-    s = sub.add_parser("compare")
-    s.add_argument("arm_results", help=f"a planted-results-*.json with the {BLIND_PROVE} arm's records")
-    s.add_argument("stored_results", help="a planted-results-*.json with plain's and the lane's records")
-    s.add_argument("--case", action="append", default=[], help="a case id the totals cover; repeatable; default every case")
-    s.add_argument("--pm1", action="store_true", help="add PM-1's PASS or FAIL per criterion, over its pre-registered cases")
     args = ap.parse_args()
     if args.cmd == "check":
         return cmd_check(args)
     if args.cmd == "cases":
         return cmd_cases(args)
-    if args.cmd == "compare":
-        return cmd_compare(args)
     if args.cmd == "render":
         return cmd_render(args)
     if args.cmd == "review":
@@ -2259,11 +1481,6 @@ def main() -> int:
         return cmd_score(args)
     if args.cmd == "verify":
         return cmd_verify(args)
-    if args.cmd == "probe":
-        return cmd_probe(args)
-    if args.cmd == "bound-probe":
-        print(json.dumps(bound_probe(Path(args.binding), args.command, args.files), indent=1))
-        return 0
     try:
         args.arm = run_arms(args.arm, args.pilot)
         if args.pilot:
@@ -2272,10 +1489,8 @@ def main() -> int:
         sys.exit(f"[planted] {e}")
     if not args.arm:
         sys.exit("[planted] name at least one --arm")
-    if args.max_cost <= 0:
-        sys.exit("[planted] --max-cost must be a positive number of USD")
     bench = load_bench()
-    problems = model_problems(args, bench)
+    problems = model_problems(args)
     if problems:
         sys.exit("[planted] " + "; ".join(problems))
     try:

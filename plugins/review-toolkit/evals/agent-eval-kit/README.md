@@ -4,9 +4,6 @@ Generic harness for evaluating any Claude Code agent (under `.claude/agents/`) a
 a locked fixture set with LLM-as-judge scoring. Uses the `claude` CLI and the user's
 Claude subscription — no Anthropic API key.
 
-Built during the `plan-reviewer` autoresearch campaign (see
-`../plan-reviewer-eval/FINAL-REPORT.md`) and extracted for reuse.
-
 ## What it does
 
 - Spawns N concurrent `claude -p --agent <name>` subprocesses against each fixture
@@ -73,7 +70,7 @@ Built during the `plan-reviewer` autoresearch campaign (see
    python3 "$REPO/.claude/pipeline-state/agent-eval-kit/run-eval.py" \
      --agent-name my-agent \
      --rubric "$HERE/rubric.py" \
-     --fixtures-dir "$REPO/docs/my-eval-fixtures" \
+     --fixtures-dir "$HERE/fixtures" \
      --eval-dir "$HERE" \
      --reviewer-model "$REVIEWER_MODEL" \
      --judge-model "$JUDGE_MODEL" \
@@ -200,7 +197,7 @@ The `changelog.md` row records `model=<reviewer_model>`, so two rows diff cleanl
 relying on the `--note` text:
 
 ```bash
-cd plugins/review-toolkit/evals/plan-reviewer-eval    # or review-lead-eval
+cd plugins/design-toolkit/evals/figma-faithful-reviewer-eval
 REVIEWER_MODEL=<pin-A> JUDGE_MODEL=<pin-J> ./run.sh "a-run"
 REVIEWER_MODEL=<pin-B> JUDGE_MODEL=<pin-J> ./run.sh "b-run"
 ```
