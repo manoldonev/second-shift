@@ -8,8 +8,8 @@ alphabet copy this tree and rewrite the table.
 
 ## Tier alphabet
 
-| Tier      | Dispatch token | Model             | Rationale               |
-| --------- | -------------- | ----------------- | ----------------------- |
-| reasoning | opus           | claude-opus-4-8   | Architectural reasoning |
-| code      | sonnet         | claude-sonnet-4-6 | Fast, capable code gen  |
-| emit      | haiku          | claude-haiku-4-5  | Transcription-only sink |
+| Tier      | Dispatch token | Rationale               |
+| --------- | -------------- | ----------------------- |
+| reasoning | opus           | Architectural reasoning |
+| code      | sonnet         | Fast, capable code gen  |
+| emit      | haiku          | Transcription-only sink |

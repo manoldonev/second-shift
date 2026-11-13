@@ -51,8 +51,8 @@ run_guard() { bash "$GUARD" "$1" 2>&1; }
 
 echo "== the real tree =="
 
-# THIS is how the guard reaches CI. It has no ci.yml registration — like
-# stack-generality-lint.sh, it runs because CI globs `*-selftest.sh`, so if no case pointed it
+# THIS is how the guard reaches CI. It has no ci.yml registration: it runs because CI globs
+# `*-selftest.sh`, so if no case pointed it
 # at the actual repo it would only ever grade fixtures and the production tree would go
 # unchecked while every case stayed green.
 out="$(bash "$GUARD" 2>&1)"; rc=$?

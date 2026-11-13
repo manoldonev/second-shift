@@ -2,8 +2,7 @@
 # check-lockstep-pairs-selftest.sh — verifies check-lockstep-pairs.sh actually catches drift,
 # and that its DISCOVERY enrols the right sites and only those.
 #
-# The mutation idiom (per scripts/check-intake-tracker-namespaces-selftest.sh): green on the
-# real tree, RED after a mutation. A guard that has never been observed failing is
+# The mutation idiom: green on the real tree, RED after a mutation. A guard that has never been observed failing is
 # indistinguishable from one that cannot fail — which is precisely the prose-presence class
 # this script's subject replaces.
 #

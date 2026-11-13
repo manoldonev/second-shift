@@ -48,11 +48,8 @@
 # losing the coverage that is their deliverable.
 #
 # THE GAP. That division assumes every default-cap agent's dispatch site
-# actually appends a nudge. plan-reviewer's does not — its dispatch declares the nudge
-# dormant on purpose:
-#
-#   // bounded-exploration-dormant: BOUNDED_PLAN_GROUNDING -- defined for probe lockstep;
-#   // deliberately not appended (measured no-nudge arm)
+# actually appends a nudge. plan-reviewer's appends none, on purpose: it is the measured
+# no-nudge arm.
 #
 # So plan-reviewer was held by NEITHER mechanism: unbounded at dispatch (deliberately, as the
 # measurement control) and unlinted here (because it sits exactly at the cap). It died at

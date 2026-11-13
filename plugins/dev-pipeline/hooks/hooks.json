@@ -1,5 +1,5 @@
 {
-  "description": "dev-pipeline commit gate — config-aware type-check before any git commit (fires only when the consumer repo has onboarded a typecheck command; fails open otherwise).",
+  "description": "dev-pipeline commit gate — config-aware type-check before any git commit (fires only when the consumer repo has onboarded a typecheck command; fails open otherwise). Two matchers: `git commit *`, and `git -c * commit *` for a bot-identity commit typed inline, as design-faithful does. Lane commits go through bot-commit.sh by its path and match neither.",
   "hooks": {
     "PreToolUse": [
       {

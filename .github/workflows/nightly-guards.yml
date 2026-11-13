@@ -1,14 +1,10 @@
 # Nightly standing guards — model-free, like every other lane here.
 #
-# ONE GUARD, one cron: wholesale-selftests is a STANDING MEASUREMENT whose answer barely moves
-# from one PR to the next, and costs more than that answer is worth on the critical path.
-#
-#   wholesale-selftests  the whole sweep with the pass cache BYPASSED (#448). The PR lane skips a
-#                        suite whose declared inputs in tools/selftest-cache-inputs.tsv are
-#                        unchanged; this leg is the backstop that catches an UNDER-declaration,
-#                        within a day, against a tree nobody is waiting on. Its unique
-#                        contribution over install-topology (see below) is the suites that ship
-#                        with no plugin — those under tools/, scripts/ and tests/.
+#   wholesale-selftests  the whole sweep on a schedule. It is the one sweep that runs when no
+#                        push or PR does, so it catches a red caused by a moved runner image
+#                        rather than by a change to the tree. Its unique contribution over
+#                        install-topology (see below) is the suites that ship with no plugin —
+#                        those under tools/, scripts/ and tests/.
 #
 # install-topology used to run here too, on this same cron. #666 moved it to
 # .github/workflows/install-topology.yml on event triggers (push on packaging paths, the
@@ -17,11 +13,8 @@
 # rotting on a cron dashboard nobody here reads. See that file for the class it guards and
 # why both a ubuntu and a bash-3.2 lane run it.
 #
-# This file was `install-topology.yml` until wholesale-selftests landed; every job here runs
-# concurrently and blocks nothing. wholesale-selftests has ONE lane, deliberately: ci.yml's selftests-bash32 already runs the whole sweep under stock bash
-# 3.2 at PR time, and the pass cache this backstop exists to bypass covers exactly the suites in
-# tools/selftest-cache-inputs.tsv — a 3.2 twin here re-ran the same code path to re-ask a
-# question the ubuntu lane already answers. The macos twin was deleted 2026-08-30.
+# wholesale-selftests has ONE lane, deliberately: ci.yml's selftests-bash32 already runs the
+# whole sweep under stock bash 3.2 at PR time. The macos twin was deleted 2026-08-30.
 name: nightly-guards
 
 on:
@@ -34,10 +27,6 @@ permissions:
   contents: read
 
 jobs:
-  # The pass cache's backstop (#448). NO --cache-dir, so nothing is skipped and no marker is
-  # written: an under-declared input set that let the PR lane skip a suite is caught here, red,
-  # by the suite failing wholesale.
-  #
   # IT MUST ASK THE PR LANE'S QUESTION, exactly. Same `--exclude` (install-topology.yml's guard
   # already re-runs that suite), and the same SKIP_STRESS asymmetry as ci.yml — unset on ubuntu,
   # '1' on macos. A backstop running a different question is not a backstop.
@@ -51,6 +40,6 @@ jobs:
       - name: install shellcheck + jq
         run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
 
-      - name: wholesale selftest sweep, cache bypassed
+      - name: wholesale selftest sweep
         run: bash tools/run-selftests.sh --full --exclude tools/install-topology-selftest.sh
 

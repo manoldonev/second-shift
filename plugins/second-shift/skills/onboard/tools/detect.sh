@@ -9,12 +9,6 @@
 # Selftest env hooks: DETECT_SKIP_GH, DETECT_SKIP_MCP, DETECT_SKIP_LSREMOTE
 set -uo pipefail
 
-# The three-outcome checked-call idiom. CANONICAL TEXT:
-# plugins/dev-pipeline/tools/checked-call.sh — a DIFFERENT PLUGIN, where a sibling
-# `source` would be a cross-plugin path resolved by hop count (the trap #469 was filed for), so
-# this copy is inline and pinned byte-identical by the `checked-call` LOCKSTEP markers, which
-# scripts/check-lockstep-pairs.sh discovers and compares. Edit one, edit both.
-# LOCKSTEP-BEGIN checked-call
 # checked_match — run a producer and match its stdout, with THREE outcomes.
 #
 #   checked_match <grep-arg>... -- <producer> [arg]...
@@ -54,7 +48,6 @@ checked_match() {
 
   grep -q "${gopts[@]}" <<<"$out"
 }
-# LOCKSTEP-END checked-call
 
 ROOT="${1:-$(pwd)}"
 cd "$ROOT" 2>/dev/null || { echo "detect: no such dir: $ROOT" >&2; exit 3; }

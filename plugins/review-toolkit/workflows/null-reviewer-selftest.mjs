@@ -20,9 +20,8 @@
 //
 //   What remains here is Case F alone — the structural drift-guard reading code-review.mjs
 //   as TEXT. Its load-bearing half is the WIRING COUNTS (PROGRESSIVE_EMIT appended to
-//   exactly 2 exhaustive branches, BOUNDED_EXPLORATION to exactly 1): check-bounded-
-//   exploration.sh greps only `^const BOUNDED_[A-Z_]+`, so PROGRESSIVE_EMIT wiring is
-//   invisible to it and this is the only guard on it in the tree.
+//   exactly 2 exhaustive branches, BOUNDED_EXPLORATION to exactly 1); this is the only guard
+//   on that wiring in the tree.
 //
 // Mirrors the conventions of a since-deleted suite (removed in #348;
 // the same conventions survive in every `*-selftest.sh` here): numbered cases, pass/fail

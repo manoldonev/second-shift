@@ -113,12 +113,10 @@ const ATLASSIAN_MCP_TOOLSEARCH =
 // Findings contract. Kept permissive (only severity/description/confidence required)
 // so reviewers don't burn retries on over-strict shapes; file/line/title are optional.
 //
-// LOCKSTEP, and this file is the CANONICAL side. stall-probe.mjs and tool-discipline-probe.mjs
-// each declare their own copy because the Workflow runtime gives them no `import`. Those two
-// exist to reproduce production dispatch EXACTLY, which is worthless if their schema has
-// drifted from this one — a probe that measures a different contract measures nothing.
-// (design-sync.mjs referenced the schema only in a comment, was never a member, and retired
-// with #574.) Edit here, edit all three.
+// LOCKSTEP, and this file is the CANONICAL side. stall-probe.mjs declares its own copy because
+// the Workflow runtime gives it no `import`. It exists to reproduce production dispatch EXACTLY,
+// which is worthless if its schema has drifted from this one — a probe that measures a
+// different contract measures nothing. Edit here, edit both.
 // LOCKSTEP-BEGIN findings-schema
 const FINDINGS_SCHEMA = {
   type: 'object',
@@ -332,8 +330,6 @@ const validateShape = (obj, schema) => {
 }
 
 const emitStructured = (text, opts) =>
-  // bounded-exploration-optout: structured-emitter -- tools:[] maxTurns:2 transcription sink;
-  //   nothing to explore, which is why it may carry the schema.
   agent(
     'Convert this completed review into the required structured object. Transcribe EXACTLY' +
       ' what the review states — never invent, drop, merge, soften or upgrade findings.' +
@@ -617,8 +613,6 @@ const dispatchReviewer = async (requested) => {
   }
   if (/REVIEW_RESULT/.test(String(lastText ?? ''))) {
     try {
-      // bounded-exploration-optout: validator-reference -- this schema: key parameterizes the
-      //   emitter helper (whose own dispatch site carries the structured-emitter marker).
       const emitted = await emitStructured(lastText, { label: dispatched, schema: FINDINGS_SCHEMA })
       if (emitted && validateShape(emitted, FINDINGS_SCHEMA)) return { agentType: requested, result: emitted }
     } catch (emitErr) {

@@ -100,13 +100,13 @@ background tasks off and its Bash timeouts raised to just inside its bound. **In
 session a foreground `Bash` call is reaped at 2 minutes** whatever its `timeout`, so run it as
 `nohup <cmd> > <log> 2>&1` under `run_in_background` (a bare `&` is reaped too).
 
-**In an interactive session the sweep gates nothing.** CI runs it cold on every PR, so commit, push,
+**In an interactive session the sweep gates nothing.** CI runs it on every PR, so commit, push,
 open the PR and report without waiting for it; a sweep still running is a line in the report, with its
 log path. Never poll for it: a backgrounded command re-invokes the session when it exits.
 
-The recipe runs cold, excludes `tools/install-topology-selftest.sh` (run it directly when your
+The recipe excludes `tools/install-topology-selftest.sh` (run it directly when your
 change is about how plugins are installed), and a killed sweep leaves `mktemp` litter that can red
-the next run. The runner, the exclusion, the pass cache, concurrency and the scrub recipe:
+the next run. The runner, the exclusion, concurrency and the scrub recipe:
 [`docs/testing.md`](docs/testing.md#how-the-sweep-runs).
 
 Every checked-in script is **exercised by some selftest**; CI discovers suites by glob, so a new

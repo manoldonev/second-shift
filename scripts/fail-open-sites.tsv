@@ -28,14 +28,10 @@ plugins/second-shift/skills/onboard/tools/detect.sh	converted	checked_match -iE 
 .github/workflows/ci.yml	safe	check-jsonschema --help | grep -q	Fails CLOSED. The site is the condition of an `if !` whose body prints ::error:: and exits 1, so a dead probe stops the job rather than passing it.
 plugins/second-shift/skills/doctor/tools/scope-shadows.sh	safe	cut -f1 <<< "$rows" | grep -qx shadowed	`cut` over a herestring has no failure mode short of OOM, and `$rows` was already proven readable by the `|| exit 2` on its own assignment.
 # --- out-of-scope: as the ticket scopes them ----------------------------------------------
-plugins/dev-pipeline/tools/checked-call-selftest.sh	out-of-scope	say_nomatch 2>/dev/null | grep -qi -e playwright	The replaced shape, executed ON PURPOSE by case (c10) so the collapse it has is pinned by a run rather than asserted in a comment.
 plugins/dev-pipeline/tools/pre-commit-typecheck-selftest.sh	out-of-scope	| grep -q '"permissionDecision": "deny"'	Selftest-internal. A hook that dies prints nothing and reads as no-deny, which the case scores as the FAIL it is: the dead producer cannot turn a red into a pass.
-plugins/dev-pipeline/tools/checked-call-selftest.sh	out-of-scope	die_7 2>/dev/null | grep -qi -e playwright	The other half of that same demonstration — the arm whose rc must equal the one above.
 # --- not-a-site: the recipe's own textual false positives, recorded not filtered -----------
 # Recorded rather than pruned by a cleverer regex: a filter that dropped prose would also drop
 # a real site written inside a heredoc, and nobody would ever know which.
-plugins/dev-pipeline/tools/checked-call.sh	not-a-site	has two outcomes where the world has three	Prose in the canonical idiom's own header, naming the shape it replaces.
-plugins/dev-pipeline/tools/checked-call-selftest.sh	not-a-site	pipeline it replaces yields two	Prose in that suite's header.
 scripts/check-changelog-trailer-selftest.sh	not-a-site	if grep -qE 'git log .*--format=%B	The match sits inside a quoted grep PATTERN — that suite greps its gate FOR the shape. There is no pipeline here.
 scripts/check-eval-model-identity-selftest.sh	not-a-site	# run. Deliberately NOT	A comment explaining why the shape was avoided.
 docs/testing.md	not-a-site	enumerates (a `| grep -q` whose producer can die	Prose describing the shape this guard enumerates, not a command.

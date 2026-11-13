@@ -28,32 +28,9 @@
 # /bin/bash 3.2 and that is one of this repo's two CI lanes. A worker that dies WITHOUT writing
 # an `.rc` scores as a named infra failure, never as a green suite.
 #
-# THE PASS CACHE (#448) is the second thing this file owns, and the risky one. A suite with a
-# row in tools/selftest-cache-inputs.tsv is content-addressed: the key is sha256 over an epoch
-# constant, the OS, the bash major version, this runner's own blob id, the suite path and the
-# `git hash-object` blob id of every DECLARED input, and a key already recorded as a pass on this
-# lane means the suite is not re-run. Four properties contain the failure mode — a
-# silently-skipped gate — and they are the load-bearing part, not the hashing:
-#
-#   1. FAIL-CLOSED BY DEFAULT. The table is opt-in; a suite with no row is always run. And the
-#      cache as a whole is off unless --cache-dir is passed, so the mandated local recipe in
-#      CLAUDE.md is still a cold sweep.
-#   2. SELF-INCLUSION IS MANDATORY. A row set must name the suite itself and, where the naming
-#      convention resolves it, the script under test. A suite cannot cache past an edit to its
-#      own bytes. Rejected here, loudly, not documented as an expectation.
-#   3. RECORDING IS A SEPARATE FLAG. --cache-dir reads; only --cache-write records. CI passes
-#      the second on push-to-main alone, so a PR cannot mark its own untested content as passing.
-#   4. ONLY PASS IS RECORDED, and only by the parent, after the replay. A red suite, or one whose
-#      worker died without a verdict, writes nothing — that is the shape, not a check.
-#
-# The nightly wholesale sweep (.github/workflows/nightly-guards.yml) runs with no --cache-dir at
-# all, so an under-declaration surfaces within a day against a tree nobody is waiting on.
-#
-# CI is the thing being sped up here, and the authority is the nightly leg.
-#
 # USAGE
 #   run-selftests.sh [--exclude <repo-relative-path>]... [--jobs <n>] [--root <dir>]
-#                    [--cache-dir <dir>] [--cache-write] [--full] [--shard <i>/<n>]
+#                    [--full] [--shard <i>/<n>]
 #
 #   --exclude     repeatable. Lifts a suite out of THIS sweep while leaving it discovered, so it
 #                 can run in its own CI job. An exclusion matching no discovered suite is a HARD
@@ -62,14 +39,12 @@
 #                 see #566 below for why the table is on by default and the opt-out is explicit.
 #   --jobs        concurrency; defaults to $SELFTEST_JOBS, itself defaulting to 4 (the recipe).
 #   --root        tree to discover under; defaults to the repo root above this script.
-#   --cache-dir   marker store for the pass cache. Absent, no suite is ever skipped.
-#   --cache-write additionally RECORD passes into that store. Requires --cache-dir.
 #   --shard       run only shard <i> of <n>: the i-th, (i+n)-th, ... suite of the sorted,
 #                 post-exclusion list. CI runs every shard of a lane as a matrix, so the n shards
 #                 of one lane together are exactly the unsharded sweep, each suite in one shard.
 #
 # EXIT: 0 iff every run suite passed. Non-zero names every failing suite. 2 for a usage error,
-# a stale exclusion, a malformed cache-input table, or a discovered/run count disagreement.
+# a stale exclusion, or a discovered/run count disagreement.
 # 3 (#527) when there were failures and EVERY one of them is the no-verdict infrastructure class —
 # the workers died rather than the suites failing, so the sweep learned nothing about the tree.
 # Mixed infra-and-real is 1, because a red branch is still a red branch.
@@ -78,28 +53,12 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$HERE")"   # HERE is already absolute and resolved, so its dirname is too
-# Property 2 applied one level up: this file is the harness that PRODUCES every verdict the
-# store records, so its own bytes are on the key axis beside the declared inputs. Without it a
-# change to how workers are dispatched, or to what environment they inherit, is served past on
-# exactly the suites it is most likely to move. Resolved from BASH_SOURCE, never from $ROOT,
-# because --root points at a tree that need not contain this script at all.
-SELF="${BASH_SOURCE[0]}"
 JOBS="${SELFTEST_JOBS:-4}"
 EXCLUDES=""   # newline-separated; bash 3.2 has no array-of-args ergonomics worth the noise here
 FULL=0        # 1 = do not apply the slow-suite table (#566)
 SHARD_I=1; SHARD_N=1   # --shard <i>/<n>; 1/1 is the whole sweep
 DEFERRED=""   # newline-separated "<suite><TAB><reason>", for the announcement below
 TAB=$'\t'
-
-CACHE_DIR=""
-CACHE_WRITE=0
-# OR-1's one-character invalidation. The key covers repo CONTENT — including this runner's own
-# bytes, see SELF above — but never the runner IMAGE, so a GitHub image bump could in principle
-# move a suite's verdict with every declared input byte-identical. Bumping this makes the next
-# run of every lane a full cold sweep — the fail-closed state — and the nightly wholesale leg is
-# what surfaces the need to.
-CACHE_EPOCH=1
-CACHE_MAX="${SELFTEST_CACHE_MAX:-5000}"
 
 die() { echo "[run-selftests] $1" >&2; exit 2; }
 
@@ -159,9 +118,6 @@ while [[ $# -gt 0 ]]; do
                JOBS="$2"; shift 2 ;;
     --root)    [[ $# -ge 2 ]] || die "--root requires a directory"
                ROOT="$2"; shift 2 ;;
-    --cache-dir)   [[ $# -ge 2 ]] || die "--cache-dir requires a directory"
-                   CACHE_DIR="$2"; shift 2 ;;
-    --cache-write) CACHE_WRITE=1; shift ;;
     --full)    FULL=1; shift ;;
     --shard)   [[ $# -ge 2 ]] || die "--shard requires <i>/<n>"
                [[ "$2" =~ ^([0-9]+)/([0-9]+)$ ]] || die "--shard must be <i>/<n>, got: $2"
@@ -189,7 +145,7 @@ ROOT="$(cd "$ROOT" && pwd)"
 # carries the measurement that justifies it — and it has to be reviewable. Flags in the
 # gitignored config are neither.
 #
-# RESOLVED UNDER $ROOT, never under $SELF's repo: --root points at the tree being swept, and a
+# RESOLVED UNDER $ROOT, never under this script's repo: --root points at the tree being swept, and a
 # sweep of another tree must read that tree's table or it is applying this one's membership to
 # suites it has never measured. Absent, every suite is treated as fast.
 #
@@ -209,49 +165,6 @@ if [[ "$FULL" -eq 0 && -f "$SLOW_SUITES" ]]; then
     [[ "$sl_secs" -ge "$SLOW_THRESHOLD_S" ]] || continue
     DEFERRED="$DEFERRED$sl_suite$TAB${sl_secs}s (measured $sl_date)"$'\n'
   done < "$SLOW_SUITES"
-fi
-
-[[ "$CACHE_MAX" =~ ^[0-9]+$ ]] || die "SELFTEST_CACHE_MAX must be a whole number, got: $CACHE_MAX"
-# --cache-write without a store is a workflow that THINKS it is recording passes and is not.
-# Refusing beats accepting it: a lane silently recording nothing looks identical to a lane whose
-# cache never hits, and the difference is a whole CI cycle of debugging.
-if [[ "$CACHE_WRITE" -eq 1 && -z "$CACHE_DIR" ]]; then
-  die "--cache-write requires --cache-dir"
-fi
-
-# ---- hashing -------------------------------------------------------------------------
-# shasum ships with macOS and with the
-# ubuntu runner's perl, sha256sum is coreutils. `git hash-object` needs no repository — it is a
-# pure blob hash — which is what lets a fixture tree outside any repo exercise this. If either
-# tool is missing the cache disables itself rather than keying on something weaker: a cache that
-# cannot compute its own key must serve no entries at all.
-SHA_KIND=""
-if command -v shasum >/dev/null 2>&1; then
-  SHA_KIND="shasum"
-elif command -v sha256sum >/dev/null 2>&1; then
-  SHA_KIND="sha256sum"
-fi
-sha_stdin() {
-  case "$SHA_KIND" in
-    shasum)    shasum -a 256 2>/dev/null | cut -d' ' -f1 ;;
-    sha256sum) sha256sum     2>/dev/null | cut -d' ' -f1 ;;
-    *)         return 1 ;;
-  esac
-}
-
-if [[ -n "$CACHE_DIR" && -z "$SHA_KIND" ]]; then
-  echo "[run-selftests] cache disabled: neither shasum nor sha256sum is available, so no key can be computed."
-  CACHE_DIR=""; CACHE_WRITE=0
-fi
-if [[ -n "$CACHE_DIR" ]] && ! command -v git >/dev/null 2>&1; then
-  echo "[run-selftests] cache disabled: git is unavailable, so no declared input can be hashed."
-  CACHE_DIR=""; CACHE_WRITE=0
-fi
-if [[ -n "$CACHE_DIR" ]] && ! mkdir -p "$CACHE_DIR" 2>/dev/null; then
-  die "--cache-dir is not creatable: $CACHE_DIR"
-fi
-if [[ -n "$CACHE_DIR" ]]; then
-  CACHE_DIR="$(cd "$CACHE_DIR" && pwd)"
 fi
 
 # ---- discovery -----------------------------------------------------------------------
@@ -334,148 +247,6 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/run-selftests.XXXXXX")" || die "mktemp failed
 trap 'rm -rf "$BASE"' EXIT
 RESULTS="$BASE/results"
 mkdir -p "$RESULTS" || die "cannot create $RESULTS"
-mkdir -p "$BASE/cache-inputs" "$BASE/cache-manifest" "$BASE/hits" || die "cannot create $BASE/cache-*"
-
-# ---- the cache-input table -------------------------------------------------------------
-# READ AND VALIDATED ON EVERY SWEEP, including one running with no cache at all. A row is only
-# ever USED under --cache-dir, but a malformed declaration is a broken gate declaration, and
-# leaving it unread until the day CI happens to enable the cache is the same silent-widening
-# posture the stale --exclude check above already refuses.
-#
-# Slugging `/` to `%` is what lets a suite path be a filename. No repo path contains `%`.
-CACHE_TSV="$ROOT/tools/selftest-cache-inputs.tsv"
-slug_of() { printf '%s' "${1//\//%}"; }
-
-if [[ -f "$CACHE_TSV" ]]; then
-  c_lineno=0
-  while IFS="$TAB" read -r c_suite c_input c_rest || [[ -n "$c_suite" ]]; do
-    c_lineno=$((c_lineno + 1))
-    case "$c_suite" in ''|'#'*) continue ;; esac
-    [[ -z "$c_rest" ]] \
-      || die "selftest-cache-inputs.tsv:$c_lineno: expected exactly two tab-separated columns (suite, input)"
-    c_suite="${c_suite#./}"; c_input="${c_input#./}"
-    [[ -n "$c_input" ]] \
-      || die "selftest-cache-inputs.tsv:$c_lineno: '$c_suite' declares an empty input"
-    grep -qxF "$c_suite" <<<"$ALL" \
-      || die "selftest-cache-inputs.tsv:$c_lineno: '$c_suite' matches no discovered suite under $ROOT — stale cache-input row"
-    [[ -e "$ROOT/$c_input" ]] \
-      || die "selftest-cache-inputs.tsv:$c_lineno: '$c_suite' declares an input that does not exist: '$c_input'"
-    printf '%s\n' "$c_input" >> "$BASE/cache-inputs/$(slug_of "$c_suite")"
-    printf '%s\n' "$c_suite" >> "$BASE/cache-suites"
-  done < "$CACHE_TSV"
-fi
-
-# Per-suite completeness. Property 2 of the four: a suite that does not pin its own bytes, or
-# the bytes of the script it tests, can cache past the very edit its row exists to notice.
-#
-# THE SUBJECT IS MECHANIZED ONLY WHERE THE NAMING CONVENTION RESOLVES IT — `<stem>-selftest.sh`
-# next to `<stem>.sh`. CLAUDE.md's register is explicit that coverage here is not naming
-# (claim-selftest.sh tests claim-issue.sh), so for the rest the
-# floor is weaker and stated as such: at least one input besides the suite itself, which rejects
-# the degenerate row that pins nothing but its own bytes and reads like a complete declaration.
-if [[ -f "$BASE/cache-suites" ]]; then
-  LC_ALL=C sort -u "$BASE/cache-suites" > "$BASE/cache-suites.u"
-  while IFS= read -r c_suite; do
-    [[ -n "$c_suite" ]] || continue
-    c_slug="$(slug_of "$c_suite")"
-    LC_ALL=C sort -u "$BASE/cache-inputs/$c_slug" -o "$BASE/cache-inputs/$c_slug"
-    grep -qxF "$c_suite" "$BASE/cache-inputs/$c_slug" \
-      || die "selftest-cache-inputs.tsv: '$c_suite' does not declare ITSELF as an input — a cached suite must not survive an edit to its own bytes"
-    c_subject="$(dirname "$c_suite")/$(basename "$c_suite" -selftest.sh).sh"
-    c_subject="${c_subject#./}"
-    if [[ -f "$ROOT/$c_subject" ]] && ! grep -qxF "$c_subject" "$BASE/cache-inputs/$c_slug"; then
-      die "selftest-cache-inputs.tsv: '$c_suite' does not declare its script under test '$c_subject'"
-    fi
-    [[ "$(grep -c . "$BASE/cache-inputs/$c_slug")" -ge 2 ]] \
-      || die "selftest-cache-inputs.tsv: '$c_suite' declares no input besides itself — a row that pins only its own bytes is not a declaration"
-  done < "$BASE/cache-suites.u"
-fi
-
-# ---- keys and markers --------------------------------------------------------------------
-# The manifest is written to a file rather than piped, for two reasons: a `git hash-object` that
-# fails mid-stream must abort the key (a partial manifest would hash cleanly to a WRONG key), and
-# AC-10 wants the same bytes printed back on a hit, so the reader can see what the key covered.
-cache_manifest() { # $1 = suite relpath -> writes $BASE/cache-manifest/<slug>; 1 if unhashable
-  local suite="$1" slug list out p abs f h
-  slug="$(slug_of "$suite")"
-  list="$BASE/cache-inputs/$slug"
-  out="$BASE/cache-manifest/$slug"
-  [[ -f "$list" ]] || return 1
-  # Unhashable runner -> no key -> every suite runs. Fail-closed, same as any unhashable input.
-  local runner_h
-  runner_h="$(git hash-object -- "$SELF" 2>/dev/null)"
-  [[ -n "$runner_h" ]] || return 1
-  printf 'selftest-cache|epoch=%s|os=%s|bash=%s|stress=%s|runner=%s|suite=%s\n' \
-    "$CACHE_EPOCH" "$CACHE_OS" "$CACHE_BASH_MAJOR" "$CACHE_STRESS" "$runner_h" "$suite" > "$out" || return 1
-  while IFS= read -r p; do
-    [[ -n "$p" ]] || continue
-    abs="$ROOT/$p"
-    if [[ -d "$abs" ]]; then
-      # A directory contributes every regular file beneath it, sorted, so an ADDED or DELETED
-      # fixture moves the key exactly as an edited one does.
-      while IFS= read -r f; do
-        [[ -n "$f" ]] || continue
-        h="$(git hash-object -- "$abs/$f" 2>/dev/null)"
-        [[ -n "$h" ]] || return 1
-        printf '%s  %s\n' "$h" "$p/$f" >> "$out"
-      done < <(cd "$abs" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)
-    else
-      h="$(git hash-object -- "$abs" 2>/dev/null)"
-      [[ -n "$h" ]] || return 1
-      printf '%s  %s\n' "$h" "$p" >> "$out"
-    fi
-  done < "$list"
-  return 0
-}
-
-cache_marker() { printf '%s/%s/%s' "$CACHE_DIR" "${1:0:2}" "$1"; }
-
-# FAIL SAFE: anything that is not exactly
-# the one well-formed record line is a MISS, and a miss costs a real run. There is deliberately
-# no path here that turns an unreadable or truncated marker into a pass.
-cache_hit() { # $1 = key
-  local f line
-  [[ -n "$CACHE_DIR" && -n "$1" ]] || return 1
-  f="$(cache_marker "$1")"
-  [[ -f "$f" && -r "$f" ]] || return 1
-  line="$(head -1 "$f" 2>/dev/null)" || return 1
-  case "$line" in "v1${TAB}pass${TAB}"*) return 0 ;; *) return 1 ;; esac
-}
-
-# mv-atomic against a concurrent sibling sweep sharing the store. Every failure path is silent
-# and non-fatal: an unwritable cache must slow the next sweep down, never break this one.
-cache_put() { # $1 = key, $2 = suite
-  local d t
-  [[ -n "$CACHE_DIR" && -n "$1" ]] || return 1
-  d="$CACHE_DIR/${1:0:2}"
-  mkdir -p "$d" 2>/dev/null || return 1
-  t="$d/.tmp.$$.$RANDOM"
-  printf 'v1%spass%s%s\n' "$TAB" "$TAB" "$2" > "$t" 2>/dev/null || { rm -f "$t" 2>/dev/null; return 1; }
-  mv -f "$t" "$d/$1" 2>/dev/null || { rm -f "$t" 2>/dev/null; return 1; }
-  return 0
-}
-
-# Unbounded growth would eventually make the restore step the cost this file exists to remove.
-# Clearing wholesale (rather than evicting by age) keeps the failure mode fail-closed: the next
-# run is simply cold.
-cache_prune() {
-  local n
-  [[ -n "$CACHE_DIR" ]] || return 0
-  n="$(find "$CACHE_DIR" -type f 2>/dev/null | grep -c '')"
-  [[ "${n:-0}" -gt "$CACHE_MAX" ]] || return 0
-  rm -rf "${CACHE_DIR:?}"/* 2>/dev/null
-  echo "[run-selftests] cache: $n markers exceeded the $CACHE_MAX bound — cleared (the next run is cold)."
-}
-
-# The environment axis of the key (D-13): every knob that changes WHAT A VERDICT MEANS, so a run
-# under a different one is never served an answer to a different question. RUNNER_OS is what the
-# two CI lanes differ by; the bash major is what the macos shim exists to pin, and a verdict under
-# 3.2 is not a verdict under 5. SKIP_STRESS is here because a suite that skipped its stress legs
-# passed a strictly weaker question than one that ran them — today the two CI lanes also differ by
-# OS so nothing could collide, but that is a coincidence of the current matrix, not a property.
-CACHE_OS="${RUNNER_OS:-$(uname -s 2>/dev/null || echo unknown)}"
-CACHE_BASH_MAJOR="${BASH_VERSINFO[0]:-0}"
-CACHE_STRESS="${SKIP_STRESS:-}"
 
 # The filter below and the DISCOVERED/EXCLUDED arithmetic above are two independent derivations
 # of the same set. They are reconciled after the run (see "count reconciliation"), because a
@@ -492,14 +263,7 @@ while IFS= read -r suite; do
   pos=$((pos + 1))
   [[ $(( (pos - 1) % SHARD_N )) -eq $((SHARD_I - 1)) ]] || continue
   n=$((n + 1))
-  # Third column: the cache key, or empty. Empty is the fail-closed value and covers every
-  # reason a suite might not participate — no --cache-dir, no row in the table, or an input
-  # that could not be hashed. Nothing downstream distinguishes them, and nothing needs to.
-  key=""
-  if [[ -n "$CACHE_DIR" ]] && cache_manifest "$suite"; then
-    key="$(sha_stdin < "$BASE/cache-manifest/$(slug_of "$suite")")"
-  fi
-  printf '%s\t%s\t%s\n' "$(printf '%04d' "$n")" "$suite" "$key" >> "$BASE/worklist"
+  printf '%s\t%s\n' "$(printf '%04d' "$n")" "$suite" >> "$BASE/worklist"
 done <<EOF
 $ALL
 EOF
@@ -518,21 +282,8 @@ else
   echo "[run-selftests] $DISCOVERED discovered, $EXCLUDED excluded, $EXPECTED to run, jobs=$JOBS"
 fi
 
-# ---- cache resolution ------------------------------------------------------------------
-# Decided in the PARENT, before dispatch, and recorded as a marker file per index. Doing it here
-# rather than inside the worker is what keeps the store race-free: nothing under --cache-dir is
-# ever read or written by a concurrent process of this run.
-: > "$BASE/dispatch"
-while IFS="$TAB" read -r idx suite key; do
-  [[ -n "$idx" ]] || continue
-  if cache_hit "$key"; then
-    : > "$BASE/hits/$idx"
-    continue
-  fi
-  printf '%s\n' "$idx" >> "$BASE/dispatch"
-done < "$BASE/worklist"
-
 # ---- dispatch ------------------------------------------------------------------------
+cut -f1 "$BASE/worklist" > "$BASE/dispatch"
 # shellcheck disable=SC2016  # the placeholders are for the inner sh -c, deliberately unexpanded
 xargs -P "$JOBS" -n1 -I{} \
   sh -c 'bash "$0" --run-one "$1" "$2" "$3" "$4"' \
@@ -545,7 +296,6 @@ xargs -P "$JOBS" -n1 -I{} \
 # ::group:: framing is emitted unconditionally — GitHub folds it, a local run just sees a
 # labelled block, and a selftest can assert contiguity without faking $GITHUB_ACTIONS.
 RAN=0
-CACHED=0
 FAILED=""
 # #527 AC-1. The infra tally beside the failure list. The per-suite class already exists below
 # (`rc=125`, the no-verdict-written case) and is already PRINTED as infra — only the parent
@@ -553,26 +303,9 @@ FAILED=""
 # suites are red. Counted here rather than re-derived from $FAILED at the exit: parsing "(rc=125)"
 # back out of a formatted list would be a second reader of a string this file only writes.
 INFRA=0
-while IFS="$TAB" read -r idx suite key; do
+while IFS="$TAB" read -r idx suite; do
   [[ -n "$idx" ]] || continue
   RAN=$((RAN + 1))
-
-  # AC-10. A skip that does not say what it skipped, under which key, over which bytes, is
-  # indistinguishable in a log from a suite that quietly stopped being discovered.
-  if [[ -f "$BASE/hits/$idx" ]]; then
-    CACHED=$((CACHED + 1))
-    # The elapsed field is a literal dash, never a number and never blank. A cached suite did
-    # not run, so it HAS no elapsed — and a dash cannot be mistaken for a measured time, so a
-    # reader of the log never takes an unmeasured suite for a free one.
-    echo "::group::cached  -  $suite"
-    echo "[run-selftests] cache hit — this exact content already passed on this lane, so the suite was not re-run."
-    echo "[run-selftests]   key: $key"
-    echo "[run-selftests]   over: $(head -1 "$BASE/cache-manifest/$(slug_of "$suite")")"
-    echo "[run-selftests]   inputs:"
-    tail -n +2 "$BASE/cache-manifest/$(slug_of "$suite")" | sed 's/^/[run-selftests]     /'
-    echo "::endgroup::"
-    continue
-  fi
 
   if [[ -f "$RESULTS/$idx.rc" ]]; then
     rc="$(cat "$RESULTS/$idx.rc")"
@@ -582,7 +315,7 @@ while IFS="$TAB" read -r idx suite key; do
   fi
 
   # ELAPSED SITS BETWEEN THE STATUS AND THE SUITE (#629), not after it. The suite path stays the
-  # LAST whitespace-separated token of a pass/cached frame, which is what run-selftests-selftest's
+  # LAST whitespace-separated token of a pass frame, which is what run-selftests-selftest's
   # contiguity walk reads it as; appending the time instead would have made `(3s)` the suite name.
   # A worker that wrote no verdict wrote no time either, so `?s` and rc=125 arrive together.
   if [[ -f "$RESULTS/$idx.secs" ]]; then
@@ -606,28 +339,6 @@ while IFS="$TAB" read -r idx suite key; do
   fi
 done < "$BASE/worklist"
 
-# ---- record passes ---------------------------------------------------------------------
-# Property 4: only PASS, only from the parent, only after the replay has scored the run. A red
-# suite, a suite whose worker died without writing a verdict, and a suite served from the cache
-# all fall out of this loop without a marker — the first two because the rc gate refuses them,
-# the third because re-recording what was never re-run would let one stale pass renew itself
-# indefinitely. Property 3 is the flag: without --cache-write this block does not exist.
-RECORDED=0
-if [[ "$CACHE_WRITE" -eq 1 ]]; then
-  cache_prune
-  while IFS="$TAB" read -r idx suite key; do
-    [[ -n "$key" ]] || continue
-    [[ -f "$BASE/hits/$idx" ]] && continue
-    [[ -f "$RESULTS/$idx.rc" ]] || continue
-    [[ "$(cat "$RESULTS/$idx.rc")" == "0" ]] || continue
-    cache_put "$key" "$suite" && RECORDED=$((RECORDED + 1))
-  done < "$BASE/worklist"
-fi
-
-if [[ -n "$CACHE_DIR" ]]; then
-  echo "[run-selftests] cache: $CACHED served, $RECORDED recorded ($CACHE_DIR)"
-fi
-
 # ---- count reconciliation ------------------------------------------------------------
 if [[ "$RAN" -ne "$EXPECTED" ]]; then
   echo "[run-selftests] ERROR: discovered-minus-excluded is $EXPECTED but $RAN suite(s) ran — silent truncation, not a pass." >&2
@@ -638,7 +349,7 @@ if [[ -n "$FAILED" ]]; then
   echo "[run-selftests] FAILED suites:" >&2
   printf '%s' "$FAILED" | while IFS= read -r f; do [[ -n "$f" ]] && echo "  $f" >&2; done
   count="$(printf '%s' "$FAILED" | grep -c .)"
-  echo "[run-selftests] summary: $RAN scored, $((RAN - CACHED)) run, $CACHED served from cache, $count failed ($INFRA infrastructure)" >&2
+  echo "[run-selftests] summary: $RAN run, $count failed ($INFRA infrastructure)" >&2
   # THE RESERVED CODE, and it is reserved rather than merely returned: a 3 says "this
   # told us nothing about the branch". So the condition has to be ALL, never ANY — one genuinely
   # red suite alongside a killed worker is still a red branch, and reporting that as
@@ -654,6 +365,4 @@ if [[ -n "$FAILED" ]]; then
   exit 1
 fi
 
-# "scored", not "ran" — with a cache in play they are different numbers, and a sweep that reports
-# the larger one as work it performed is the faster-green misreading this whole file guards.
-echo "[run-selftests] summary: $RAN scored, $((RAN - CACHED)) run, $CACHED served from cache, 0 failed"
+echo "[run-selftests] summary: $RAN run, 0 failed"
