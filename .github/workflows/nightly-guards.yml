@@ -29,7 +29,7 @@ permissions:
 jobs:
   # IT MUST ASK THE PR LANE'S QUESTION, exactly. Same `--exclude` (install-topology.yml's guard
   # already re-runs that suite), and the same SKIP_STRESS asymmetry as ci.yml — unset on ubuntu,
-  # '1' on macos. A backstop running a different question is not a backstop.
+  # '1' on macos. Then a nightly red means what a PR red means.
   wholesale-selftests:
     runs-on: ubuntu-latest
     steps:
