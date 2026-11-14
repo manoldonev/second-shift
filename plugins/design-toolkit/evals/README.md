@@ -44,9 +44,8 @@ Two consequences worth stating plainly:
   unmerged edit. Before recording a number against a prompt change, confirm the two agree —
   `diff plugins/design-toolkit/agents/<agent>.md ~/.claude/plugins/cache/second-shift/design-toolkit/<version>/agents/<agent>.md` —
   and record the answer in the baseline's provenance block.
-- **The four older kit evals pass BARE agent names** (`--agent-name security-reviewer`), which no
-  longer resolve for a plugin agent. That is a second way in which they are unrunnable as
-  committed, alongside their dangling `--fixtures-dir` pointers. Do not copy the pattern.
+- **Pass the plugin-qualified agent name.** A bare name (`--agent-name security-reviewer`) does not
+  resolve for a plugin agent.
 
 ## Running one
 
@@ -67,9 +66,8 @@ burns quota.
 
 - **Flat layout**: `fixtures/<name>.md` plus `fixtures/<name>.expected.json`. The runner's
   directory-per-fixture layout is not used here.
-- **Fixtures are committed, in-directory.** This departs from the four older kit evals, every one
-  of which points `--fixtures-dir` at a path absent from this repo and is therefore unrunnable as
-  committed. The shape copied instead is
+- **Fixtures are committed, in-directory.** A `--fixtures-dir` outside the eval directory leaves
+  the eval unrunnable when that path moves. The shape copied is
   `../../intake-toolkit/evals/implementability-probe-eval/fixtures/`.
 - **`Acme` is the anonymization convention.** Fixtures derived from a real run carry no real
   customer, product, repo or package identifier. second-shift is a public repo.
@@ -77,15 +75,14 @@ burns quota.
   bias toward passing; a campaign that improves recall by destroying that calibration has not
   improved the agent, and the control is what makes the trade visible.
 - **`expected.json` carries `must_not_flag`** alongside `expected_findings`. Naming what is
-  *correct* in a fixture is what lets the judge score a false positive, which the older evals'
-  ground truth could only do implicitly.
+  *correct* in a fixture is what lets the judge score a false positive.
 
 ## Rubrics
 
 All three use the same 6/2/2 split over `d1_verdict_correctness`, `d2_finding_grounding`,
-`d3_no_fabrication`, for the reason recorded in `docs/plans/second-shift-704-lean.md` (D-4):
-#704 grades in binary while the kit scores a weighted rubric, so the verdict dimension carries
-the bulk and a per-fixture pass rate reads straight off `per_fixture` in the results JSON while
+`d3_no_fabrication`. Each eval's per-fixture pass bar is binary while the kit scores a weighted
+rubric, so the verdict dimension carries the bulk and a per-fixture pass rate reads straight off
+`per_fixture` in the results JSON while
 `overall_pct` still feeds the +10pp/3-run keep-or-revert rule in
 [`eval-criteria.md`](eval-criteria.md).
 

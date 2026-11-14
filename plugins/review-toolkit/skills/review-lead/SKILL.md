@@ -17,33 +17,29 @@ This skill loads orchestration instructions into the **current session**. The cu
 
 Before dispatch, lint the per-reviewer extension surface: run `scripts/check-review-context.sh` (this plugin) against the repo under review. It fails closed when a file under `.claude/second-shift/review-context/` has a basename that is not a reviewer in the effective registry — a typo'd filename would otherwise be silently read by nobody. Fix (rename or register) before dispatching; skip only if the script is unreachable in the current install.
 
-The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` — one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`. Synthesis always runs **in this session** on the caller's model. This skill runs in one of two entry modes:
+The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` — one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`. Synthesis always runs **in this session** on the caller's model. This session triggers the fan-out itself, standalone or pipeline-driven, by running the Workflow:
 
-- **Dispatch mode (standalone / direct invocation):** this session itself triggers the fan-out by running the Workflow:
+```
+Workflow({ scriptPath: "<staged>/code-review.mjs",
+           args: { worktree, base, head, issue?, spec?, reviewers, changedFiles, prContext } })
+```
 
-  ```
-  Workflow({ scriptPath: "<staged>/code-review.mjs",
-             args: { worktree, base, head, issue?, spec?, reviewers, changedFiles, prContext } })
-  ```
+**Stage the script first — neither a bare filename nor the cache path dispatches.** The `Workflow` tool accepts only a path it returned itself, or one under the working directory or an added directory. The plugin cache is neither on a default install, so `scriptPath: "code-review.mjs"` comes back as "Workflow script file not found" and the cache's own absolute path as "must be a script path this tool returned". Resolve it from this skill's own base directory (which the invocation states) and copy it into the session scratchpad, then dispatch that copy:
 
-  **Stage the script first — neither a bare filename nor the cache path dispatches.** The `Workflow` tool accepts only a path it returned itself, or one under the working directory or an added directory. The plugin cache is neither on a default install, so `scriptPath: "code-review.mjs"` comes back as "Workflow script file not found" and the cache's own absolute path as "must be a script path this tool returned". Resolve it from this skill's own base directory (which the invocation states) and copy it into the session scratchpad, then dispatch that copy:
+```bash
+SRC="$SKILL_DIR/../../workflows/code-review.mjs"
+cp "$SRC" "$SCRATCHPAD/code-review.mjs"
+```
 
-  ```bash
-  SRC="$SKILL_DIR/../../workflows/code-review.mjs"
-  cp "$SRC" "$SCRATCHPAD/code-review.mjs"
-  ```
+The copy is what makes this work on a machine that has not added the plugin cache to `permissions.additionalDirectories` — and that entry has to come from the operator, since the auto-mode classifier denies settings edits as self-modification. The script ships in this plugin's own `workflows/`, so no search is needed and no other plugin is involved.
 
-  The copy is what makes this work on a machine that has not added the plugin cache to `permissions.additionalDirectories` — and that entry has to come from the operator, since the auto-mode classifier denies settings edits as self-modification. The script ships in this plugin's own `workflows/`, so no search is needed and no other plugin is involved.
+Before any other action, verify the `Workflow` tool is available in the current session. If it is not — for example this skill was loaded inside a subagent context (subagents can spawn neither `Workflow` nor nested agents) — STOP and report:
 
-  Before any other action, verify the `Workflow` tool is available in the current session. If it is not — for example this skill was loaded inside a subagent context (subagents can spawn neither `Workflow` nor nested agents) — STOP and report:
+> "review-lead requires the Workflow tool to dispatch the reviewer fan-out (via code-review.mjs) in the current session. This skill must be invoked from the main session (or from another skill running in the main session, e.g., dev-pipeline). It cannot run inside a subagent context. Aborting."
 
-  > "review-lead requires the Workflow tool to dispatch the reviewer fan-out (via code-review.mjs) in the current session. This skill must be invoked from the main session (or from another skill running in the main session, e.g., dev-pipeline). It cannot run inside a subagent context. Aborting."
+The script returns structured findings; this session then runs the Synthesis Rules over them. Reviewer **selection** (Routing, below) happens in-session first, since it needs the diff: choose from the effective reviewer registry — the plugin-shipped panel (review-toolkit:security-reviewer, review-toolkit:performance-reviewer, review-toolkit:complexity-reviewer, review-toolkit:maintainability-reviewer, review-toolkit:test-coverage-reviewer, review-toolkit:unit-test-mutation-reviewer, review-toolkit:db-reviewer, review-toolkit:pipeline-reviewer, review-toolkit:scope-completeness-reviewer, review-toolkit:a11y-reviewer, design-toolkit:design-faithful-reviewer, design-toolkit:figma-faithful-reviewer) plus/minus the consumer repo's config deltas (see "Consumer config: reviewer registry" below) — and pass the selected `agentType[]` as `args.reviewers`. `worktree` is the absolute path the reviewers run git against — for pure standalone `/review-lead` in the repo checkout, derive it with `git rev-parse --show-toplevel`; `base`/`head` come from the diff range (default `origin/<base>..HEAD`, where `<base>` is the configured base branch resolved in Process step 1, after a `git fetch origin <base>` — see Process step 1's stale-base rationale), and `changedFiles` from the `git diff --stat` run for Routing.
 
-  The script returns structured findings; this session then runs the Synthesis Rules over them. Reviewer **selection** (Routing, below) happens in-session first, since it needs the diff: choose from the effective reviewer registry — the plugin-shipped panel (review-toolkit:security-reviewer, review-toolkit:performance-reviewer, review-toolkit:complexity-reviewer, review-toolkit:maintainability-reviewer, review-toolkit:test-coverage-reviewer, review-toolkit:unit-test-mutation-reviewer, review-toolkit:db-reviewer, review-toolkit:pipeline-reviewer, review-toolkit:scope-completeness-reviewer, review-toolkit:a11y-reviewer, design-toolkit:design-faithful-reviewer, design-toolkit:figma-faithful-reviewer) plus/minus the consumer repo's config deltas (see "Consumer config: reviewer registry" below) — and pass the selected `agentType[]` as `args.reviewers`. `worktree` is the absolute path the reviewers run git against — for pure standalone `/review-lead` in the repo checkout, derive it with `git rev-parse --show-toplevel`; `base`/`head` come from the diff range (default `origin/<base>..HEAD`, where `<base>` is the configured base branch resolved in Process step 1, after a `git fetch origin <base>` — see Process step 1's stale-base rationale), and `changedFiles` from the `git diff --stat` run for Routing.
-
-- **Synthesis-only mode (driven by the calling pipeline):** the `workflows/code-review.mjs` Workflow script has **already dispatched** the reviewers via `agent()` and hands you their structured findings directly. In this mode you are loaded for the Synthesis Rules / Routing / Scope Completeness Gate / verdict format only — the Workflow-availability gate above does **not** apply (the fan-out already ran). Proceed straight to synthesis over the supplied findings.
-
-Do **not** simulate a dispatch in either mode. Writing a subagent's findings yourself and reporting them as that subagent's produces a fake multi-reviewer verdict; that is what must not be reintroduced. The **lead pass** (below) is not that: four dimensions are routed to this session by design, reviewed against a published checklist, and reported as the lead pass's own — a named reviewer of record, not a stand-in for one that never ran. What is banned is the attribution, not the in-session review.
+Do **not** simulate a dispatch. Writing a subagent's findings yourself and reporting them as that subagent's produces a fake multi-reviewer verdict; that is what must not be reintroduced. The **lead pass** (below) is not that: four dimensions are routed to this session by design, reviewed against a published checklist, and reported as the lead pass's own — a named reviewer of record, not a stand-in for one that never ran. What is banned is the attribution, not the in-session review.
 
 ## Caller model guidance
 
@@ -430,12 +426,7 @@ found in-session. Label them by dimension in the report exactly as a spawned rev
 
 ## Spawning Reviewers
 
-One dispatch substrate — the `code-review.mjs` Workflow — across both entry modes:
-
-- **Dispatch mode (standalone `/review-lead`):** this session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings.
-- **Pipeline-driven review:** the caller invokes the same `code-review.mjs` script itself and hands this session the findings (synthesis-only mode — see Pre-flight).
-
-In both modes the script returns structured findings and this session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
+One dispatch substrate — the `code-review.mjs` Workflow. This session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings. This session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
 
 - **Git diff scope**: `git diff [BASE]...[HEAD] -- <relevant paths>` (three-dot, matching what the script renders) or full diff if no range provided
 - Which files changed (from `git diff --stat`)
@@ -453,10 +444,8 @@ In both modes the script returns structured findings and this session runs the S
 Routing can legitimately select **zero** subagents now that the core four are the lead pass's — a
 docs-only diff with no issue reference and no security surface is the ordinary case. `code-review.mjs`
 rejects an empty `reviewers[]` by design (it has nothing to dispatch and returning an empty result
-would be indistinguishable from a fully dark panel), so in dispatch mode **do not invoke the
-Workflow at all** when the selected set is empty. Run the lead pass and synthesize over its
-findings alone. In synthesis-only mode the caller has already made the same decision; you are
-handed either findings or nothing, and synthesize either way.
+would be indistinguishable from a fully dark panel), so **do not invoke the Workflow at all** when
+the selected set is empty. Run the lead pass and synthesize over its findings alone.
 
 This is not a degraded round and never a `[Coverage gap]`: nothing was selected, so nothing went
 dark (Step 4c). Note the empty selection once in the Review Summary — "no subagent met a trigger
@@ -499,8 +488,7 @@ The plain review's out dir is never written down: each block derives it again wi
 <head sha>`. Never open the files in it yourself: only the join block reads them, so your report is your own review
 alone.
 
-**When it runs.** In dispatch mode only. Skip it in synthesis-only mode: the pipeline that drove you runs its own.
-Do not start it when Routing has already voided the round (the design-fidelity reviewer of an armed spec cannot be
+**When it runs.** Do not start it when Routing has already voided the round (the design-fidelity reviewer of an armed spec cannot be
 dispatched, Step 4b-void case 2): say in the void report that the blind review did not run. Run this check. If it prints `false`, skip the plain review. If it fails, skip the plain review and end the report
 with `## Notes` and one line naming the error it printed:
 
@@ -582,7 +570,6 @@ every PR, the reviewer's own or another's. Nothing is posted without the reviewe
 
 **When there is no offer.** In each case below, offer nothing and end with the one line given:
 
-- Synthesis-only mode: `The report was not posted: synthesis-only mode does not post.`
 - A void round (Step 4b-void): `The report was not posted: the review did not run.`
 - No open PR for the branch. Run `gh pr view --json number,state --jq 'select(.state == "OPEN") | .number'`. When
   it prints nothing or fails: `The report was not posted: this branch has no open PR. To post a review of a PR,
@@ -790,7 +777,7 @@ Apply **Plan/Spec Awareness** above — the three checks (missing requirements, 
 
 ### Report structure
 
-In dispatch mode, line 1 of the report, above `## Review Summary`, is `reviewed-by: second-shift review-lead (v<release>)`. `<release>` is the content of `<skill dir>/../../.claude-plugin/release`. When that file is absent, the line is `reviewed-by: second-shift review-lead`. Line 2 is `reviewed: <head sha>`: the full sha the plain review uses as `<head sha>`, what `git rev-parse HEAD` printed for the head you review. Write it as a plain line, never as a `## ` heading: the join passes every line above the first `## ` through unchanged, and a heading there would be read as a report section. Synthesis-only mode writes neither line.
+Line 1 of the report, above `## Review Summary`, is `reviewed-by: second-shift review-lead (v<release>)`. `<release>` is the content of `<skill dir>/../../.claude-plugin/release`. When that file is absent, the line is `reviewed-by: second-shift review-lead`. Line 2 is `reviewed: <head sha>`: the full sha the plain review uses as `<head sha>`, what `git rev-parse HEAD` printed for the head you review. Write it as a plain line, never as a `## ` heading: the join passes every line above the first `## ` through unchanged, and a heading there would be read as a report section.
 
 Combine all findings into one report with this structure:
 

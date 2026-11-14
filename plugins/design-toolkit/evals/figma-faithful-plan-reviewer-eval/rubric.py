@@ -19,7 +19,7 @@ dimensions carry the rest. That keeps "fixtures 1-3 pass >= 3/3 runs" readable s
   that does not exist is worse than a missed one, because it trains an author to ignore the
   reviewer).
 
-Total: 10. Aligns with the plan-reviewer, security-reviewer and intake-orchestrator campaigns.
+Total: 10.
 """
 
 RUBRIC_VERSION = 1

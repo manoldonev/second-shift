@@ -27,7 +27,7 @@ be the first thing it forbids.
 - **P6 — Ride the current model, don't fight the last one.** Workarounds for model pathologies carry
   their measured basis; when the model generation changes, the basis is re-measured and dead
   workarounds are deleted (with a canary). Model upgrades are harvested — context management, effort
-  control — not merely survived.
+  control — not merely survived. Which skills have a measured basis: [`skill-bases.md`](skill-bases.md).
 - **P7 — Split only what must be split.** Every sub-issue is a full pipeline run, and runs are
   expensive. Decomposition produces as many issues as necessary and no more: a slice that cannot
   justify its own run merges into its neighbor. Thin slices are waste, not rigor.

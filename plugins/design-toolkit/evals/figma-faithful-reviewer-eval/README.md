@@ -99,5 +99,5 @@ REVIEWER_MODEL=<version-pinned-id> JUDGE_MODEL=<version-pinned-id> ./run.sh "my-
 ```
 
 The prompt template carries two overrides, both forced: the fixture contents ARE the diff (there
-is no branch to `git diff`, same shape as `security-reviewer-eval/run.sh`), and the design-system
+is no branch to `git diff`), and the design-system
 reference lives at a fixture path rather than the repo path the agent expects.

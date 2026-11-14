@@ -20,7 +20,7 @@ still feeds the +10pp/3-run rule.
   that does not exist is worse than a missed one, because it trains an author to ignore the
   reviewer).
 
-Total: 10. Aligns with the three figma reviewer campaigns and the older kit evals.
+Total: 10. Aligns with the three figma reviewer campaigns.
 """
 
 RUBRIC_VERSION = 1
