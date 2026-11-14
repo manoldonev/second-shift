@@ -1,29 +1,16 @@
 #!/usr/bin/env bash
 # check-emit-deadline.sh — an agent that raised its turn cap must also carry an emit
-# deadline. Raising `maxTurns` alone is not a fix and this lint exists to say so
-# mechanically, because prose did not hold it (#183).
+# deadline. Raising `maxTurns` alone is not a fix.
 #
-# WHY THIS EXISTS: an agent whose mandate is exhaustive ("enumerate every scope item",
-# "propose mutants for every changed module") spends its whole turn budget exploring and
-# dies at the cap having emitted nothing. The caller gets an empty result, records the
-# domain as unreviewed, and the gate silently does not run. The instinctive fix is to
-# raise the cap. It does not work, and that has now been measured twice:
+# An agent whose mandate is exhaustive ("enumerate every scope item", "propose mutants for
+# every changed module") spends its whole turn budget exploring and dies at the cap having
+# emitted nothing; the caller records the domain as unreviewed. Raising the cap does not
+# help. Measured: at maxTurns 30, scope-completeness-reviewer died on BOTH attempts (31 and
+# 33 tool calls, no result), while security-reviewer in the same fan-out — same model and
+# effort, HALF the cap — completed, because its doc carries "By turn 10 (of your 15 maximum)
+# you MUST be writing the report." The variable is the DEADLINE, not the budget.
 #
-#   #175 raised scope-completeness-reviewer and unit-test-mutation-reviewer 15 -> 30.
-#   At the NEW cap, scope-completeness-reviewer died on BOTH attempts of a standalone
-#   review-lead run — 31 and 33 tool calls, final text "I'll fetch the issue and the
-#   diff.", agents_error 0. Identical signature, 16 tool calls later.
-#
-#   The control is security-reviewer, in that same fan-out: same model (opus), same
-#   effort, HALF the cap (maxTurns 15) — and it completed. The difference is that its
-#   doc carries "By turn 10 (of your 15 maximum) you MUST be writing the report."
-#
-# The variable is the DEADLINE, not the budget. An agent told to be exhaustive and never
-# told when to stop will spend any finite budget, so every cap is a wall it walks into.
-# A deadline is the only thing that makes the agent write before the wall.
-#
-# THE RULE (applies to agents above the panel default cap — i.e. exactly the agents
-# somebody already tried to fix by raising the number — plus any agent explicitly
+# THE RULE (applies to agents above the panel default cap, plus any agent explicitly
 # enrolled via DEADLINE_AT_DEFAULT below):
 #
 #   1. The body must carry a turn-numbered deadline: "turn <D> (of your <N> maximum)".
@@ -45,30 +32,10 @@
 # Agents AT or BELOW the default cap are USUALLY not required to carry a deadline: they are
 # meant to be held by the dispatch-time bounding nudge ("explore less") instead. This lint
 # polices "write sooner" for the exhaustive ones that cannot take a bounding nudge without
-# losing the coverage that is their deliverable.
-#
-# THE GAP. That division assumes every default-cap agent's dispatch site
-# actually appends a nudge. plan-reviewer's appended none, on purpose: it was the measured
-# no-nudge arm.
-#
-# So plan-reviewer was held by NEITHER mechanism: unbounded at dispatch (deliberately, as the
-# measurement control) and unlinted here (because it sits exactly at the cap). It died at
-# the cap without emitting while this lint reported clean. DEADLINE_AT_DEFAULT is the
-# narrow fix: it brings a NAMED default-cap agent into jurisdiction without extending the
-# requirement to the whole panel. Enrollment lives here, in the lint, rather than as a
-# marker in the agent doc, so removing one is visible in this file's diff instead of being
-# a one-line silent edit in somebody's prose — the same reason the exemption above must
-# state a reason.
-#
-# spec-reviewer (#283) is a SECOND demonstrated case, of a different shape: its dispatch
-# site (intake-review.mjs) does append a dispatch-time nudge (PROGRESSIVE_EMIT), so it is
-# not held by neither mechanism the way plan-reviewer was — but the nudge alone did not prevent
-# the observed death (run #273: two dark attempts, both at the turn cap with zero output,
-# while a WEAKER nudge, BOUNDED_SPEC_GROUNDING, was already in place). The belt-and-
-# suspenders lesson from security-reviewer/scope-completeness-reviewer/unit-test-mutation-
-# reviewer holds here too: the dispatch-time nudge and the agent-doc deadline are
-# independent mitigations, and a demonstrated death earns both, not either.
-#
+# losing the coverage that is their deliverable, and for the default-cap agents enrolled in
+# DEADLINE_AT_DEFAULT because no nudge reaches them or a nudge alone did not hold them.
+# Enrollment lives here rather than as a marker in the agent doc, so removing one shows in
+# this file's diff.
 
 # Usage: check-emit-deadline.sh [agents-dir ...]   (default: every plugins/*/agents dir)
 # Env:   DEADLINE_AT_DEFAULT   space-separated agent names (basename, no .md) to lint even
@@ -93,51 +60,28 @@ DEFAULT_CAP=15
 #
 # Add a name only on a DEMONSTRATED death — an agent observed hitting its cap without
 # emitting — never prophylactically. Enrolling the whole default-cap panel is a different
-# (and much larger) decision than fixing an agent known to be falling through the gap.
+# (and much larger) decision than fixing an agent known to die at its cap.
 #
-# test-coverage-reviewer and maintainability-reviewer are the two PANEL reviewers that clear that
-# bar, and they clear it by measurement rather than by anecdote: docs/review-panel-yield.md counts
-# 10 dark events in 41 dispatches for the first and 1 in 47 for the second, over a pinned corpus of
-# 47 roster-named review rounds. No other panelist has a non-zero dark column there, and none of
-# them is enrolled here — the dark column IS the enrollment predicate, and a zero in it is a
-# refusal.
-#
-# THEIR DISPATCH ALREADY CARRIES A BOUNDING NUDGE, AND IT DID NOT HOLD. code-review.mjs appends
-# BOUNDED_EXPLORATION to both and records it as the primary, measured fix for this stall class
-# ("took maintainability-reviewer from ~50% to 0/12"). That is the spec-reviewer shape from the
-# header above — a nudge in place, a death anyway — and it earns the same conclusion: the
-# dispatch-time nudge and the agent-doc deadline are independent mitigations, and a demonstrated
-# death earns both, not either.
-#
-# figma-faithful-reviewer is the fifth, and it is the spec-reviewer shape a third time (#855). A
-# consumer's design-ARMED review round dispatched it and it died on BOTH fan-out attempts: 18 tool
-# calls each against maxTurns 15, empty final text, agents_error 0 — the cap signature exactly. The
-# session then re-dispatched it by hand at the SAME cap, SAME tier, SAME agent, adding nothing but a
-# turn-numbered deadline and a narrowed file list, and it returned a grounded verdict in 20 tool
-# calls. Its dispatch already carried BOUNDED_EXPLORATION, whose own numbered deadline ("by your 8th
-# tool call") is sized for the smallest domain in the panel — and this agent must load the repo's
-# design-token reference before it can assert anything, so it blows past 8 with nothing written and
-# then has no second anchor.
-#
-# It is NOT in docs/review-panel-yield.md's dark column, and that is not a refusal: P-8 records the
-# design-fidelity dimension at ZERO dispatches over that corpus and scores it "not decided" rather
-# than clean. An undecidable cell is not a measured zero, so the direct observation above is the
-# whole evidence base, and it is the predicate this list asks for.
-#
-# WHY ONLY THIS ONE. design-faithful-reviewer is the same shape — sibling provider of the same
-# dimension, same cap; it carries a body deadline since #1076 but is not enrolled — and a11y, db and pipeline are named in
-# code-review.mjs's ROOT CAUSE block as the same vulnerable population. None of them has a
-# demonstrated death, so none is enrolled: the header's rule is deliberate, and enrolling the
-# default-cap panel on a sibling's evidence is the larger decision it forbids. They are covered in
-# the meantime by ESCALATED_EMIT (#855), which changes the ask on a retry after an empty-text death
-# for whichever agent died, and needs no enrollment to reach them.
-#
-# performance-reviewer and complexity-reviewer are the sixth and seventh, and they are the one
-# DEPARTURE from that rule, made on purpose (#992). Neither has a demonstrated death. They are
-# enrolled because #992's substantial panel makes them required seats running on opus, a
-# population nobody has measured, where one unbounded seat leaves the whole panel short of a
-# domain. Their docs carry maintainability-reviewer's line verbatim. Their dispatch already appends
-# BOUNDED_EXPLORATION, so, like the three panel reviewers above, they hold both mitigations.
+# A dispatch-time nudge and an agent-doc deadline are independent mitigations, and a
+# demonstrated death earns both. Why each name is enrolled:
+#   plan-reviewer             died at the cap without emitting; no dispatch-time nudge reaches it.
+#   spec-reviewer             two dark attempts, both at the cap with zero output, while its
+#                             dispatch (intake-review.mjs) already appended a nudge.
+#   test-coverage-reviewer,   the only panel reviewers with a non-zero dark column in
+#   maintainability-reviewer  docs/review-panel-yield.md (10 of 41 and 1 of 47 dispatches), although
+#                             code-review.mjs appends BOUNDED_EXPLORATION to both.
+#   figma-faithful-reviewer   died on BOTH fan-out attempts at 18 tool calls against maxTurns 15 with
+#                             empty text, then returned a grounded verdict in 20 when re-dispatched at
+#                             the same cap and tier with a turn-numbered deadline. BOUNDED_EXPLORATION's
+#                             "by your 8th tool call" is too early for an agent that must load the
+#                             design-token reference first. review-panel-yield.md scores its dimension
+#                             "not decided" (zero dispatches), which is not a measured zero.
+#   performance-reviewer,     the one deliberate DEPARTURE: no demonstrated death, but required seats
+#   complexity-reviewer       on opus on the substantial panel, where one unbounded seat leaves the
+#                             panel short of a domain. Their dispatch also appends BOUNDED_EXPLORATION.
+# Not enrolled, for lack of a demonstrated death: design-faithful-reviewer (it carries a body
+# deadline anyway), a11y, db and pipeline. ESCALATED_EMIT in code-review.mjs covers them on a retry
+# after an empty-text death.
 DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer test-coverage-reviewer maintainability-reviewer figma-faithful-reviewer performance-reviewer complexity-reviewer}"
 
 # The jq binary. A seam, not a configuration knob — see the Env note above.
@@ -151,60 +95,29 @@ ENROLLED_SEEN=""
 FILES_SEEN=0
 
 # Resolve the roots to scan. Explicit args win; otherwise ENUMERATE every sibling plugin's
-# agents dir, in whichever topology this script is running from.
+# agents dir, in whichever topology this script is running from. A hop count to the repo root
+# holds only in the monorepo: installed, this script lives at
+# <cache>/<marketplace>/review-toolkit/<version>/scripts.
 #
-# WHY NOT A HOP COUNT TO THE REPO ROOT. The previous form derived `$HERE/../../..` as "the
-# repo" and globbed `$REPO/plugins/*/agents`. That hop count only holds in the monorepo:
-# installed, this script lives at <cache>/<marketplace>/review-toolkit/<version>/scripts, so
-# the same expression lands on the marketplace root — which has no `plugins/` — and the scan
-# found ZERO agents while reporting clean.
+# The anchors are the hop constants of `resolve_sibling_plugin_root()` in check-model-tiers.sh:
+#   $HERE/../..      shape 1: the monorepo `plugins/` dir, or (installed) my own version dirs
+#   $HERE/../../..   shape 2: the install marketplace root, already scoped to this marketplace
+# install-topology-selftest.sh stages <root>/<plugin>/<version>/, the same relative shape.
 #
-# THE ANCHORS. This is the enumeration cousin of `resolve_sibling_plugin_root()` in
-# check-model-tiers.sh, which sits in THIS directory, so its hop constants transfer verbatim:
-#   $HERE/../..      the monorepo `plugins/` dir      (its `$SCRIPT_DIR/../../<name>` rung)
-#   $HERE/../../..   the install marketplace root     (its `$SCRIPT_DIR/../../../<name>/*/` rung)
-# The marketplace root is already scoped to this plugin's own marketplace, so enumerating its
-# children cannot reach another marketplace's plugins. install-topology-selftest.sh stages
-# <root>/<plugin>/<version>/, the same relative shape.
+# Every candidate must carry `.claude-plugin/plugin.json`. An unbounded walk has no NAME to
+# bound it, and without the marker it enumerates whatever else lives beside the install: a probe
+# from a lone copy under $TMPDIR resolved an unrelated vendor's `agents` dir.
 #
-# WHAT COUNTS AS A PLUGIN. The named ladders can afford a loose marker because the NAME already
-# bounds them; an unbounded walk cannot. Every candidate must therefore carry
-# `.claude-plugin/plugin.json` — this repo's own definition of a plugin dir, and the same glob
-# install-topology-selftest.sh stages from. Without it the cache rung is just "every sibling
-# directory of my grandparent", which, run from anywhere unexpected, happily enumerates
-# whatever else lives there. That is not hypothetical: a probe of an earlier draft of this
-# block, from a lone copy under $TMPDIR, resolved an unrelated vendor's `agents` dir.
+# Only the newest version of each plugin is linted, and newest means HIGHEST (version_key below),
+# never lexically last. Superseded copies are noise: measured against a 12-version cache, all 16
+# violations came from versions that predate their own enrollment. Shape 1 keys this on the
+# declared name, because monorepo siblings have distinct names and a cache's version dirs share one.
 #
-# Newest version per plugin means the HIGHEST one. This used to select lexically — glob order,
-# last match wins — which ranked `9.0.0` above `10.0.0`, and it was mirrored deliberately
-# because every house ladder shared the defect. They no longer do: see version_key below, and
-# the per-field numeric sort the named ladders now use.
+# The two shapes are UNIONED, not tried in order. One level up the layouts are ambiguous, and a
+# first-hit ladder stops at shape 1 from an install, which scans review-toolkit alone. For a lint,
+# more agents scanned is the safe direction. Duplicates are dropped by path.
 #
-# BOTH SHAPES SELECT NEWEST-PER-PLUGIN, AND SHAPE 1 KEYS THAT ON THE DECLARED NAME. A real cache
-# holds MORE THAN ONE version of any given plugin, this one included — which one level up are
-# shape-1 candidates, each carrying plugin.json and an agents dir. Taking all of them lints
-# superseded copies as if they were current: measured against a 12-version cache, 16 violations
-# across 38 agents, every one of them from a version that predates its own enrollment. That is
-# not more coverage, it is historical noise, and it reds the lint on a correct install. The
-# declared `name` is what tells the two shape-1 layouts apart — monorepo siblings have distinct
-# names, a cache's version dirs all share one — so keeping the last candidate per NAME
-# degenerates correctly in both: every sibling in the monorepo, newest version only from a cache.
-#
-# THE TWO SHAPES ARE UNIONED, NOT TRIED IN ORDER. The named ladders can afford "first rung that
-# hits wins" because a NAME tells the two layouts apart: in a cache, `review-toolkit/<name>`
-# does not exist, so rung 1 misses and rung 2 runs. An enumeration has no name to miss on, and
-# one level up the layouts are genuinely ambiguous — `plugins/` and `<cache>/review-toolkit/`
-# are both "a directory of dirs carrying plugin.json". A first-hit ladder therefore stops at
-# shape 1 from an install, where shape 1 matches MY OWN version dirs and nothing else: measured,
-# that scanned review-toolkit alone and silently dropped design-toolkit and intake-toolkit —
-# the same narrowing this issue is about, one level shallower. Unioning cannot narrow, and for a
-# lint the safe direction is more agents scanned, never fewer — with the newest-per-plugin
-# selection above as the one bounded exception, since a superseded copy of a plugin is not
-# another plugin's coverage. Duplicates are dropped by path.
-#
-# NO SKIP RUNG, AND NO EMPTY PASS. If neither shape yields an agents dir this fails loudly —
-# and so does a scan that resolved roots but read no agent file out of them, because "clean, 0
-# linted" is the very report this lint spent a release emitting from an install.
+# No skip rung and no empty pass: no agents dir, or roots with no agent file, fails loudly.
 LIVE_SCAN=0
 if [ "$#" -gt 0 ]; then
   ROOTS="$*"
@@ -254,10 +167,8 @@ else
     s1="$s1$n	$(version_key "$(basename "$d")")	$d
 "
   done
-  # HIGHEST version wins per name, emitted in first-appearance order. This used to be "last
-  # candidate wins", which is glob order — lexical — so from a cache holding both, 9.0.0 beat
-  # 10.0.0 and the lint read a superseded copy of its own plugin. Tab-separated because a path
-  # may hold anything else; awk because bash 3.2 has no associative arrays.
+  # HIGHEST version wins per name, emitted in first-appearance order. Tab-separated because a
+  # path may hold anything else; awk because bash 3.2 has no associative arrays.
   while IFS= read -r d; do
     [ -n "$d" ] && add_root "$d/agents"
   done <<<"$(printf '%s' "$s1" | awk -F'\t' 'NF { if (!($1 in seen)) { seen[$1] = 1; order[++n] = $1 } if (!($1 in best) || $2 >= best[$1]) { best[$1] = $2; last[$1] = $3 } } END { for (i = 1; i <= n; i++) print last[order[i]] }')"
@@ -279,8 +190,7 @@ else
     echo "        Pass the agents dirs explicitly if you meant to scope the scan." >&2
     exit 1
   fi
-  # Resolution is the part that silently went wrong before, so it is reported — on STDERR, so
-  # stdout stays byte-identical to a run that resolved the same roots the old way.
+  # The resolved roots are reported on STDERR, so stdout carries only the lint result.
   echo "[emit-deadline] scanning roots:$ROOTS" >&2
 fi
 
@@ -382,24 +292,17 @@ for dir in $ROOTS; do
   done
 done
 
-# An enrolled name that matched no agent file is a dead entry — a typo or a rename — and
-# would otherwise be a silent no-op: the lint reports clean while the agent it was meant to
-# cover goes unchecked, which is the failure this enrollment exists to fix.
-#
-# Live scan only. With explicit dirs the caller has deliberately scoped the scan, so an
-# absent agent there carries no signal (and every fixture passes a synthetic one-agent
-# dir). Also requires having seen at least one agent file, so an empty or misconfigured
-# scan is not misreported as a bad enrollment.
-# Resolving roots is not the same as reading agents out of them. A live scan that saw no agent
-# file at all is the vacuous green in its second form — the roots looked plausible, the loop ran
-# over nothing, and the lint reported clean. Fail before the enrollment check below, which is
-# gated on FILES_SEEN and would otherwise stay silent on exactly this run.
+# A live scan that read no agent file at all is a vacuous green. Fail before the enrollment
+# check below, which is gated on FILES_SEEN and would stay silent on exactly this run.
 if [ "$LIVE_SCAN" -eq 1 ] && [ "$FILES_SEEN" -eq 0 ]; then
   echo "[emit-deadline] FAIL: resolved agent roots but read no agent file from them:$ROOTS" >&2
   echo "        A clean verdict over zero agents is not a clean verdict." >&2
   exit 1
 fi
 
+# An enrolled name that matched no agent file is a dead entry — a typo or a rename — and would
+# otherwise be a silent no-op. Live scan only: with explicit dirs the caller scoped the scan,
+# and every fixture passes a synthetic one-agent dir.
 if [ "$LIVE_SCAN" -eq 1 ] && [ "$FILES_SEEN" -gt 0 ]; then
   for e in $DEADLINE_AT_DEFAULT; do
     case " $ENROLLED_SEEN " in

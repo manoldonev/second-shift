@@ -38,8 +38,7 @@
 #                    supplies reviewers.modelOverrides. Missing = no overrides.
 #
 # Table agent names are parsed tolerant of BOTH bare (`security-reviewer`) and
-# qualified (`review-toolkit:security-reviewer`) spellings — another agent is
-# namespacing them concurrently — comparing on the bare name.
+# qualified (`review-toolkit:security-reviewer`) spellings, comparing on the bare name.
 #
 # Direction: table -> effective model. Every (agent, model) pair DECLARED in a
 # table must match. The reverse is intentionally NOT checked.
@@ -47,24 +46,18 @@
 # Tables validated:
 #   - map  REVIEWER_MODEL  in workflows/code-review.mjs
 #   - map  INTAKE_MODEL    in workflows/intake-review.mjs
-#   - map  FANOUT_MODEL    in workflows/intake-fanout.mjs (#916; its refuter ships at the `cross` tier)
-#     Since #351 these declare an abstract TIER, resolved through the alphabet parsed from
+#   - map  FANOUT_MODEL    in workflows/intake-fanout.mjs (its refuter ships at the `cross` tier)
+#     These declare an abstract TIER, resolved through the alphabet parsed from
 #     model-tiering.md before any comparison. Each file also inlines a DEFAULT_TIER_MAP
 #     copy (the sandbox forbids imports) which is held against that same authority.
 #     A MAP file's dispatch lines may ALSO carry an inline `model: '<tier>'` literal; that
 #     literal is a STANDALONE declaration — MAP files have no scalar to fall through to —
-#     and is lockstep-checked directly. No shipped dispatch carries one today: the
-#     structured-emitter leg that did was moved INTO both maps by #351, which is what gave
-#     it override and tierMap support. The path stays for the next inline carrier.
-#   - map  SUBSTANTIAL_MODEL in workflows/code-review.mjs (#992) — NOT against frontmatter (its
+#     and is lockstep-checked directly. No shipped dispatch carries one today.
+#   - map  SUBSTANTIAL_MODEL in workflows/code-review.mjs — NOT against frontmatter (its
 #     tiers differ from the agents' own by design) but against the parsed `## Substantial panel`
 #     table in model-tiering.md, both directions (SUBSTANTIAL-DRIFT). Its block is lifted out of
 #     the frontmatter scans above.
-#   - a map  DESIGN_MODEL (design-sync.mjs), a scalar UNIT_TEST_MODEL (unit-tests.mjs)
-#     and a scalar EXECUTOR_MODEL (mutation-gate.mjs) — RETIRED in #574 with their
-#     engines; a scalar plan-reviewer constant was RETIRED in #348 with the plan
-#     dispatcher. Each spec was removed from its loop, not made optional: a missing
-#     table is MISSING-TABLE by design, so a dead spec would red every consumer.
+#   A missing table is MISSING-TABLE, never a skip.
 #
 # Error classes:
 #   MISMATCH / DANGLING / NO-FRONTMATTER  the lockstep failures above.
@@ -72,13 +65,8 @@
 #   SUBSTANTIAL-DRIFT                     SUBSTANTIAL_MODEL and the `## Substantial panel`
 #                                         table disagree on a row, or one exists without the other.
 #   UNKNOWN-MODEL                         a token outside the parsed tier alphabet in a
-#                                         shipped MAP entry (the two map files) or in an
-#                                         inline `model: '<tier>'` literal (BOTH parsed
-#                                         workflow files; further carriers existed until
-#                                         #348/#574 deleted them). Both used to
-#                                         be SILENT: the enum lived inside the extraction
-#                                         regexes, so an unknown token was skipped entirely
-#                                         (map) or attributed to the file's scalar (inline).
+#                                         shipped MAP entry or in an inline
+#                                         `model: '<tier>'` literal.
 #                                         A raw vendor token such as `fable` belongs in
 #                                         config (reviewers.modelOverrides, where values are
 #                                         never enum-checked); shipped code names the tier
@@ -112,7 +100,7 @@ if [ ! -t 0 ]; then
         # Self-gate on the REAL command. A PreToolUse `if:` matcher sees only the
         # outer command string, and the configured glob (`Bash(git -c * commit *)`)
         # over-matches non-commit commands that merely contain a `git -c`/`git -C`
-        # substring plus a `commit`/`commitSha` substring (issue #208). The glob's
+        # substring plus a `commit`/`commitSha` substring. The glob's
         # tokenization is engine-internal and unverifiable, so we self-gate here:
         # allow (exit 0) unless the command actually invokes `git ... commit` as a
         # subcommand. Mirrors check-reviewer-references.sh verbatim.
@@ -300,10 +288,10 @@ override_model() {
 # table is allowed to keep the plugin default (override wins at dispatch) or to
 # already equal the override; either is consistent. A consumer override differing
 # from the shipped table is the FEATURE (per-repo tiering from the same plugin),
-# not drift. Without an override, table ↔ frontmatter lockstep is required as
-# before. Agent name compared bare.
+# not drift. Without an override, table ↔ frontmatter lockstep is required.
+# Agent name compared bare.
 #
-# TIERS (#351): the table now declares a tier, so both sides are compared as RESOLVED
+# The table declares a tier, so both sides are compared as RESOLVED
 # dispatch tokens. The table resolves through the SHIPPED DEFAULT map — never the
 # consumer's — so a repo retargeting a tier in `reviewers.tierMap` is not drift, exactly
 # as a differing `modelOverrides` value is not. An override value may itself name a tier
@@ -397,7 +385,7 @@ check_inline_default_map() { # check_inline_default_map <file> <tbl>
     done <<< "$DEFAULT_TIER_MAP_TEXT"
 }
 
-# --- The substantial-panel table (#992) --------------------------------------
+# --- The substantial-panel table ---------------------------------------------
 # code-review.mjs's SUBSTANTIAL_MODEL re-tiers the specialist seats for `panel: 'substantial'`.
 # Its tiers DIFFER from the agents' frontmatter by design, so it is no frontmatter lockstep: the
 # whole-file entry scans below would read every row as MISMATCH. The block is therefore lifted
@@ -467,33 +455,16 @@ check_substantial_table() { # check_substantial_table <file> <tbl>
 }
 
 # --- UNKNOWN-MODEL: tokens outside the known tier set ------------------------
-# The enum below is baked into the EXTRACTION regexes of the two scans that follow
-# this block, which is what made an out-of-enum token invisible rather than wrong:
-# the MAP grep never matched the entry (so check_pair never saw it), and the inline
-# grep's miss fell through to the file's scalar (so the dispatch was attributed to a
-# model it does not use). Both were silent — a 'gpt-4' or 'fable' entry left the
-# script green. These two scans re-read the same text with the model alternation
-# UNRESTRICTED and error on anything outside the set, so the enum-anchored parse
-# sites above/below can keep their tri-value strictness without a blind spot.
-#
-# The shipped alphabet is now VARIABLE (#351): it is whatever `## Tier alphabet` in
-# model-tiering.md declares, so this constant is derived rather than written. What did
-# NOT change is which layer is restricted — only the enum-anchored EXTRACTION regexes
-# below take this variable; the two counter-scans keep matching `'[^']+'` unrestricted
-# and merely VALIDATE against it, which is the two-layer design that stops an
-# out-of-alphabet token from going invisible.
+# The alphabet below is baked into the EXTRACTION regexes of the scans that follow, so an
+# out-of-alphabet token is invisible to them: the MAP grep never matches the entry, and the
+# inline grep misses the literal. The two counter-scans re-read the same text with the model
+# alternation UNRESTRICTED (`'[^']+'`) and only VALIDATE against this variable, so the
+# extraction can stay strict without a blind spot.
 #
 # `fable`, and every raw vendor token, is out-of-alphabet in shipped code by construction:
 # the alphabet holds TIER names, and `fable` is not a tier. Shipped code that wants Fable
 # names the `cross` tier; a consumer may still name the raw token in
 # reviewers.modelOverrides, where values are never enum-checked.
-#
-# NOT guarded: agent frontmatter (`frontmatter_model` above). It is read from the
-# consumer root as well as the plugin root, so a repo-local reviewers.add agent may
-# legitimately declare an override-only tier in its own frontmatter — enum-guarding
-# it would reject exactly the per-repo expressibility modelOverrides exists to give.
-# A SHIPPED agent that drifts to an unknown tier while named in a table still fails,
-# as MISMATCH rather than UNKNOWN-MODEL, so the failure direction stays safe.
 KNOWN_TIERS_RE="$(printf '%s\n' "$DEFAULT_TIER_MAP_TEXT" | awk -F'\t' 'NF == 2 { printf "%s%s", sep, $1; sep = "|" }')"
 # An empty alphabet already errored above; keep the regex non-empty so `^()$` cannot
 # match every token and turn the counter-scans into silent no-ops on the way out.
@@ -501,11 +472,8 @@ KNOWN_TIERS_RE="$(printf '%s\n' "$DEFAULT_TIER_MAP_TEXT" | awk -F'\t' 'NF == 2 {
 
 # MAP entries, whole-file — the same shape the enum-anchored grep uses, minus the
 # enum. Deliberately unrestricted rather than region-extracted: it matches only
-# genuine table entries across both surviving MAP files today (16/16 — 13 in
-# code-review.mjs, 3 in intake-review.mjs, the emitter row included since #351), and a
-# future non-tier `'key': 'value'` string map tripping it fails LOUD, which is the safe
-# direction for this script. The count moves whenever a table gains an agent; it is
-# documentation of the scan's current precision, never an assertion the script checks.
+# genuine table entries in the MAP files today, and a future non-tier
+# `'key': 'value'` string map tripping it fails LOUD, which is the safe direction.
 scan_unknown_map_entries() {
     local file="$1" tbl="$2" pair m a
     while IFS= read -r pair; do
@@ -517,16 +485,11 @@ scan_unknown_map_entries() {
     done <<< "$(strip_substantial "$file" | grep -oE "'[a-z0-9:-]+': '[^']+'")"
 }
 
-# Inline `model:` literals on agentType-bearing lines. Runs over BOTH parsed
-# workflow files (it named five until #574/#584 retired three engines):
-# the MAP grep above cannot see an inline literal at all
-# (`model:` is an unquoted key). This scan catches an OUT-OF-ENUM inline literal
-# in either file; the MAP loop's own inline pass
-# (below, in the `code-review.mjs`/`intake-review.mjs` for-loop)
-# separately lockstep-checks an IN-ENUM inline literal there against frontmatter, so
-# the two together cover both failure modes in the MAP files.
-# A `model:` that is an EXPRESSION (`modelOverrides[...] || SCALAR`) carries no
-# literal, does not match, and keeps falling through to the scalar as before.
+# Inline `model:` literals on agentType-bearing lines, in every parsed workflow file.
+# The MAP grep above cannot see an inline literal at all (`model:` is an unquoted key).
+# This scan catches an OUT-OF-ENUM inline literal; the MAP loop's own inline pass below
+# lockstep-checks an IN-ENUM one against frontmatter, so the two cover both failure modes.
+# A `model:` that is an EXPRESSION (`modelFor(...)`) carries no literal and does not match.
 scan_unknown_inline_literals() {
     local file="$1" tbl="$2" line m a
     while IFS= read -r line; do
@@ -555,12 +518,10 @@ for tbl in code-review.mjs intake-review.mjs intake-fanout.mjs; do
         check_pair "$agent" "$model" "$tbl"
     done <<< "$(strip_substantial "$file" | grep -oE "'[a-z0-9:-]+': '($KNOWN_TIERS_RE)'")"
 
-    # Inline `model:` literals on agentType-bearing dispatch lines. Unlike the scalar
-    # loop below, a MAP file has no file-level scalar to fall through to — the inline
-    # literal IS the declaration, checked directly against frontmatter/override. This
-    # is what closes the gap scan_unknown_inline_literals only enum-checked: an
-    # IN-ENUM inline literal here (e.g. structured-emitter's 'haiku') used to reach
-    # neither loop's MISMATCH check.
+    # Inline `model:` literals on agentType-bearing dispatch lines. A MAP file has no
+    # file-level scalar to fall through to — the inline literal IS the declaration,
+    # checked directly against frontmatter/override. scan_unknown_inline_literals only
+    # enum-checks it.
     inline_pairs=$(
         grep -E "agentType: '[a-z0-9:-]+'" "$file" | while IFS= read -r line; do
             grep -qE "model: '($KNOWN_TIERS_RE)'" <<<"$line" || continue
@@ -574,13 +535,6 @@ for tbl in code-review.mjs intake-review.mjs intake-fanout.mjs; do
         check_pair "$agent" "$model" "$tbl (inline)"
     done <<< "$inline_pairs"
 done
-
-# --- Scalar tables: RETIRED. The registry held UNIT_TEST_MODEL (unit-tests.mjs)
-# until #574 retired that engine, and the plan-reviewer scalar until #348 retired its
-# dispatcher. Each spec was removed rather than made conditional — a missing table is
-# MISSING-TABLE by design, so a dead spec would red every consumer. A future scalar
-# carrier re-adds the registry loop this comment replaces (see git history for its
-# shape: per-dispatch inline `model:` literals override the file scalar). ---
 
 [ "$DESIGN_ROWS_SKIPPED" -eq 1 ] \
     && echo "note: design-toolkit is not installed — its table rows are not checked." >&2
