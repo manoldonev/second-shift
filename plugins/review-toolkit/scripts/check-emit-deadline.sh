@@ -48,7 +48,7 @@
 # losing the coverage that is their deliverable.
 #
 # THE GAP. That division assumes every default-cap agent's dispatch site
-# actually appends a nudge. plan-reviewer's appends none, on purpose: it is the measured
+# actually appends a nudge. plan-reviewer's appended none, on purpose: it was the measured
 # no-nudge arm.
 #
 # So plan-reviewer was held by NEITHER mechanism: unbounded at dispatch (deliberately, as the
