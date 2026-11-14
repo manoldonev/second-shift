@@ -95,7 +95,7 @@ Read 2-3 files in the same directory/module to understand:
 
 ## Structured Output (intake Workflow)
 
-When you are dispatched through the intake Workflow (`intake-review.mjs`) with a JSON schema, return the **structured object** instead of the prose format above. The fields map directly onto the prose sections:
+When you are dispatched through the intake Workflow (`intake-review.mjs`), return the **structured object** below instead of the prose format above. Your dispatch prompt tells you the exact wire format (a sentinel line followed by one fenced json block); the fields map directly onto the prose sections:
 
 ```json
 {
@@ -126,4 +126,4 @@ When you are dispatched through the intake Workflow (`intake-review.mjs`) with a
 ```
 
 - `findings[].evidence` (file:line) is the rationale-carrying field — it lets the orchestrator **verify** a claimed dependency or impact rather than trust it. Put any non-obvious or `[uncertain]` claim here with its concrete grounding; an unverifiable claim with no evidence is the false-positive class the orchestrator must catch.
-- The structured object **is** your map — there is no separate prose pass to serialize from. Call StructuredOutput first, as your sole output: the same factual map at the same fidelity, recorded in the schema fields rather than narrated first (a long prose write-up ahead of the structured call can exhaust your turn budget before you emit).
+- The structured object **is** your map — there is no separate prose pass to serialize from. Emit it in the exact wire format your dispatch prompt specifies, as your sole output: the same factual map at the same fidelity, recorded in the fields rather than narrated first (a long prose write-up ahead of the block can exhaust your turn budget before you emit).

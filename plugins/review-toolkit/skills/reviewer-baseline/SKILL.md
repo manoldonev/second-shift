@@ -17,15 +17,15 @@ This skill defines the shared review protocol that ALL code reviewer agents foll
 
 Read this first — it governs HOW you record everything below.
 
-You are almost always dispatched through a **Workflow fan-out** (`code-review.mjs` for review-lead, standalone or pipeline-driven; `intake-review.mjs` for intake) that hands you a **JSON schema**. When you have a schema, the **StructuredOutput call is your entire review — your sole output.** Call it FIRST, before any prose, and do **not** also write the prose report or a prose `## Suppressed` section described below. The orchestrator reads only the structured object; a prose write-up in front of the structured call is wasted work that consumes your turn budget — a reviewer that spends its budget on prose can die before it ever calls StructuredOutput, which surfaces downstream as a missing review.
+You run without a schema. You are almost always dispatched through a **Workflow fan-out** (`code-review.mjs` for review-lead, standalone or pipeline-driven; `intake-review.mjs` for intake), and its dispatch prompt names the wire format: write your review, then end with the `REVIEW_RESULT` sentinel line and one fenced JSON block, with nothing after it. The orchestrator parses only the last such block.
 
-Map your review into the schema:
+Map your review into the block:
 
 - Each finding → one `findings[]` entry: `severity` (via the mapping under "Severity Levels"), the `Issue` / `Evidence` / `Recommendation` content folded into `description`, and `file` / `line` populated.
-- Sub-threshold findings → the top-level `suppressed[]` array (one string each), not a prose section.
-- Grounding citations → the finding's `file` / `line` + `description` (see "Grounding Verdicts" below), not a prose preamble.
+- Sub-threshold findings → the block's top-level `suppressed[]` array (one string each).
+- Grounding citations → the finding's `file` / `line` + `description` (see "Grounding Verdicts" below).
 
-The prose **"Standard Output Format"** further down applies **only** when you were dispatched without a schema (a direct, human-readable review). The review is identical at the same fidelity either way — the difference is serialization, not depth. Do the full grounding work in both modes; under a schema you record it in the fields instead of narrating it first.
+When the dispatch prompt names no `REVIEW_RESULT` block (a direct, human-readable review), the prose **"Standard Output Format"** further down is your whole output.
 
 ## Grounding Verdicts in Source Artifacts
 
@@ -43,7 +43,7 @@ For the failure classes observed in past reviews:
 
 **Proportionate grounding (triage first).** Skim the diff before you start opening files. If it is docs/config/reformatting — or otherwise has nothing in your domain — that judgment is itself sufficient grounding for a clean verdict: emit your verdict immediately, without opening every file. Open artifacts to ground the findings you actually raise and the parts of a diff that genuinely touch your domain — **not** to prove a negative across an entire large low-signal diff. Exhaustively opening every file to assert the absence of findings is what exhausts your turn budget before you emit, and **a reviewer that never emits a verdict is worse than a fast, honest "nothing here in my domain"** — the former surfaces downstream as a missing review, the latter is a complete one.
 
-**Recording the grounding.** Under a schema (your normal mode — see "Output Mode") you **record** the grounding in the structured fields: the `file` / `line` of the artifact you cited and the reasoning woven into the finding's `description` (the intake schemas have a dedicated `rationale` / `evidence` field for exactly this). Do **not** narrate a prose grounding walk-through ahead of the StructuredOutput call.
+**Recording the grounding.** In the `REVIEW_RESULT` block (your normal mode — see "Output Mode") you **record** the grounding in each finding: the `file` / `line` of the artifact you cited and the reasoning woven into the finding's `description` (the intake shapes have a dedicated `rationale` / `evidence` field for exactly this).
 
 **If the canonical artifact cannot be opened** (file doesn't exist, content ambiguous, fixture missing), the output is a **question**, not a verdict. Downgrade from PASS/FAIL to an explicit `"unable to verify — pointer needed: ..."` line. Optimistic defaults are how false-positive PASS verdicts ship.
 
@@ -83,11 +83,9 @@ Append a `## Suppressed` section at the end of your output with a one-line bulle
 - file:line — Confidence: N — brief description
 ```
 
-This gives the review-lead visibility into what was filtered without cluttering main findings. Under a schema dispatch (your normal mode — see "Output Mode"), put these in the structured `suppressed[]` array (one string each) instead of a prose `## Suppressed` section.
+This gives the review-lead visibility into what was filtered without cluttering main findings. When you end with a `REVIEW_RESULT` block (your normal mode — see "Output Mode"), also put these in the block's `suppressed[]` array (one string each).
 
 ## Standard Output Format
-
-**This prose format applies only when you were dispatched without a schema** — see "Output Mode", which governs the schema case.
 
 Every finding MUST use this structure:
 
@@ -108,17 +106,17 @@ Domain-specific fields (e.g., `Impact:` for performance findings) may be added b
 | **Warning**      | Should fix; implementable but risky                     | No (human decides) |
 | **Pre-existing** | Matches an existing codebase pattern that's imperfect   | No                 |
 
-### Severity vocabulary mapping (Workflow-schema dispatch)
+### Severity vocabulary mapping (`REVIEW_RESULT` block)
 
-When a reviewer runs under the `code-review.mjs` `Workflow` fan-out, its findings are returned through a structured schema whose `severity` enum is `[blocker, major, minor, nit]` — not the prose vocabulary above. Map your finding to the schema as:
+The `REVIEW_RESULT` block's `severity` takes `blocker`, `major`, `minor` or `nit` — not the prose vocabulary above. Map your finding to the block as:
 
-| Prose severity | Schema `severity`                             |
+| Prose severity | Block `severity`                              |
 | -------------- | --------------------------------------------- |
 | Critical       | `blocker`                                     |
 | Warning        | `major` (high-impact) or `minor` (low-impact) |
 | Pre-existing   | `nit` (informational — never blocks)          |
 
-The mapping is for transport only; the blocks-merge semantics are unchanged (Critical/`blocker` blocks; everything else informs the review-lead's triage). The rest of each finding (the `Issue` / `Evidence` / `Recommendation` content) folds into the structured `description` — see "Output Mode".
+The mapping is for transport only; the blocks-merge semantics are unchanged (Critical/`blocker` blocks; everything else informs the review-lead's triage). The rest of each finding (the `Issue` / `Evidence` / `Recommendation` content) folds into the block's `description` — see "Output Mode".
 
 ## Review Process Template
 

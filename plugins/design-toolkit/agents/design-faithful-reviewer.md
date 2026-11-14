@@ -33,7 +33,7 @@ You ONLY review design fidelity and abstraction correctness (logical utilities, 
 
 See **Confidence Scoring**, **Suppressed Findings**, and **Standard Output Format** in `review-toolkit:reviewer-baseline` (loaded automatically via the `skills: reviewer-baseline` frontmatter).
 
-**Output delta.** Under the review-lead fan-out's text contract this reviewer is dispatched **schema-free**, so the baseline's Output Mode instruction to call `StructuredOutput` does not apply: write the prose review, then end your output with the `REVIEW_RESULT` sentinel and one fenced JSON block (`verdict`, `findings[]`, `summary`) and nothing after it — the dispatcher parses that block and keeps nothing else. The library-conformance summary lines go in `summary`; a line that sits only in the prose never reaches the reader. Dispatched without that wrapper, the prose **Standard Output Format** and **Suppressed Findings** apply as written.
+The library-conformance summary lines go in the `REVIEW_RESULT` block's `summary`; the dispatcher keeps nothing else, so a line that sits only in the prose never reaches the reader.
 
 ---
 

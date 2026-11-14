@@ -209,6 +209,9 @@ thorough.
 
 ## Reviewer baseline
 
+<!-- LOCKSTEP: held verbatim to figma-faithful-spec-reviewer.md, the canonical side; the
+     reasoning lives there. -->
+<!-- LOCKSTEP-BEGIN artifact-reviewer-baseline-deltas -->
 `review-toolkit:reviewer-baseline` loads automatically via the `skills:` frontmatter (by name, not
 path — no relative path resolves in both the repo and installed-cache layouts). Take its
 **Grounding Verdicts**, **Confidence Scoring**, **Tool Discipline**, and per-finding evidence
@@ -219,16 +222,9 @@ a diff before merge:
   nothing merges at this stage. The local Blocker/Warning/Note ladder governs, mapping into the
   emitted `severity` as **Blocker → `blocker`**, **Warning → `major`** (high-impact) or
   **`minor`**, **Note → `nit`**.
-- **Output.** This agent is dispatched **schema-free** on the text contract, so the baseline's
-  Output Mode `StructuredOutput` instruction does not apply: write the prose review below, then
-  end with the `REVIEW_RESULT` sentinel and one fenced JSON block (`verdict`, `findings[]`,
-  `summary`) and nothing after it.
-
-<!-- The two deltas above are deliberately NOT in the `artifact-reviewer-baseline-deltas` lockstep
-     group the two figma artifact reviewers hold. That block's Output delta names the figma.mjs
-     engine as this agent's former dispatcher, which is true of them and false here — a verbatim
-     copy would ship a false clause to keep a guard quiet. The two deltas themselves are the
-     same; only the provenance clause is dropped. -->
+- **Output.** Write the prose review below, then end with the `REVIEW_RESULT` sentinel and one
+  fenced JSON block (`verdict`, `findings[]`, `summary`) and nothing after it.
+<!-- LOCKSTEP-END artifact-reviewer-baseline-deltas -->
 
 ## Final Verdict (single-pass output)
 

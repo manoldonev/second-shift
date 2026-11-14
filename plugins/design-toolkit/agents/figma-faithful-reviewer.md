@@ -55,8 +55,6 @@ Hard limits — state them rather than guessing:
 
 See `review-toolkit:reviewer-baseline` for the full protocol (loaded automatically via the `skills: reviewer-baseline` frontmatter) — in particular **Grounding Verdicts in Source Artifacts**, **Diff-scope discipline**, **Time-boxing**, **Confidence Scoring**, and **Severity Levels**.
 
-**Output delta.** Under the review-lead fan-out's text contract this reviewer is dispatched **schema-free** (its former gate dispatcher, the figma.mjs engine, was retired in #574), so the baseline's Output Mode instruction to call `StructuredOutput` does not apply: write the prose review, then end your output with the `REVIEW_RESULT` sentinel and one fenced JSON block (`verdict`, `findings[]`, `summary`) and nothing after it — the dispatcher parses that block. Dispatched without that gate wrapper, the prose **Standard Output Format** and **Suppressed Findings** apply as written.
-
 ---
 
 ## Shared rules — all surfaces (Warning)
@@ -147,7 +145,7 @@ Flag a literal `fontFamily` string (branded — inherit via the theme) and raw `
 
 ## Output Format
 
-Per `reviewer-baseline` — under schema dispatch emit via `StructuredOutput` per **Output Mode**; the prose framing below is for no-schema dispatch:
+Per `reviewer-baseline` **Output Mode**, with these field contents:
 
 - `Evidence:` the untokenized literal / hardcoded hex-or-rem / physical prop / hand-rolled element.
 - `Recommendation:` the token / palette path / sizing helper / logical prop / catalog component to use instead (cite the relevant reference rule).

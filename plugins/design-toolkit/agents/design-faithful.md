@@ -20,7 +20,7 @@ token file) and say so in your output.
 The `design-faithful` skill is loaded (see `skills:` above) — its body is your single source
 of truth: the DesignSync read path, mirroring the nearest analog in the repo's FE app, reusing
 the repo's primitives + tokens (never hand-rolling a primitive that exists), the auditable
-live-render self-verify checklist, and the `PRODUCE_SCHEMA` output contract. Do **not**
+live-render self-verify checklist, and the output contract. Do **not**
 re-implement or paraphrase it here; if this wrapper and the skill disagree, the skill wins.
 (Source of record: the loaded `design-faithful` SKILL.md.)
 
@@ -32,16 +32,9 @@ screen in the repo's FE app, run the self-verify checklist (record the result in
 PR), **commit using the bot identity configured for this repo** (config `tracker.bot`; the
 wrapper/identity installed by dev-pipeline's `install-gh-bot.sh` — exported as the `$GH_BOT`
 convention; the bot's git name/email are recorded in the repo's design-tokens extension
-file), and return the skill's `PRODUCE_SCHEMA` object: `{ summary, committed: true,
-changedFiles }` on success, or `{ summary, failClosed: { reason } }` (four-member
-`FAIL_CLOSED` enum) if the source is unreachable / over a DesignSync limit.
+file), and return the skill's output contract: `{ summary, committed: true, changedFiles }`
+on success, or `{ summary, failClosed: { reason } }` (four-member `FAIL_CLOSED` enum) if the
+source is unreachable / over a DesignSync limit.
 
-**Model tier:** `sonnet` — the shipped DESIGN_MODEL table that used to lockstep this
-frontmatter left with the design-sync engine (#574); the frontmatter alone declares the tier
-now. Because this is a sonnet session that self-judges visual fidelity and then
-commits, the self-verify checklist result MUST be recorded so a human reviewer (and the design
-gate) can audit it.
-
-**Tool grant:** `tools: '*'` — the engine passes only `{ agentType, model, schema }`, so this
-frontmatter is the sole grant of `DesignSync` + Read/Write/Edit/Bash/Grep/Glob (read the
-handoff, write the repo's FE-app code, run the lib, and commit) into the dispatched session.
+This is a sonnet session that self-judges visual fidelity and then commits, so the self-verify
+checklist result MUST be recorded where a human reviewer can audit it.

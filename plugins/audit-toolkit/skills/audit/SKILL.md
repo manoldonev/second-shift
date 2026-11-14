@@ -5,9 +5,9 @@ description: Read-only query of the current Claude Code session's tool-call ledg
 
 You are the audit query skill. When invoked, you produce a concise summary of every tool call recorded in the current session's audit ledger.
 
-The ledger is written by the audit-toolkit hook (`audit-tool-calls.sh`) on `PostToolUse` / `PostToolUseFailure` / `SubagentStop` / `UserPromptExpansion`. The hook fires automatically once the `audit-toolkit` plugin is enabled (plugin `hooks/hooks.json`); a legacy manual mode wires it via `.claude/settings.local.json`. It is the harness's record of what tools fired AND which slash commands the user invoked, independent of Claude's chat output. **When the two streams disagree, the harness wins.**
+The ledger is written by the audit-toolkit hook (`audit-tool-calls.sh`) on `PostToolUse` / `PostToolUseFailure` / `SubagentStop` / `UserPromptExpansion`. The hook fires automatically once the `audit-toolkit` plugin is enabled (plugin `hooks/hooks.json`). It is the harness's record of what tools fired AND which slash commands the user invoked, independent of Claude's chat output. **When the two streams disagree, the harness wins.**
 
-**This skill is observability only** — it surfaces signals for manual review and team-convention checks, and nothing here blocks pushes, commits, or any other action. The underlying ledger is separately admissible as evidence for tooling that gates on it (the `target` field exists for that), but `/audit` itself only reports.
+**This skill is observability only** — it surfaces signals for manual review and team-convention checks, and nothing here blocks pushes, commits, or any other action.
 
 ## Capabilities
 
@@ -41,7 +41,7 @@ If `$LEDGER` is empty, **do not produce an audit report**. Instead, output the o
 
 > The audit ledger is empty for this session — the audit hook hasn't written anything in this repo yet. The audit infrastructure is observability only (a small per-tool-call cost).
 >
-> To enable visibility into what tools Claude actually invokes: **enable the `audit-toolkit` plugin** for this repo. Its `hooks/hooks.json` wires the ledger writer automatically — nothing to copy. (Legacy/manual mode, for a repo not adopting the plugin, copies `templates/settings.audit-template.json` to `.claude/settings.local.json` and restarts Claude Code.)
+> To enable visibility into what tools Claude actually invokes: **enable the `audit-toolkit` plugin** for this repo. Its `hooks/hooks.json` wires the ledger writer automatically — nothing to copy.
 >
 > After the plugin is enabled, every tool call in this repo — including sessions running in a linked worktree — is appended to a per-session JSONL ledger under the main checkout's `.claude/audit/`. Run `/audit` again to see it.
 >
@@ -56,7 +56,7 @@ If `$LEDGER` is empty, **do not produce an audit report**. Instead, output the o
 > 1. **The plugin/hook was enabled mid-session.** Hook wiring is loaded at session start. Restart Claude Code, run a couple of tool calls, then re-run `/audit`.
 > 2. **No tool calls have fired in this session yet.** Use any tool (Read, Edit, Bash, etc.), then re-run `/audit`.
 >
-> If neither applies, confirm the `audit-toolkit` plugin is enabled (or, in legacy manual mode, that `.claude/settings.local.json` has a `hooks.PostToolUse` entry pointing at the audit hook).
+> If neither applies, confirm the `audit-toolkit` plugin is enabled.
 
 Distinguish A from B by `[ -d "$AUDIT_DIR" ]`. If even the directory is missing, that's Case A. Otherwise Case B.
 

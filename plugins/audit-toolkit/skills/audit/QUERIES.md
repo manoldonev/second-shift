@@ -38,7 +38,7 @@ either. The hook's own jq object literal is a THIRD copy and deliberately not a 
 | `Workflow` | the script path, falling back to the workflow name |
 | anything else | `""` — the key is always present, never omitted |
 
-`target` is what makes the ledger usable as **evidence** rather than only as a count: a gate can assert that a `Read` of a particular file happened inside a given window, and there is no receipt to fabricate — either the harness logged it or it did not. For `Agent` rows the equivalent identity already lives in `subagent`.
+For `Agent` rows the equivalent identity already lives in `subagent`.
 
 Two cautions. `Bash` targets are truncated, not sanitized — a command carrying an inline credential records its first 200 characters like any other, so treat the ledger with the care you'd give shell history (it is mode `0600` in a `0700` dir and never leaves the machine). And paths are recorded exactly as the harness supplied them, usually absolute and worktree-prefixed; normalize on the read side if you need them repo-relative.
 
@@ -114,7 +114,6 @@ jq -r 'select(.tool == "Skill") | .target | select(. != "")' "$LEDGER" | sort | 
 ### Did a specific file get read in a time window
 
 ```bash
-# The evidence shape a pipeline gate asserts on.
 jq -e --arg f "stages/9-open-pr.md" --arg since "2026-04-29T01:00:00Z" \
   'select(.tool == "Read" and .outcome == "ok" and .ts > $since and (.target | endswith($f)))' \
   "$LEDGER" >/dev/null && echo "read confirmed" || echo "no such read"

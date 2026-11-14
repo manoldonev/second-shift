@@ -3,12 +3,6 @@ name: review-lead
 description: Orchestrates parallel code review across specialized reviewers. Use when reviewing code changes, PRs, or before committing.
 ---
 
-<!-- The audit (/audit-toolkit:audit, /audit-toolkit:audit-history) is a tool-truth ledger — observability only,
-     never a gate on `git push` / `gh pr create` / commits. Dispatch every SELECTED reviewer for
-     real via the `code-review.mjs` Workflow `agent()` fan-out (standalone and pipeline-driven
-     alike); never simulate a dispatch. The lead pass is the one review this session performs
-     itself, and it is reported as its own — never as a subagent's. -->
-
 You are the code review team lead for the repo under review.
 
 This skill loads orchestration instructions into the **current session**. The current session — not this skill — runs the reviewer fan-out by invoking the `code-review.mjs` Workflow script (via the `Workflow` tool), both standalone and pipeline-driven. The body below tells the current session HOW to run the review.
@@ -17,7 +11,7 @@ This skill loads orchestration instructions into the **current session**. The cu
 
 Before dispatch, lint the per-reviewer extension surface: run `scripts/check-review-context.sh` (this plugin) against the repo under review. It fails closed when a file under `.claude/second-shift/review-context/` has a basename that is not a reviewer in the effective registry — a typo'd filename would otherwise be silently read by nobody. Fix (rename or register) before dispatching; skip only if the script is unreachable in the current install.
 
-The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` — one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`. Synthesis always runs **in this session** on the caller's model. This session triggers the fan-out itself, standalone or pipeline-driven, by running the Workflow:
+The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` — one schema-free `agent({ agentType, model })` per selected reviewer, via `parallel()`. Synthesis always runs **in this session** on the caller's model. This session triggers the fan-out itself, standalone or pipeline-driven, by running the Workflow:
 
 ```
 Workflow({ scriptPath: "<staged>/code-review.mjs",
@@ -43,7 +37,7 @@ Do **not** simulate a dispatch. Writing a subagent's findings yourself and repor
 
 ## Caller model guidance
 
-For best synthesis quality, invoke this skill from a session running on Opus 4.x — or on a Fable-class model where the subscription includes one. Each specialist reviewer runs at the model tier declared in its own agent frontmatter (or the repo's `reviewers.modelOverrides` entry, which may name `fable`); the orchestration, the **lead pass**, and synthesis all run on the caller's model. Synthesis is where deduplication, triage, the Scope Completeness Gate, and the cross-reviewer self-check happen, and the lead pass is where four review dimensions are now judged outright — the work that benefits most from a strong model.
+For best synthesis quality, invoke this skill from a session running on an Opus-class model — or on a Fable-class model where the subscription includes one. Each specialist reviewer runs at the model tier declared in its own agent frontmatter (or the repo's `reviewers.modelOverrides` entry, which may name `fable`); the orchestration, the **lead pass**, and synthesis all run on the caller's model. Synthesis is where deduplication, triage, the Scope Completeness Gate, and the cross-reviewer self-check happen, and the lead pass is where four review dimensions are now judged outright — the work that benefits most from a strong model.
 
 ## Maturity calibration
 
@@ -57,7 +51,7 @@ The panel named throughout this skill is the **plugin-shipped generic registry**
 
 - `reviewers.add[]` — repo-local reviewer agents living in the repo's `.claude/agents/` (referenced **bare**, e.g. `orders-reviewer`). Each entry declares `dimensions[]` (a routing/dedup hint — treat those dimensions as the reviewer's domain when deciding whether to spawn it and when merging its findings). Register these alongside the plugin panel; spawn them per their declared domain the same way the conditional reviewers below are spawned.
 - `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; omit its Verdicts row.
-- `reviewers.default[]` — deprecated. Do not read it: it selects nothing on any path. The config grill reports a config that sets it.
+- `reviewers.default[]` — deprecated. Do not read it: it selects nothing on any path.
 - `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). The `code-review.mjs` fan-out reads these; pass the overridden tier, not the agent-frontmatter default.
 
 If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced **bare**, and plugin-shipped reviewers **qualified** (`docs/namespaces.md` rule 2) — that asymmetry is the disambiguation between roots, and it is what the panel above is spelled to satisfy. The names in the panel are dispatch names: they reach `agent({ agentType })` through `code-review.mjs`, so a bare plugin name there is not a stylistic choice but an agent type that does not resolve. `check-reviewer-references.sh` enforces both halves.
@@ -90,7 +84,7 @@ Specialized reviewer sub-agents (Sonnet, mostly) produce false positives regular
 - When in doubt, read the actual code yourself before relaying a finding
 - Resolve gaps yourself when the answer is determinable from the codebase or the document at hand
 
-**A reviewer that flags 10 issues is not 10x more useful than one that flags 1.** Most value comes from the 1-2 findings that are genuinely important. Filter aggressively.
+**A reviewer that flags 10 issues is not 10x more useful than one that flags 1.** Most value comes from the 1-2 findings that are genuinely important.
 
 The Scope Completeness Gate (see Synthesis Rules) is the one exception — its FAIL/BLOCKED is structurally hard.
 
@@ -426,7 +420,7 @@ found in-session. Label them by dimension in the report exactly as a spawned rev
 
 ## Spawning Reviewers
 
-One dispatch substrate — the `code-review.mjs` Workflow. This session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one `agent({ agentType, model, schema })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings. This session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
+One dispatch substrate — the `code-review.mjs` Workflow. This session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one schema-free `agent({ agentType, model })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings. This session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
 
 - **Git diff scope**: `git diff [BASE]...[HEAD] -- <relevant paths>` (three-dot, matching what the script renders) or full diff if no range provided
 - Which files changed (from `git diff --stat`)
@@ -626,7 +620,7 @@ Two severity vocabularies coexist across the review/planning agents. When a find
 | Warning                                            | Warning                             | `major` / `minor` |
 | Note                                               | Pre-existing (informational)        | `nit`             |
 
-The right-hand columns are the existing `reviewer-baseline` prose → schema mapping (see [`reviewer-baseline`](../reviewer-baseline/SKILL.md), "Severity vocabulary mapping"); this table only adds the planning-agent column so the three are reconciled, not a third vocabulary. (`db-reviewer`'s own "Suggestion" tier is informational — treat as Note/Pre-existing.)
+The right-hand columns are the existing `reviewer-baseline` prose → `REVIEW_RESULT` block mapping (see [`reviewer-baseline`](../reviewer-baseline/SKILL.md), "Severity vocabulary mapping"); this table only adds the planning-agent column so the three are reconciled, not a third vocabulary. (`db-reviewer`'s own "Suggestion" tier is informational — treat as Note/Pre-existing.)
 
 ### Step 1: Deduplicate (before triage)
 
@@ -890,13 +884,10 @@ This reduces token waste and prevents redundant findings across review iteration
 
 ## Rules
 
-- **Dedup first, triage second** — merge overlapping findings before classifying severity
 - If reviewers disagree, note the disagreement and your recommendation
 - If ALL reviewers pass with no findings, say so concisely — include Strengths and verdict, don't pad the report
 - Never invent findings that no reviewer reported (cross-cutting self-check is the one exception — label these clearly)
 - **Always include Strengths** — pick the 2-4 most specific, non-redundant observations across all reviewer Strengths blocks. Consolidate observations about the same file into one bullet. Do not repeat the same observation twice.
-- **Always give a clear verdict** — "Ready to merge?" must be answered Yes, No, or With fixes. **One exception:** a round voided under Step 4b-void answers it not at all — there was no review to draw a verdict from, and "No" would assert findings that do not exist. Step 4b-void owns the trigger; do not restate it here. Two consequences of it that are easy to get backwards: an all-dark **selected set** is not a void on its own when the lead pass completed, and a dark `scope-completeness-reviewer` is a hard **No**, never a void
 - Repo-local domain reviewer findings about domain correctness take precedence over complexity reviewer suggestions to simplify domain logic
 - Pipeline reviewer findings about contract integrity take precedence over performance suggestions to change worker data flow
 - **Confidence is king** — a finding at confidence 95 from one reviewer outweighs three findings at confidence 80 from others. Prioritize by confidence × severity, not by count
-- **Scope Completeness is non-negotiable** — a FAIL/BLOCKED from that gate forces the merge verdict to "No" regardless of confidence weighting elsewhere

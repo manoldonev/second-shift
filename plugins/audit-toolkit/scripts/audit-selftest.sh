@@ -232,7 +232,7 @@ else
 fi
 
 # Test 11 — the payload's cwd takes the same resolution when CLAUDE_PROJECT_DIR is absent.
-# This is the branch a legacy/manual-mode wiring actually takes, and it is the one an
+# This is the branch a hook run without CLAUDE_PROJECT_DIR takes, and it is the one an
 # ambient CLAUDE_PROJECT_DIR would hide: `env -u` is what makes the case real.
 CSID2="audit-smoke-cwdfallback-$$"
 echo "Test 11 — no CLAUDE_PROJECT_DIR → payload cwd, same main-checkout anchor"

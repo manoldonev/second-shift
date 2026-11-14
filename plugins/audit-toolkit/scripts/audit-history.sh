@@ -57,8 +57,6 @@ repo yet ($AUDIT_DIR does not exist).
 
 To enable it: enable the audit-toolkit plugin for this repo. Its
 hooks/hooks.json wires the ledger writer automatically — nothing to copy.
-(Legacy/manual mode, for a repo not adopting the plugin: copy the plugin's
-templates/settings.audit-template.json to .claude/settings.local.json.)
 
 Once enabled, every Claude Code session in this repo — including sessions
 running in a linked worktree — appends tool-call rows to

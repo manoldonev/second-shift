@@ -1,6 +1,6 @@
 ---
 name: doctor
-description: Verify this repo's second-shift install/config state against the committed lockfile - prerequisites, settings/lockfile ref lockstep, never-installed, enabled-but-not-installed, version drift (behind AND ahead), project-scope records a user-scope one makes redundant, a second-shift copy installed from another marketplace (the plugin directory), ref-less marketplace shadowing, skill/agent shadow collisions, a review-toolkit older than the plugins that read its fan-out, opt-outs (informational), whether the default branch requires the second-shift/review status (informational), unknown extension file names under .claude/second-shift/, stale consumer CI from the retired verdict-record lane, config keys configVersion 3 removed, config-lint, config grill (advisory). Prints exact remediation commands, scoped to the record that actually loads. Run after cloning, after upgrades, whenever the toolkit feels absent.
+description: Verify this repo's second-shift install and config state against the committed lockfile, and print exact remediation commands for each problem. Run after cloning, after upgrades, whenever the toolkit feels absent.
 ---
 
 You are `/second-shift:doctor`.
@@ -13,22 +13,7 @@ You are `/second-shift:doctor`.
 4. Tone contract: missing plugins are "missing accelerators", not violations — this is fast
    local feedback. Config grill findings are WARNs by design: each proposes a value and says
    what it buys, and declining one is the repo's call.
-5. A config still on configVersion 2 gets one FAIL per removed key (`topology`, `gates`,
-   `stageParams`, `grillWaivers`, `design.liveRender.tolerancePx`, `design.liveRender.cwd`), each
-   pointing at `docs/migrations/v2-to-v3.md`. An installed `second-shift-ci.yml`,
-   `second-shift-ci-check.sh` or `second-shift-delta-guard.*`, or any `LANE_VERDICT_SUFFIX`
-   reference under `.github/` or `.claude/`, is one FAIL: those read a verdict record the lane no
-   longer writes, and the consumer deletes them.
-6. A file under `.claude/second-shift/` that matches no known extension name is one FAIL each
-   (a typo'd name is otherwise never read); the fix is a rename or a `.known-extensions` line. A
-   review-toolkit install without `workflows/code-review.mjs` or `model-tiering.md`, beside an
-   enabled dev-pipeline or intake-toolkit, is one FAIL: the plugins were updated one at a time,
-   and the fix is `/second-shift:local-dev-refresh`, which updates them together.
-7. Whether the default branch requires the `second-shift/review` commit status (classic branch
-   protection or a ruleset) is a `note`, never a FAIL: requiring it is the repo's choice. When gh
-   is missing, unauthenticated or offline, or the protection cannot be read, the note says
-   "unknown" and why. Relay it as information, not a problem.
-8. If the user asks about pipeline RUNTIME issues: gh auth is `gh auth status`; a ticket's
+5. If the user asks about pipeline RUNTIME issues: gh auth is `gh auth status`; a ticket's
    labels are `gh issue view <n> --json labels`. A run checks the config, the intake record,
    the lane's commands and the design declaration before it claims anything, and stops with a
    named `env-*` terminal on the first that fails; the checks and the design smoke run only in

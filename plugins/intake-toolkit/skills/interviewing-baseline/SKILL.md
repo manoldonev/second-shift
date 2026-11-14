@@ -128,10 +128,8 @@ does not fix, the name of a new thing — is not `codebase-derived`: ask it, and
 `user-answered` or `user-delegated`. A row that mixes the two gives `run:` evidence for the fact
 behind its choice.
 
-`ledger-lint.sh --receipt` refuses a `codebase-derived` row with none of the forms, a `run:` with
-an empty command or output, and a `cited` with no reason, a reason outside `convention`, `adr` and
-`kb`, or no source after the colon. It checks the form only, never that the page exists. The
-in-plan ledger is not linted for it.
+`ledger-lint.sh --receipt` checks these forms only, never that a cited page exists. The in-plan
+ledger is not linted for them.
 
 ### Open Regions
 
@@ -379,11 +377,7 @@ says the question is parked) and carries a fixed marker naming the page and whic
 | D-6 | Audit-row retention | 90 days, as the code does; the page is out of date — kb-conflict: <kb-page> (kb stale) | user-answered | intent |
 ```
 
-`ledger-lint.sh --receipt` refuses an absent section from v3, an empty one, a line that is
-neither one of the forms nor indented four spaces, a `Knowledge source:` line outside the two
-forms, a `Provider:` that is not a namespaced `<plugin>:<agent>`, two `Provider:` lines, a
-provider with no answer, and two forms in one section. On a split, each slice receipt carries the
-whole answer the parent's dispatch got.
+On a split, each slice receipt carries the whole answer the parent's dispatch got.
 
 ### Receipt versions
 
@@ -413,9 +407,8 @@ version instead of failing every receipt written before it:
 | Test intent | v4 |
 <!-- LOCKSTEP-END receipt-versions -->
 
-The lint (`ledger-lint.sh`) holds the same table and is what enforces it. It refuses two
-`Receipt:` lines, one inside a section, one not of the form `Receipt: v<N>`, and a version above
-the highest it knows; `ledger-lint.sh --receipt-version` prints that version. The scheduler
+The lint (`ledger-lint.sh`) holds the same table and is what enforces it.
+`ledger-lint.sh --receipt-version` prints the highest version it knows. The scheduler
 lints a receipt before it claims the ticket, with the intake-toolkit the repo has enabled, and
 refuses (`env-receipt-lint-unavailable`) when that lint knows fewer versions than the receipt.
 Write the highest version, so every section it mandates is there.
@@ -482,9 +475,7 @@ AC-8: run.sh's checks phase runs the coverage check (a run-selftest case)
   holds or unchecked line is the operator's answer to a question, recorded as a `user-answered`
   row; a holds or unchecked AC must still be tagged on a test task.
 
-`ledger-lint.sh --receipt` refuses an absent section from v4, an id on `ACs:` with no line, a
-line for an id `ACs:` does not list, an exempt, holds or unchecked line with no reason, and any
-other line. It is offline: an id dropped from `ACs:` is invisible to it. The scheduler reads the
+`ledger-lint.sh --receipt` is offline: an id dropped from `ACs:` is invisible to it. The scheduler reads the
 section from the record's first commit and runs `plan-coverage.sh` (dev-pipeline) on the build's
 plan at the head: every AC not exempt must be tagged on a test task that names its test files,
 and no tag may name an id `ACs:` does not list — except an id the record at the head adds under
@@ -529,9 +520,4 @@ The order of the `/intake` stages lives in the `intake` skill; do not restate it
 
 ## What all interviewers must avoid
 
-- Leading with a finished draft, or with a decision set the human has not disposed of one at a time — including a table of agent-chosen defaults put up for one blanket approval.
-- Reading repeated pushback as fatigue and narrowing in response.
 - Quizzing the engineer — questions elicit decisions; they never test comprehension.
-- Asking codebase-answerable questions.
-- Ungrounded recommendations dressed as grounded ones.
-- Re-litigating a decision the user already made (in this session or in the ledger).

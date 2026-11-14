@@ -2,15 +2,7 @@
 # Append one row per tool call to a per-session JSONL ledger.
 # Wired to PostToolUse / PostToolUseFailure / SubagentStop /
 # UserPromptExpansion via the plugin's hooks/hooks.json — fires automatically
-# once the audit-toolkit plugin is enabled. (Legacy/manual fallback for repos
-# not using the plugin: templates/settings.audit-template.json.)
-#
-# Two roles, deliberately split. For `/audit` and `/audit-history` the ledger is
-# ADVISORY — a visibility signal for manual review that blocks nothing. For pipeline
-# gates it is ADMISSIBLE EVIDENCE: `target` below is what lets a completion
-# precondition assert "a Read of stages/9-*.md happened inside this stage's window"
-# instead of trusting the executor's own claim that it did. Nothing in THIS script
-# blocks anything; it only writes rows honest enough to be checked against.
+# once the audit-toolkit plugin is enabled. Nothing in this script blocks anything.
 
 set -uo pipefail
 
@@ -26,9 +18,9 @@ COMMAND_NAME=$(jq -r '.command_name // empty' <<<"$PAYLOAD")
 
 # The identifying input, per tool — what the call ran ON, not merely that it ran.
 # Without it the ledger can prove *a* Read happened somewhere in the session and
-# nothing more, which is why it could not serve as gate evidence.
+# nothing more.
 #
-# Key names carry fallback chains for the same reason line 21 above does
+# Key names carry fallback chains for the same reason the SUBAGENT lookup above does
 # (`.tool_input.subagent_type // .agent_type`): the payload shape is the harness's
 # to change, and a single wrong key fails SILENTLY — it emits "" while every
 # selftest stays green, leaving the ledger looking instrumented when it is not.
