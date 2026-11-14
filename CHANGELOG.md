@@ -4,6 +4,179 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v18.0.0
+
+### `audit-toolkit` 7.0.0 → 8.0.0
+
+- **chore(review-toolkit)!: remove the retired plan archive, the ablation evidence and the evals that cannot run (#1222)** (#1222)
+  review-toolkit no longer ships the review-lead-synth agent or the
+  plan-reviewer, review-lead and security-reviewer evals, and intake-toolkit no
+  longer ships the intake-orchestrator eval; none of them could run as shipped.
+  review-lead drops synthesis-only mode and always runs its own reviewer
+  fan-out. The planted code-review bench drops the blind-prove arm and its
+  probe, bound-probe and compare subcommands.
+  Migration: a caller that handed review-lead pre-dispatched findings invokes
+  review-lead normally instead and lets it dispatch the reviewers.
+  **BREAKING:** review-toolkit no longer ships the review-lead-synth agent, and review-lead no longer has synthesis-only mode. A caller that handed review-lead pre-dispatched findings invokes it normally instead.
+- **fix: correct wrong and duplicated instructions in shipped prompts (#1225)** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+
+### `design-toolkit` 8.3.0 → 9.0.0
+
+- **chore(review-toolkit)!: remove the retired plan archive, the ablation evidence and the evals that cannot run (#1222)** (#1222)
+  review-toolkit no longer ships the review-lead-synth agent or the
+  plan-reviewer, review-lead and security-reviewer evals, and intake-toolkit no
+  longer ships the intake-orchestrator eval; none of them could run as shipped.
+  review-lead drops synthesis-only mode and always runs its own reviewer
+  fan-out. The planted code-review bench drops the blind-prove arm and its
+  probe, bound-probe and compare subcommands.
+  Migration: a caller that handed review-lead pre-dispatched findings invokes
+  review-lead normally instead and lets it dispatch the reviewers.
+  **BREAKING:** review-toolkit no longer ships the review-lead-synth agent, and review-lead no longer has synthesis-only mode. A caller that handed review-lead pre-dispatched findings invokes it normally instead.
+- **fix: correct wrong and duplicated instructions in shipped prompts (#1225)** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+- **chore: strip origin stories and ticket ids from runtime script comments (#1226)** (#1226)
+
+### `dev-pipeline` 17.13.1 → 17.14.0
+
+- **feat(dev-pipeline): the verdict's machine line lists each finding and counts other reviewers' comments (#1210)** (#1210)
+  the joined verdict's plain-vs-lane machine line is now v3. It lists
+  each finding of both reviews, capped at 150, and records other_comments: the
+  comments other reviewers had on the PR when the review started, read by the
+  new tools/other-comments.sh. Route paths such as app/users/[id]/page.tsx are
+  read whole, so two route files at one line no longer pair.
+  Migration: none. Every v2 field keeps its name and meaning.
+- **feat(review-toolkit): review-lead offers to post its report on the PR as a pending review (#1213)** (#1213)
+  review-lead writes `reviewed: <sha>` as line 2 of its report and,
+  after a review of a branch with an open PR, offers to post the report on that
+  PR as a pending review under your own gh account. A void round no longer runs
+  the join; it shows the blind review alone.
+  Migration: none.
+  review-lead checks the PR head and commits before it offers to
+  post a report, and a PR with more than 250 commits can take a review of
+  its head.
+  Migration: none.
+- **chore(dev-pipeline): remove tools with no caller, the unused selftest pass cache and two prose lints (#1221)** (#1221)
+  dev-pipeline no longer ships tools/predecessor-gate.sh,
+  tools/checked-call.sh or hooks.md, and review-toolkit no longer ships
+  workflows/tool-discipline-probe.mjs. No skill, agent or lane step called
+  any of them. The hooks.json description now states which commit commands
+  each matcher catches.
+  Migration: a consumer script that calls predecessor-gate.sh or sources
+  checked-call.sh must keep its own copy; no other action.
+- **fix: correct wrong and duplicated instructions in shipped prompts (#1225)** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+- **chore: strip origin stories and ticket ids from runtime script comments (#1226)** (#1226)
+
+### `intake-toolkit` 8.7.1 → 9.0.0
+
+- **chore(review-toolkit)!: remove the retired plan archive, the ablation evidence and the evals that cannot run (#1222)** (#1222)
+  review-toolkit no longer ships the review-lead-synth agent or the
+  plan-reviewer, review-lead and security-reviewer evals, and intake-toolkit no
+  longer ships the intake-orchestrator eval; none of them could run as shipped.
+  review-lead drops synthesis-only mode and always runs its own reviewer
+  fan-out. The planted code-review bench drops the blind-prove arm and its
+  probe, bound-probe and compare subcommands.
+  Migration: a caller that handed review-lead pre-dispatched findings invokes
+  review-lead normally instead and lets it dispatch the reviewers.
+  **BREAKING:** review-toolkit no longer ships the review-lead-synth agent, and review-lead no longer has synthesis-only mode. A caller that handed review-lead pre-dispatched findings invokes it normally instead.
+- **fix: correct wrong and duplicated instructions in shipped prompts (#1225)** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+
+### `review-toolkit` 11.9.0 → 12.0.0
+
+- **feat(dev-pipeline): the verdict's machine line lists each finding and counts other reviewers' comments (#1210)** (#1210)
+  the joined verdict's plain-vs-lane machine line is now v3. It lists
+  each finding of both reviews, capped at 150, and records other_comments: the
+  comments other reviewers had on the PR when the review started, read by the
+  new tools/other-comments.sh. Route paths such as app/users/[id]/page.tsx are
+  read whole, so two route files at one line no longer pair.
+  Migration: none. Every v2 field keeps its name and meaning.
+- **feat(review-toolkit): review-lead offers to post its report on the PR as a pending review (#1213)** (#1213)
+  review-lead writes `reviewed: <sha>` as line 2 of its report and,
+  after a review of a branch with an open PR, offers to post the report on that
+  PR as a pending review under your own gh account. A void round no longer runs
+  the join; it shows the blind review alone.
+  Migration: none.
+  review-lead checks the PR head and commits before it offers to
+  post a report, and a PR with more than 250 commits can take a review of
+  its head.
+  Migration: none.
+- **chore(dev-pipeline): remove tools with no caller, the unused selftest pass cache and two prose lints (#1221)** (#1221)
+  dev-pipeline no longer ships tools/predecessor-gate.sh,
+  tools/checked-call.sh or hooks.md, and review-toolkit no longer ships
+  workflows/tool-discipline-probe.mjs. No skill, agent or lane step called
+  any of them. The hooks.json description now states which commit commands
+  each matcher catches.
+  Migration: a consumer script that calls predecessor-gate.sh or sources
+  checked-call.sh must keep its own copy; no other action.
+- **chore(review-toolkit)!: remove the retired plan archive, the ablation evidence and the evals that cannot run (#1222)** (#1222)
+  review-toolkit no longer ships the review-lead-synth agent or the
+  plan-reviewer, review-lead and security-reviewer evals, and intake-toolkit no
+  longer ships the intake-orchestrator eval; none of them could run as shipped.
+  review-lead drops synthesis-only mode and always runs its own reviewer
+  fan-out. The planted code-review bench drops the blind-prove arm and its
+  probe, bound-probe and compare subcommands.
+  Migration: a caller that handed review-lead pre-dispatched findings invokes
+  review-lead normally instead and lets it dispatch the reviewers.
+  **BREAKING:** review-toolkit no longer ships the review-lead-synth agent, and review-lead no longer has synthesis-only mode. A caller that handed review-lead pre-dispatched findings invokes it normally instead.
+- **fix: correct wrong and duplicated instructions in shipped prompts (#1225)** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+- **chore: strip origin stories and ticket ids from runtime script comments (#1226)** (#1226)
+
+### `second-shift` 13.6.3 → 14.0.0
+
+- **chore(dev-pipeline): remove tools with no caller, the unused selftest pass cache and two prose lints (#1221)** (#1221)
+  dev-pipeline no longer ships tools/predecessor-gate.sh,
+  tools/checked-call.sh or hooks.md, and review-toolkit no longer ships
+  workflows/tool-discipline-probe.mjs. No skill, agent or lane step called
+  any of them. The hooks.json description now states which commit commands
+  each matcher catches.
+  Migration: a consumer script that calls predecessor-gate.sh or sources
+  checked-call.sh must keep its own copy; no other action.
+- **chore(review-toolkit)!: remove the retired plan archive, the ablation evidence and the evals that cannot run (#1222)** (#1222)
+  review-toolkit no longer ships the review-lead-synth agent or the
+  plan-reviewer, review-lead and security-reviewer evals, and intake-toolkit no
+  longer ships the intake-orchestrator eval; none of them could run as shipped.
+  review-lead drops synthesis-only mode and always runs its own reviewer
+  fan-out. The planted code-review bench drops the blind-prove arm and its
+  probe, bound-probe and compare subcommands.
+  Migration: a caller that handed review-lead pre-dispatched findings invokes
+  review-lead normally instead and lets it dispatch the reviewers.
+  **BREAKING:** review-toolkit no longer ships the review-lead-synth agent, and review-lead no longer has synthesis-only mode. A caller that handed review-lead pre-dispatched findings invokes it normally instead.
+- **fix: correct wrong and duplicated instructions in shipped prompts (#1225)** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+
 ## v17.14.1
 
 ### `dev-pipeline` 17.13.0 → 17.13.1
