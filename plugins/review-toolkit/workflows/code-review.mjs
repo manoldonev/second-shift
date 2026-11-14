@@ -216,8 +216,8 @@ const CLOSING_LINK = /^(close[sd]?|fix(e[sd])?|resolve[sd]?)$/i
 // commits as phantom deletions.
 const range = `${base}...${head}`
 const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
-// Why reviewers die before they emit (measured by workflows/stall-probe.mjs on a 1326-line
-// low-signal diff, maintainability-reviewer): they exhaust their turn budget GROUNDING THE
+// ROOT CAUSE: why reviewers die before they emit (measured by workflows/stall-probe.mjs on a
+// 1326-line low-signal diff, maintainability-reviewer): they exhaust their turn budget GROUNDING THE
 // ABSENCE of findings, opening files across the whole diff to prove a clean verdict, because
 // reviewer-baseline gives "no findings" the same open-and-cite requirement as a real finding.
 //   - Size-driven: a TINY low-signal diff never stalls (0/8); a LARGE one does (~57% across runs).
