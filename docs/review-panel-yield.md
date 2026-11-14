@@ -6,11 +6,8 @@ What each `review-lead` panelist returned for what it cost, over a pinned corpus
 and the per-class dispatch decision that follows. Filed under #661 as the measurement that must
 exist *before* a dispatch change; the routing edit that consumes it is #667's.
 
-This is a **judgment register with its measurement attached**, in the shape
-`tools/gate-ablation-classes.tsv` established: one row per decision point, each carrying the
-regression class it alone catches. It ships as markdown rather than TSV because no generator reads
-it — `gate-ablation-classes.tsv` is a TSV because `gate-ablation.awk` parses it, and a register
-with no consumer is the dead-weight class `prose-budget.sh`'s own header names.
+This is a **judgment register with its measurement attached**: one row per decision point, each
+carrying the regression class it alone catches. It ships as markdown because no generator reads it.
 
 ## The corpus
 
@@ -24,8 +21,9 @@ git log --all --diff-filter=AM --date=short --pretty='%H %ad' --name-only -- 'do
 
 then `git rev-parse <sha>:<path>` per version, deduplicated on the blob.
 
-**The records are no longer in the tree; the derivation needs a full clone.** A shallow or
-single-branch clone does not hold the history that `git log --all` reads.
+**The records are no longer in the tree; the derivation needs a full clone with every branch.**
+`git log --all` reads every ref, lane branches included. A shallow or single-branch clone does not
+hold that history, and the command then returns nothing.
 
 **Dedup on the blob, not the commit.** A record committed on its lane branch and again on `main` at
 merge is one round; counting commits inflates every denominator. Here 68 versions collapse to 56
@@ -188,8 +186,7 @@ nothing**, and 77% of that is one panelist.
 
 `decision` uses the ticket's vocabulary: `keep` (always-spawn), `demote` (dispatched only on a diff
 matching its domain), `retire`. `earn_your_keep` names the regression class the panelist alone
-catches — the same column `tools/gate-ablation-classes.tsv` carries, and the same discipline: a row
-whose column is empty is a row that has stopped paying for itself.
+catches. A row whose column is empty is a row that has stopped paying for itself.
 
 | ID | Panelist | Decision | Basis (row above) | earn_your_keep |
 | --- | --- | --- | --- | --- |

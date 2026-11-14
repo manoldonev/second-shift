@@ -80,8 +80,9 @@ burns quota.
 ## Rubrics
 
 All three use the same 6/2/2 split over `d1_verdict_correctness`, `d2_finding_grounding`,
-`d3_no_fabrication`. The acceptance bar grades in binary while the kit scores a weighted rubric, so the verdict dimension carries
-the bulk and a per-fixture pass rate reads straight off `per_fixture` in the results JSON while
+`d3_no_fabrication`. Each eval's per-fixture pass bar is binary while the kit scores a weighted
+rubric, so the verdict dimension carries the bulk and a per-fixture pass rate reads straight off
+`per_fixture` in the results JSON while
 `overall_pct` still feeds the +10pp/3-run keep-or-revert rule in
 [`eval-criteria.md`](eval-criteria.md).
 
