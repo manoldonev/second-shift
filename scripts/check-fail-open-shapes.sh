@@ -6,7 +6,7 @@
 # producer leaves grep an empty stream, which reports no match; under `pipefail` the dead
 # producer also makes the pipeline non-zero, which reads as "no match" again. The caller learns
 # "no", and "no" is not what happened. The sanctioned replacement is `checked_match`
-# (plugins/dev-pipeline/tools/checked-call.sh), whose rc 2 means UNKNOWN.
+# (plugins/second-shift/skills/onboard/tools/detect.sh), whose rc 2 means UNKNOWN.
 #
 # WHY A GUARD AND NOT A CONVENTION: two of the three worst instances on record were never in a
 # file at all — a session typed them into a shell. A lint cannot see those, and pretending
@@ -21,7 +21,7 @@
 # rot quietly: an unclassified site reds, and a row whose anchor matches nothing reds as drift.
 #
 # Legs (each with a declared scope and check direction) — deliberately only the ones a substring
-# check can honestly decide, the stack-generality-lint.sh posture:
+# check can honestly decide:
 #
 #   pipeline       every command-producer `| grep -q` site is dispositioned in the TSV.
 #                  VARIABLE producers (`printf … | grep -q`) are excluded: #522 already

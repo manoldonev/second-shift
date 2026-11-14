@@ -400,11 +400,11 @@ make_rt_custom_alphabet() {
 
 ## Tier alphabet
 
-| Tier | Dispatch token | Model | Rationale |
-| ---- | -------------- | ----- | --------- |
-| $a | opus | claude-opus-4-8 | deep |
-| $b | sonnet | claude-sonnet-4-6 | fast |
-| $c | haiku | claude-haiku-4-5 | sink |
+| Tier | Dispatch token | Rationale |
+| ---- | -------------- | --------- |
+| $a | opus | deep |
+| $b | sonnet | fast |
+| $c | haiku | sink |
 DOC
   cat > "$dst/workflows/code-review.mjs" <<MJS
 const DEFAULT_TIER_MAP = {

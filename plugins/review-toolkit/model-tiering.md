@@ -19,12 +19,12 @@ literal each `.mjs` engine inlines — the Workflow sandbox forbids imports, so 
 removed — matches it. That is what "one authority" means here: the copies remain, and they are
 checked.
 
-| Tier      | Dispatch token | Model             | Rationale                                       |
-| --------- | -------------- | ----------------- | ----------------------------------------------- |
-| reasoning | opus           | claude-opus-4-8   | Architectural reasoning, multi-domain synthesis |
-| code      | sonnet         | claude-sonnet-4-6 | Fast, capable code generation                   |
-| emit      | haiku          | claude-haiku-4-5  | Transcription-only structured-output sink       |
-| cross     | fable          | claude-fable-5-1  | A second model family for independent checks    |
+| Tier      | Dispatch token | Rationale                                       |
+| --------- | -------------- | ----------------------------------------------- |
+| reasoning | opus           | Architectural reasoning, multi-domain synthesis |
+| code      | sonnet         | Fast, capable code generation                   |
+| emit      | haiku          | Transcription-only structured-output sink       |
+| cross     | fable          | A second model family for independent checks    |
 
 **Retargeting a tier per repo (`reviewers.tierMap`).** A consumer maps any tier to a different
 dispatch token in config — `"reviewers": { "tierMap": { "code": "haiku" } }`. The map **merges**
@@ -76,9 +76,3 @@ against frontmatter, because they differ from it on purpose.
 | review-toolkit:complexity-reviewer         | reasoning |
 | review-toolkit:test-coverage-reviewer      | reasoning |
 | review-toolkit:unit-test-mutation-reviewer | reasoning |
-
-## Anonymous-executor tiers
-
-Every dispatch site names an agent, so its tier is lockstep-checked against that agent's `model:`
-frontmatter. A dispatcher whose executors have no frontmatter declares their tier under this
-heading, for `check-model-tiers.sh` to hold its table against.

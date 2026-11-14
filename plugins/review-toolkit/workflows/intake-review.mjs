@@ -259,8 +259,6 @@ const validateShape = (obj, schema) => {
 }
 
 const emitStructured = (text, opts) =>
-  // bounded-exploration-optout: structured-emitter -- tools:[] maxTurns:2 transcription sink;
-  //   nothing to explore, which is why it may carry the schema.
   agent(
     'Convert this completed review into the required structured object. Transcribe EXACTLY' +
       ' what the review states — never invent, drop, merge, soften or upgrade findings.' +
@@ -291,12 +289,9 @@ const PROGRESSIVE_EMIT =
 // LOCKSTEP-END progressive-emit
 
 // Per-entry dispositions. These two descriptors take OPPOSITE treatment yet share one agent() call
-// downstream — the shape that forced the lint grammar's `delegated` verb (see dispatchIntake).
+// downstream (see dispatchIntake).
 const DISPATCH = [
   {
-    // bounded-exploration-optout: validator-reference -- consumed as d.schema by validateShape and
-    //   the emitter; the explorer dispatch is schema-free. Its bounding text (PROGRESSIVE_EMIT)
-    //   rides in the prompt below.
     agentType: 'review-toolkit:spec-reviewer',
     schema: SPEC_REVIEW_SCHEMA,
     prompt:
@@ -317,9 +312,7 @@ const DISPATCH = [
       ' "rationale": "...", "suggestion": "...", "confidence": 0, "file": "...", "line": 0 } ] }\n```',
   },
   {
-    // bounded-exploration-optout: validator-reference -- consumed as d.schema by validateShape and
-    //   the emitter; the explorer dispatch is schema-free. No bounding text either: mapping the
-    //   impact surface IS this agent's deliverable (same class as scope-completeness-reviewer).
+    // No bounding text: mapping the impact surface is this agent's deliverable.
     agentType: 'review-toolkit:codebase-explorer',
     schema: CODEBASE_EXPLORER_SCHEMA,
     prompt:
@@ -366,8 +359,6 @@ const dispatchIntake = async (d) => {
     model: modelFor(d.agentType),
     label: d.agentType,
     phase: 'Intake',
-    // bounded-exploration-optout: validator-reference -- pass-through of the per-descriptor
-    //   validator schema; the explorer dispatch in the ladder below is schema-free.
     schema: d.schema,
   }
   // Explorer/emitter ladder — dark-marker shapes unchanged (the orchestrator keys on
@@ -394,8 +385,6 @@ const dispatchIntake = async (d) => {
   }
   if (/REVIEW_RESULT/.test(String(lastText ?? ''))) {
     try {
-      // bounded-exploration-optout: validator-reference -- this schema: key parameterizes the
-      //   emitter helper (whose own dispatch site carries the structured-emitter marker).
       const emitted = await emitStructured(lastText, { label: d.agentType, schema: d.schema })
       if (emitted && validateShape(emitted, d.schema)) return { agentType: d.agentType, result: emitted }
     } catch (emitErr) {

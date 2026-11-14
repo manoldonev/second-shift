@@ -199,8 +199,6 @@ const PLAN_PIN = '521b387'
 const TARGETS = {
   // The original diff-shaped arm — unchanged default so existing invocations behave as before.
   'diff-reviewer': {
-    // bounded-exploration-optout: probe target -- measurement control; the nudge is this probe's
-    //   independent variable, supplied per-arm via the `bounded` arg.
     schema: FINDINGS_SCHEMA,
     model: 'sonnet',
     agents: ['review-toolkit:maintainability-reviewer', 'review-toolkit:test-coverage-reviewer'],
@@ -213,7 +211,6 @@ const TARGETS = {
   },
   // The plan-review gate that aborted runs #165 and #169 at 6/6 apiece.
   'plan-reviewer': {
-    // bounded-exploration-optout: probe target -- measurement control, as above.
     schema: PLAN_REVIEW_SCHEMA,
     model: 'opus',
     agents: ['review-toolkit:plan-reviewer'],
@@ -230,7 +227,6 @@ const TARGETS = {
   // #574 retired that engine; kept as-is — the instrument replays the pre-registered
   // #291 dispatch shape, which is historical by design.
   'unit-test-plan-reviewer': {
-    // bounded-exploration-optout: probe target -- measurement control, as above.
     schema: PLAN_REVIEW_SCHEMA,
     model: 'sonnet',
     agents: ['review-toolkit:unit-test-plan-reviewer'],
@@ -305,9 +301,6 @@ const dispatchOnce = async (agentType, i) => {
     }
   }
   try {
-    // bounded-exploration-optout: stall-probe -- THE MEASUREMENT CONTROL. The nudge is the
-    //   independent variable here, applied via the `bounded` arg. Mandating it at this site would
-    //   delete the unbounded arm and destroy the instrument that measures the fix.
     const result = await agent(prompt, { agentType, model: MODEL, label, phase: 'Probe', schema: TARGET.schema })
     // Capture findings so a bounded-vs-unbounded run can be compared for review QUALITY
     // (does the triage nudge suppress real findings?), not just stall rate.

@@ -13,11 +13,10 @@ this section is its consequence, not a second copy of it. A number a command cou
 call is not committed as a table — it is re-derived when it is needed.
 
 What is committed is what a human, not a command, decided:
-`scripts/fail-open-sites.tsv`,
-`tools/selftest-cache-inputs.tsv` — each row states something no `find`/`wc`/`git ls-tree` could
-re-derive: an adjudicated disposition, a reasoned exclusion, a declared input set. The one cost
-record, [`tools/selftest-suite-timings.tsv`](#the-slow-suite-table), is committed because the
-runner reads it.
+`scripts/fail-open-sites.tsv` — each row states something no `find`/`wc`/`git ls-tree` could
+re-derive: an adjudicated disposition. The one cost record,
+[`tools/selftest-suite-timings.tsv`](#the-slow-suite-table), is committed because the runner
+reads it.
 
 `scripts/fail-open-sites.tsv` is the disposition of every site the `pipeline` leg of
 `scripts/check-fail-open-shapes.sh` enumerates (a `| grep -q` whose producer can die and read as
@@ -91,7 +90,7 @@ Some shell files use the explicit-template form, `mktemp -d "${TMPDIR:-/tmp}/<na
 shell expands the path before `mktemp` ever runs, so it is honored unconditionally, unlike
 `mktemp -d -t <name>` (which on macOS resolves against `_CS_DARWIN_USER_TEMP_DIR` and ignores
 `TMPDIR` outright) or a bare `mktemp -d` (which *is* `-t tmp` — same resolution, no third form to
-fall back on). The sweep runner's own state dir — its worklist and cache bookkeeping plus each
+fall back on). The sweep runner's own state dir — its worklist plus each
 suite's captured `log`/`rc`/`secs` — is one of them, and so is `run-selftest-lib.sh`, the scenario
 slices' shared harness:
 
@@ -204,84 +203,6 @@ worker branch and collapses. `run-selftests-selftest.sh` nests a runner inside a
 worker passed it standalone and failed the instant the repo sweep ran it, which is exactly how a
 leak of this shape reads if you only ever run one suite at a time. The same reasoning is why the
 parent's truncation seam is stripped before a suite is executed.
-
-### The pass cache
-
-CI additionally passes `--cache-dir`, and with it a suite that has a row in
-`tools/selftest-cache-inputs.tsv` is **not re-run when the content of every declared input is
-unchanged**. The key is `sha256` over an epoch constant, `RUNNER_OS`, the bash major version,
-`SKIP_STRESS`, the runner's own blob id, the suite's path, and the `git hash-object` blob id of each
-declared input — so the two CI lanes accumulate independent marker sets and never serve each other
-an answer to a different question.
-
-It exists because the sweep re-derives the same verdict on every push, and a slow suite whose
-inputs a PR does not touch is the cost it removes.
-
-**The risk is a silently skipped gate**, which is this repo's cardinal failure mode, so the
-containment is the load-bearing part and the hashing is not. Four properties, all asserted in
-`tools/run-selftests-selftest.sh` against fixture trees:
-
-1. **Fail-closed by default, twice.** A suite with no row is always run, and the cache as a whole
-   is off unless `--cache-dir` names a store.
-   The mandated local recipe in `CLAUDE.md` names none, so a bare local sweep is still cold —
-   and so is the nightly leg.
-2. **Self-inclusion is mandatory.** A row set must name the suite itself, and — where the naming
-   convention resolves it, `<stem>-selftest.sh` beside `<stem>.sh` — the script under test. A row
-   set that names neither, or that names nothing but the suite, is rejected with `rc=2` and a named
-   cause. **The table is validated on every sweep**, including one running with no cache at all, so
-   a malformed declaration reds locally rather than waiting for CI to read it.
-3. **Recording takes a second flag.** `--cache-dir` reads; only `--cache-write` records, and CI
-   passes it on push-to-`main` alone. A PR therefore cannot mark its own untested content as
-   passing — belt-and-braces with GitHub's own scoping, which already confines a PR-created cache
-   to that branch and denies cache writes to forks entirely.
-4. **The nightly ignores it.** `.github/workflows/nightly-guards.yml` runs the whole sweep with no
-   `--cache-dir`, asking the PR lane's exact question. An under-declaration surfaces within a day,
-   against a tree nobody is waiting on.
-
-Only PASS is ever recorded, and only by the parent process after the replay has scored the run — a
-red suite, and a suite whose worker died without a verdict, write nothing. A marker that is not
-exactly the one well-formed record line is read as a **miss**, never as a pass.
-
-Every skip prints the suite, the key, and every input blob id behind that key, so a log reader can
-tell a skip from a suite that quietly stopped being discovered. The summary line reads
-`N scored, M run, K served from cache` for the same reason: reporting the larger number as work
-performed is the faster-green misreading the rest of this section is about.
-
-**Adding a row is the risky edit in that file, not the cheap one.** Derive the input set from the
-suite, never from a ticket: a suite typically reads more files than an eyeball lists. Where a
-suite's composed set is really its transitive closure over the tree, drop the row. A dropped row
-costs seconds; an under-declared one costs a gate.
-
-**Derive the closure, not the file list.** Neither mechanized rule reaches depth 2: a row set can
-name the suite and its subject and still under-declare, because that subject resolves a third file
-at run time. `run.sh` resolves `claim-issue.sh`, which resolves its sibling `gh-bot.sh` — so a row
-for `run-selftest.sh` would have to declare a file two removes from anything the suite names.
-Follow every variable-rooted resolution out of every declared script until it terminates, and say
-in the row comment where it terminated. Over-declaring costs one spurious miss; dropping a needed
-row is the direction that costs a gate.
-
-**Derive that mechanically, over paths rather than over scripts.** Grep the subject for the paths
-it builds from a variable, and match every one against the rows. Three things a prose reading
-misses:
-
-1. A resolution may target a `.md` or a `.tsv` as readily as a `.sh`, so a sweep scoped to `*.sh`
-   mentions can be accurate and still incomplete.
-2. A target the subject only tests for EXISTENCE is an input like any other. Its absence flips the
-   suite's verdict, while the key — content-addressed over the declared rows alone — does not move.
-3. **The root decides the answer, and there are two.** A `${BASH_SOURCE[0]}`- or `$0`-rooted path
-   names a file shipped beside the subject and is an input whenever the subject reaches it. A path
-   rooted at the *graded tree* (`$REPO_ROOT`, from `git rev-parse --show-toplevel`) is an input
-   only if the suite runs the subject against a tree that has the file — under a `mktemp` fixture
-   it usually does not, and the case is asserting the absent branch. Classify each; do not assume.
-
-`CACHE_EPOCH` is a constant in the runner rather than a knob. The key covers repo content —
-including `run-selftests.sh`'s own bytes, which is property 2 applied to the harness that produces
-every recorded verdict — but not the runner image, so an image bump could in principle move a
-verdict with every declared input byte-identical; bumping the epoch invalidates every marker on
-every lane in one character, and the next run is a full cold sweep. `SELFTEST_CACHE_MAX` (default
-5000) clears the store when it overflows, with the same fail-closed consequence.
-
-CI is the thing being sped up, and the authority is the nightly wholesale leg, which runs cold.
 
 ## Why a tier map at all
 
