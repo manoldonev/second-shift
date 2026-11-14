@@ -66,8 +66,8 @@
 #     fails-without-the-change leg detaches only a tree with no tracked change, and goes back by an unforced
 #     checkout); the one history rewrite is rebase_onto_base's clean rebase onto a moved base, pushed under a lease;
 #   - the record's sections, the checks and the frames are read from its FIRST commit, never the head —
-#     two exceptions: the verdict check reads the record at the head too, so a row the build added is scored (#991),
-#     and the plan's AC coverage reads it for an AC added under a recorded departure, and nothing else (#1085);
+#     two exceptions: the verdict check reads the record at the head too, so a row the build added is scored,
+#     and the plan's AC coverage reads it for an AC added under a recorded departure, and nothing else;
 #   - every session is a fresh process with a wall-clock bound; every attempt keeps its own files;
 #   - a regex or record form is stated exactly, never paraphrased.
 #
@@ -162,7 +162,7 @@ terminal() { # terminal <slug> <detail> — rows B1, B21, B22, K9: the run block
   scratch_close
   exit "$(exit_code_for "$1")"
 }
-# #964 D-1 D-2: the run's scratch dir (logs, probes, PR/comment/verdict bodies), outside .claude/ and the worktree.
+# the run's scratch dir (logs, probes, PR/comment/verdict bodies), outside .claude/ and the worktree.
 # Created once $STATE exists; at every exit, the traps' included, it is archived to $STATE/scratch.tar and then
 # removed, so /tmp is left clean and a blocked run's probes survive as evidence. A failed archive keeps the dir.
 SCRATCH=""; PLAIN_ROOT=""
@@ -206,9 +206,9 @@ if [ -n "$CONFIG" ]; then
   [ -z "$stale" ] || terminal env-config-stale "$CONFIG is a configVersion 2 config ($stale) — migrate it with docs/migrations/v2-to-v3.md, then re-launch"
 fi
 # C6a: each engineer may name their own branch namespace in a gitignored <config>.local.json. It sets
-# tracker.branchPrefix and the bot's GitHub App keys (#1059 D-3: a repo may keep the app's ids out of its
+# tracker.branchPrefix and the bot's GitHub App keys (a repo may keep the app's ids out of its
 # committed config) and nothing else: a personal file must not change what the team's runs check or how
-# they claim. The app keys are checked by name only, any value type (D-6); every leaf counts, false and null
+# they claim. The app keys are checked by name only, any value type; every leaf counts, false and null
 # included. A committed "local" file is a team decision nobody reviewed as one, so it is refused too.
 LOCAL_PREFIX=""
 if [ -f "$CONFIG_LOCAL" ]; then
@@ -253,7 +253,7 @@ BOT_OK=0; GH_READ="$GH"
 if [ -z "${RUN_GH:-}" ]; then
   bot_status="$(bash "$TOOLS/gh-bot.sh" --status 2>/dev/null)"
   if [ "$bot_status" = ok ]; then GH="$(bash "$TOOLS/gh-bot.sh" --path)"; BOT_OK=1
-    # #1059 D-5 D-7: the commits go through bot-commit.sh, which names the bot from tracker.bot.app.appName — the main
+    # the commits go through bot-commit.sh, which names the bot from tracker.bot.app.appName — the main
     # checkout's local file first (whatever $CONFIG names), else the config. With neither, every commit lands as the
     # operator: warn, never refuse, because onboard leaves an enabled bot with no appName and those runs work today.
     APP_LOCAL="$MAIN_ROOT/.claude/second-shift.config.local.json"
@@ -279,9 +279,9 @@ fi
 BRANCH="${PREFIX}$(printf '%s' "$ISSUE" | tr '[:upper:]' '[:lower:]')"
 WT_ROOT="${RUN_WORKTREE_ROOT:-$(dirname "$MAIN_ROOT")/${REPO_SLUG}-worktrees}"; WT="$WT_ROOT/$ISSUE"
 RECORD_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-decisions.md"
-PLAN_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-plan.md"   # #1039 D-4: the build's test-first task plan, beside the record
+PLAN_REL="$PLANS_DIR/$REPO_SLUG-$ISSUE-plan.md"   # the build's test-first task plan, beside the record
 RECORD="$MAIN_ROOT/$STATE_DIR/$ISSUE-ledger.md"   # the receipt's one conventional path (/intake-toolkit:intake's Receipt stage writes it there)
-# C28 A23 D-6: caps — env, else config run.*, else the defaults; each must be a positive number, and a count or a
+# C28 A23: caps — env, else config run.*, else the defaults; each must be a positive number, and a count or a
 # bound a positive integer: bash arithmetic and `[ -lt ]` fail on a fraction, and a failed expansion abandons the round loop
 cap() { # cap <var> <env value> <config key> <default> [int] — sets <var> in this shell (a refusal must not sit inside a substitution)
   local v="$2"; [ -n "$v" ] || v="$(cfg "$3")"; [ -n "$v" ] || v="$4"
@@ -316,7 +316,7 @@ if [ "$DETACH" -eq 1 ]; then
   command -v perl >/dev/null 2>&1 || terminal env-detach-perl "--detach needs perl for setsid; run in the foreground instead"
   mkdir -p "$LOG_DIR" 2>/dev/null || terminal env-detach-log-dir "--detach cannot create $LOG_DIR for the run's log"
   DETACH_LOG="$LOG_DIR/$ISSUE-lean-run-$(now | tr -d ':-')-$$.log"
-  # D-28: the printed pid is the wrapper, which forwards TERM/INT/HUP to the run and always writes the exit line, so a kill
+  # the printed pid is the wrapper, which forwards TERM/INT/HUP to the run and always writes the exit line, so a kill
   # of that pid or of the whole process group stops the run through its own trap instead of orphaning it. nohup leaves HUP
   # ignored and `&` leaves INT ignored, and a signal ignored on entry cannot be trapped: both are restored before the exec.
   # caffeinate (macOS) holds the machine awake on the run's pid rather than wrapping it, so it never stands in for the pid.
@@ -365,7 +365,7 @@ bounded() { # bounded <secs> <logfile> <cmd...> — a bash watchdog (macOS ships
 # -- lane commands (row G5): what must not reach a lane child --
 SEAM_SCRUB='SECOND_SHIFT_CONFIG|SECOND_SHIFT_REPO_ROOT|SECOND_SHIFT_EXTENSION_MANIFEST|SECOND_SHIFT_PLUGIN_ROOT|SECOND_SHIFT_REVIEW_TOOLKIT_ROOT|SECOND_SHIFT_DEV_PIPELINE_ROOT|SECOND_SHIFT_DESIGN_TOOLKIT_ROOT|SECOND_SHIFT_SECTION_CATALOG|STATECTL_STATE_DIR|STATECTL_WRITER|DEV_PIPELINE_MODE|BRANCH_PREFIX|KEY_PATTERN|LANE_ATTEND_MODE|MUTATION_SWEEP_NO_DEFER'
 SCRUB_ENV=(); IFS='|' read -r -a _toks <<< "$SEAM_SCRUB"; for _t in "${_toks[@]}"; do SCRUB_ENV+=(-u "$_t"); done; unset _toks _t
-# #939 D-14 D-27: the watch's own variables reach no session and no lane check. Listed from this run's environment rather
+# the watch's own variables reach no session and no lane check. Listed from this run's environment rather
 # than hard-coded, so a herdr variable nobody named here is unset too; the detach re-exec above is not scrubbed
 WATCH_UNSET=()
 for _t in $(compgen -e HERDR_) $(compgen -e RUN_WATCH) $(compgen -e RUN_DETACHED_LOG); do
@@ -381,7 +381,7 @@ lane() { # lane <command>: its output on stdout; a lane past its bound is red
 }
 first_word() { local w; for w in $1; do case "$w" in *=*) continue ;; *) printf '%s' "$w"; return ;; esac; done; printf '%s' "${1%% *}"; }
 xargs_runs() { # xargs_runs <segment>: the command an xargs segment runs — its options skipped, and the value -n -P -L -I -d -s -E -a
-  # take when it is the next word (#1048 OR-1) — or nothing when the segment is no xargs
+  # take when it is the next word — or nothing when the segment is no xargs
   local a i=1 IFS=' '; read -r -a a <<<"$1"; [ "${a[0]:-}" = xargs ] || return 0
   while [ "$i" -lt "${#a[@]}" ]; do
     case "${a[i]}" in --) i=$((i+1)); break ;; -n|-P|-L|-I|-d|-s|-E|-a) i=$((i+2)) ;; -*) i=$((i+1)) ;; *) break ;; esac
@@ -397,7 +397,7 @@ env_led() { # env_led <segment>: its leading NAME=value words and the word they 
 cmd_grants() { # cmd_grants <command> [xargs]: one ',Bash(...)' rule per command of a pipeline or chain, each checked on its own by the session
   # the first by its first word; every later one by its exact text, or, cut before a word holding , ( ) * or {, by that
   # prefix plus * — never one bare word, and never one led (or, through xargs, run) by rm, a shell, env, eval, exec, sudo, nohup, cd or python3.
-  # With xargs (the build's, #1048 D-2), a later xargs segment also grants the command it runs on its own, by its text so cut, plus *,
+  # With xargs (the build's), a later xargs segment also grants the command it runs on its own, by its text so cut, plus *,
   # and a first command led by NAME=value words is also granted as typed, since the session matches those words too
   local seg first=1 kept lead words run led
   while IFS= read -r seg; do
@@ -449,7 +449,7 @@ usd_up() { LC_ALL=C awk -v c="$1" 'BEGIN{x = c * 100 - 1e-9; n = int(x); if (x >
 issue_state() { [ "$TRACKER" = github ] || { echo OPEN; return 0; }; "$GH_READ" issue view "$ISSUE" --json state --jq .state 2>/dev/null; }
 has_label() { local names; [ "$TRACKER" = github ] || return 1; names="$("$GH_READ" issue view "$ISSUE" --json labels --jq '.labels[].name' 2>/dev/null)" || return 1; grep -qxF "$1" <<<"$names"; }
 repo_slug() { "$GH_READ" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null; }
-lane_comments() { # the issue's comments this lane wrote — a Bot, or the account this scheduler writes with (D-24) — oldest first, as one array
+lane_comments() { # the issue's comments this lane wrote — a Bot, or the account this scheduler writes with — oldest first, as one array
   local repo me comments
   repo="$(repo_slug)" || return 1
   me="$("$GH" api user --jq .login 2>/dev/null)" || me=""
@@ -468,9 +468,9 @@ remote_head() { local out; out="$(git -C "$WT" ls-remote origin "refs/heads/$BRA
 
 # -- the record (rows G6, G7, H1-H4, H6, K6): read at its FIRST commit once one exists, else the receipt --
 record_at_first() { git -C "$WT" show "$FIRST:$RECORD_REL" 2>/dev/null; }
-record_at_head() { git -C "$WT" show "$HEAD_SHA:$RECORD_REL" 2>/dev/null; }   # #1085: read by plan-coverage.sh --head for operator-added ACs only
+record_at_head() { git -C "$WT" show "$HEAD_SHA:$RECORD_REL" 2>/dev/null; }   # read by plan-coverage.sh --head for operator-added ACs only
 record_text() { if [ -n "$FIRST" ]; then record_at_first; else cat "$RECORD" 2>/dev/null; fi; }
-# #1039 D-3: the build is asked for a plan only when the record at FIRST carries the section (a v4 receipt's)
+# the build is asked for a plan only when the record at FIRST carries the section (a v4 receipt's)
 # (the caller has read the record at FIRST already; were this read to fail, plan_coverage's own read refuses the run)
 record_has_test_intent() { local r; r="$(record_at_first)" || return 1; grep -qiE '^#+[[:space:]]+test intent[[:space:]]*$' <<<"$r"; }
 # the heading rule: exact title at any depth, case-folded; ANY heading closes the section; the FIRST such section decides
@@ -490,7 +490,7 @@ design_declared() { # 0 armed or disarmed with a reason; 1 neither (its forms by
   fi
   return 1
 }
-# #1022: the receipt's lint is the ENABLED intake-toolkit's, never a leftover cached version: the env override, else the
+# the receipt's lint is the ENABLED intake-toolkit's, never a leftover cached version: the env override, else the
 # installPath of the intake-toolkit record that applies here (a project record for this checkout first, as doctor.sh
 # resolves it), enabled. Sets INTAKE_LINT, or LINT_WHY and returns 1; the caller refuses
 # shellcheck disable=SC2016  # a jq program: $root is jq's --arg binding
@@ -567,7 +567,7 @@ $(printf '%s' "$1" | jq -r '.when[]')
 EOF
   return 1
 }
-skipped_lanes() { # the name of each when-scoped extraLanes entry no file in $CHANGED matched, whether or not others ran (#956)
+skipped_lanes() { # the name of each when-scoped extraLanes entry no file in $CHANGED matched, whether or not others ran
   local lane
   while IFS= read -r lane; do
     [ -n "$lane" ] || continue
@@ -614,12 +614,12 @@ EOF
   [ "$n" -gt 0 ] || say "checks: every configured lane is when-scoped and none matched this diff — configured, not unverified"
   return $rc
 }
-# -- the plan's AC coverage (#1039 D-6 D-7 D-9): tools/plan-coverage.sh from $TOOLS (the installed plugin, outside every dir
-# the build is granted), handed the record at FIRST, the record at the pushed head (#1085: read for an AC added under a
+# -- the plan's AC coverage: tools/plan-coverage.sh from $TOOLS (the installed plugin, outside every dir
+# the build is granted), handed the record at FIRST, the record at the pushed head (read for an AC added under a
 # recorded departure, nothing else) and the plan at the pushed head as git objects through pipes — never the
 # worktree, $STATE or the config, all of which the build can write. Not a configured lane: its exit code is the result.
 # PLAN_NOTES is the latest check's run-block lines; the plan's position is noted, never gating: no commit order proves a
-# test came first, so #1040 D-1 proves "fails without the change" instead (fails_without_change below) --
+# test came first, so the scheduler proves "fails without the change" instead (fails_without_change below) --
 PLAN_NOTES=""
 plan_coverage() { # plan_coverage <attempt> -> the script's exit: 0 pass · 1 red (the log: $STATE/plan-coverage-<attempt>.log) · 2 uncheckable · 3 not-applicable
   local log="$STATE/plan-coverage-$1.log" out rc after pos
@@ -641,23 +641,23 @@ plan_coverage() { # plan_coverage <attempt> -> the script's exit: 0 pass · 1 re
   say "plan coverage: exit $rc — $(printf '%s' "$out" | tail -n 1 | sed 's/^plan-coverage: //') (log: $log)"; say "plan position: $pos"
   return "$rc"
 }
-# -- fails without the change (#1040, layer 3 of #1018; #1053): after the checks and the coverage pass, the head's tagged test
+# -- fails without the change: after the checks and the coverage pass, the head's tagged test
 # files are applied onto the record commit's tree (the base code, none of the build's), beside the head's testSupport files
 # (never run), and run through the first configured testRunners entry whose `when` glob matches each. The runner's `format`
-# decides the unit (#1053 D-2 D-5 D-8): exit runs one file and its exit code judges the file (#1040 D-2: any failure counts, but 126 and 127 are a runner that did not start);
+# decides the unit: exit runs one file and its exit code judges the file (any failure counts, but 126 and 127 are a runner that did not start);
 # cases runs one file and judges each named file::case by the `case<TAB><passed|failed><TAB><id>` line it prints; vitest-json
 # and jest-json run every file of the runner in one call and judge each named test by its row in the JSON report. Every named
-# test must fail there. One whose file does not load there, or that sits behind a failing vitest beforeAll, is pending (D-3):
+# test must fail there. One whose file does not load there, or that sits behind a failing vitest beforeAll, is pending:
 # the head leg runs it after the restore, at the head, with each selected test of a {cases} runner that failed on the record
-# commit's tree, and each must pass (D-9; D-28: a selected test already red there is not run again).
-# Passing at the head is otherwise the checks'. A holds AC's files are kept off it and an unchecked AC's are noted, not run
-# (#1040 D-4, D-11); the AC-to-test map comes from plan-coverage.sh --files, never a second plan parser (#1040 D-7). The tree
+# commit's tree, and each must pass (a selected test already red there is not run again).
+# Passing at the head is otherwise the checks'. A holds AC's files are kept off it and an unchecked AC's are noted, not run;
+# the AC-to-test map comes from plan-coverage.sh --files, never a second plan parser. The tree
 # is built in $WT, which keeps its ignored dependencies: detached to the record commit only when no tracked change is in it,
 # put back on the branch by a plain checkout — which carries any change rather than discard it — under an EXIT trap, and by
-# the next launch when a mark outlives the process (red_tree_restore). The runners were read at launch (D-13): a build cannot
+# the next launch when a mark outlives the process (red_tree_restore). The runners were read at launch: a build cannot
 # change them mid-run -- Each call runs bounded (bounded_group): one that has not finished within its runner's timeoutSeconds
-# is red, never a failure, since a runner that hangs on every tree would otherwise pass every proof (#1053 D-11: a batch is
-# one call). A report is no weaker than the exit code it replaces (#1053 D-10): it is deleted before each call and copied to
+# is red, never a failure, since a runner that hangs on every tree would otherwise pass every proof (a batch is
+# one call). A report is no weaker than the exit code it replaces: it is deleted before each call and copied to
 # the run's state right after, and deliberate forgery is the review's to catch
 FWC_NOTES=""
 FWC_TIMEOUT_DEFAULT=600
@@ -702,14 +702,14 @@ runner_name() { # runner_name <index, from 1> -> 'testRunners[<n>] (<when globs>
   printf 'testRunners[%s] (%s)' "$(($1 - 1))" "$(test_runners | sed -n "${1}p" | jq -r '[.when[]? | strings] | join(", ")')"
 }
 test_support() { local key; key="$(commands_key)"; [ -n "$key" ] || return 0; jq -r --arg k "$key" '.commands[$k].testSupport[]? | strings' <<<"$CONFIG_JSON" 2>/dev/null; }
-support_files() { # the files changed since the record commit that a testSupport glob matches and the head carries (#1053
-  # OR-3: one the head deleted is left as the record commit has it, so the tree still builds)
+support_files() { # the files changed since the record commit that a testSupport glob matches and the head carries
+  # (one the head deleted is left as the record commit has it, so the tree still builds)
   local globs f g; globs="$(test_support)"; [ -n "$globs" ] || return 0
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     while IFS= read -r g; do
       [ -n "$g" ] || continue
-      # shellcheck disable=SC2254  # $g IS a glob, matched as `when` is (#1053 D-21)
+      # shellcheck disable=SC2254  # $g IS a glob, matched as `when` is
       case "$f" in $g) git -C "$WT" cat-file -e "$HEAD_SHA:$f" 2>/dev/null && printf '%s\n' "$f"; break ;; esac
     done <<<"$globs"
   done <<EOF
@@ -731,12 +731,12 @@ subst_many() { # subst_many <template> <placeholder> <replacement> [<placeholder
   done
   printf '%s' "$out$t"
 }
-fwc_realpath() { # fwc_realpath <repo-relative file> -> its path under the worktree, symlinks resolved, as a runner reports it (F-1)
+fwc_realpath() { # fwc_realpath <repo-relative file> -> its path under the worktree, symlinks resolved, as a runner reports it
   local dir; dir="$(cd "$WT/$(dirname "$1")" 2>/dev/null && pwd -P)" || dir="$WT/$(dirname "$1")"
   printf '%s/%s' "$dir" "$(basename "$1")"
 }
-# One named test against a vitest/jest JSON report (#1053 D-2 D-3 D-7; the shape: testResults[] of {name: the file's absolute
-# path, status, message, assertionResults[] of {ancestorTitles, title, status}}, in both runners — F-1, F-6, D-17). The case,
+# One named test against a vitest/jest JSON report (the shape: testResults[] of {name: the file's absolute
+# path, status, message, assertionResults[] of {ancestorTitles, title, status}}, in both runners). The case,
 # split on ' > ', must equal ancestorTitles + title exactly. Prints one word: failed · passed · status <s> · pending hook (a
 # vitest beforeAll failure: the file failed with an empty message and no failed row) · pending load (no row, the file failed
 # with a message: it does not load) · ambiguous <n> · not-collected (the file is not in the report) · did-not-run
@@ -762,7 +762,7 @@ fwc_json_verdict() { # fwc_json_verdict <report> <file> <case> <format>
   jq -r --arg n1 "$(fwc_realpath "$2")" --arg n2 "$WT/$2" --arg c "$3" --arg fmt "$4" "$FWC_JUDGE" "$1" 2>/dev/null || echo not-collected
 }
 # A file or a case is the build's text: awk reads it from ENVIRON, never `-v`, which turns a backslash escape into another string
-fwc_cases_verdict() { # fwc_cases_verdict <output> <case> — a cases runner's case lines are its report (#1053 D-4 D-16)
+fwc_cases_verdict() { # fwc_cases_verdict <output> <case> — a cases runner's case lines are its report
   local rows n; rows="$(FWC_C="$2" awk -F'\t' '$1 == "case" && ($2 == "passed" || $2 == "failed") && $3 == ENVIRON["FWC_C"] { print $2 }' "$1" 2>/dev/null)"
   n="$(printf '%s' "$rows" | grep -c .)"
   if [ "$n" -eq 0 ]; then echo did-not-run; elif [ "$n" -eq 1 ]; then echo "$rows"; else echo "ambiguous $n"; fi
@@ -783,7 +783,7 @@ fwc_red() { # fwc_red <file> <case> <why> — one red per AC tagged on the test,
   for id in $ids; do echo "RED: $id — $(fwc_label "$1" "$2") $3" >> "$log"; red=$((red + 1)); done
 }
 fwc_ok() { local id; for id in $(fwc_ids "$1" "$2"); do echo "ok: $id — $(fwc_label "$1" "$2") $3" >> "$log"; done; }
-fwc_run_red() { # fwc_run_red <index> <tests: index\tfile\tcase lines> <why> — ONE red naming the runner, covering its tests (#1053 D-2 AC-7)
+fwc_run_red() { # fwc_run_red <index> <tests: index\tfile\tcase lines> <why> — ONE red naming the runner, covering its tests
   local ids="" tl="" f c rest
   while IFS=$'\t' read -r _ f c rest; do
     [ -n "$f" ] || continue; ids="$ids$(fwc_ids "$f" "$c")"; tl="$tl${tl:+, }$(fwc_label "$f" "$c")"
@@ -802,7 +802,7 @@ fwc_record_verdict() { # fwc_record_verdict <index> <file> <case> <verdict> <1 w
   local id why
   case "$4" in
     failed) fwc_ok "$2" "$3" "fails on the record commit's tree"; nt=$((nt + 1))
-            [ "$5" -eq 0 ] || headq="$headq$1"$'\t'"$2"$'\t'"$3"$'\t'selected$'\n' ;;   # D-13: a case run alone may fail for lack of a sibling's setup
+            [ "$5" -eq 0 ] || headq="$headq$1"$'\t'"$2"$'\t'"$3"$'\t'selected$'\n' ;;   # a case run alone may fail for lack of a sibling's setup
     passed) fwc_red "$2" "$3" "passes on the record commit's tree ($FIRST) with the head's tagged test files applied: it does not fail without the change — make it test what the change does" ;;
     "pending "*)
       why="its file does not load there (it failed with a message and reported no test)"; [ "$4" != "pending hook" ] || why="it is skipped there behind a failing beforeAll (its file failed with an empty message and no failed test)"
@@ -831,7 +831,7 @@ fwc_leg() { # fwc_leg <record|head> <attempt> <index> <tests of that runner: ind
   case "$cmd" in *"{cases}"*) hc=1 ;; esac
   where="on the record commit's tree"; [ "$leg" = record ] || where="at the head ($HEAD_SHA)"
   case "$fmt" in
-    exit) # one call per file; its exit code judges the file (#1040 D-2) — the record leg only
+    exit) # one call per file; its exit code judges the file — the record leg only
       while IFS= read -r f; do
         [ -n "$f" ] || continue
         c="$(subst "$cmd" '{file}' "$(shquote "$f")")"; ran=$((ran + 1))
@@ -841,7 +841,7 @@ fwc_leg() { # fwc_leg <record|head> <attempt> <index> <tests of that runner: ind
         elif [ "$frc" -eq 126 ] || [ "$frc" -eq 127 ]; then fwc_run_red "$i" "$(fwc_rows_of "$f" "$list")" "could not start on the record commit's tree (exit $frc: the shell could not find or execute a command) — check its command and that its binary is in the worktree; a test that itself runs something the change adds must fail there with another exit code"
         else fwc_ok "$f" "" "fails on the record commit's tree (exit $frc)"; fi
       done <<<"$(cut -f2 <<<"$list" | awk 'NF && !seen[$0]++')" ;;
-    cases) # one call per file; its case lines are its report (#1053 D-4 D-16)
+    cases) # one call per file; its case lines are its report
       while IFS= read -r f; do
         [ -n "$f" ] || continue
         sel="$(fwc_rows_of "$f" "$list" | cut -f3 | paste -sd ' ' -)"
@@ -859,12 +859,12 @@ fwc_leg() { # fwc_leg <record|head> <attempt> <index> <tests of that runner: ind
           if [ "$leg" = record ]; then fwc_record_verdict "$i" "$f" "$c" "$v" "$hc"; else fwc_head_verdict "$i" "$f" "$c" "$why" "$v"; fi
         done <<<"$(fwc_rows_of "$f" "$list")"
       done <<<"$(cut -f2 <<<"$list" | awk 'NF && !seen[$0]++')" ;;
-    *) # vitest-json, jest-json: one call over every file of the runner, judged by its JSON report (#1053 D-2 D-5)
+    *) # vitest-json, jest-json: one call over every file of the runner, judged by its JSON report
       fq=""; while IFS= read -r f; do [ -z "$f" ] || fq="$fq${fq:+ }$(shquote "$(fwc_realpath "$f")")"; done <<<"$(cut -f2 <<<"$list" | awk 'NF && !seen[$0]++')"
       rep="$FWC_TMP/report-$i.json"; rm -f "$rep"
       c="$(subst_many "$cmd" '{report}' "$(shquote "$rep")" '{files}' "$fq")"
       fwc_call "$att" "$secs" "$c"; frc=$?
-      copy="$STATE/fails-without-$att-$leg-$i.json"; rm -f "$copy"; [ ! -f "$rep" ] || cp "$rep" "$copy"   # OR-2: per run and attempt, in the run's state
+      copy="$STATE/fails-without-$att-$leg-$i.json"; rm -f "$copy"; [ ! -f "$rep" ] || cp "$rep" "$copy"   # per run and attempt, in the run's state
       why=""
       if [ "$FWC_TIMED_OUT" -eq 1 ]; then why="did not finish within ${secs}s $where, and its process group was killed"
       elif ! jq -e '(.testResults | type) == "array"' "$copy" >/dev/null 2>&1; then why="left no readable report at {report} $where (exit $frc)"
@@ -890,9 +890,9 @@ fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (th
   map="$(bash "$TOOLS/plan-coverage.sh" --files --head <(record_at_head) <(record_at_first) <(git -C "$WT" show "$HEAD_SHA:$PLAN_REL" 2>/dev/null) 2>&1)"; rc=$?
   [ "$rc" -eq 0 ] || terminal plan-coverage-uncheckable "tools/plan-coverage.sh --files exited $rc on the record at $FIRST and $PLAN_REL at $HEAD_SHA, whose coverage had just passed ($(printf '%s' "$map" | tr '\n' ' ' | cut -c1-300))"
   { echo "fails without the change: the head's tagged test files at $HEAD_SHA applied onto the record commit's tree $FIRST; each must fail there"; echo; } > "$log"
-  while IFS=$'\t' read -r kind id f c; do   # #1053 D-6: the map is tab-separated, the case empty for a bare file
+  while IFS=$'\t' read -r kind id f c; do   # the map is tab-separated, the case empty for a bare file
     [ -n "$f" ] || continue
-    # D-19: a tagged file the head does not carry is red whatever its AC's kind — a holds or unchecked AC is no more covered by a fictitious path
+    # a tagged file the head does not carry is red whatever its AC's kind — a holds or unchecked AC is no more covered by a fictitious path
     if ! git -C "$WT" cat-file -e "$HEAD_SHA:$f" 2>/dev/null; then echo "RED: $id — $f does not exist at $HEAD_SHA" >> "$log"; red=$((red+1)); continue; fi
     case "$kind" in
       holds) notes="$notes$id holds — $(fwc_label "$f" "$c") is not run for it: the checks at the head prove it"$'\n' ;;
@@ -901,7 +901,7 @@ fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (th
            echo "RED: $id — $f matches no configured test runner (commands.$key.testRunners), and the record does not mark $id unchecked" >> "$log"; red=$((red+1)); continue
          fi
          i="${r%%$'\t'*}"; fmt="$(cut -f3 <<<"$r")"
-         # #1053 D-8: a test its runner cannot judge is red — the runner's format decides the unit
+         # a test its runner cannot judge is red — the runner's format decides the unit
          if [ "$fmt" = exit ] && [ -n "$c" ]; then
            echo "RED: $id — $f::$c names one test, but $(runner_name "$i") has format exit, which judges whole files — name the bare file, or give the runner a reporting format" >> "$log"; red=$((red+1))
          elif [ "$fmt" != exit ] && [ -z "$c" ]; then
@@ -929,8 +929,8 @@ fails_without_change() { # fails_without_change <attempt> -> 0 pass · 1 red (th
     [ "$c2" -eq 0 ] || terminal env-worktree "could not put $WT back on $BRANCH after the fails-without-the-change check — it is detached at $FIRST with the head's tagged test files applied; run git checkout $BRANCH in it, then --resume"
     [ "$rc" -eq 0 ] || terminal env-worktree "could not build the record commit's tree $FIRST with the head's tagged test files in $WT ($(tail -n 3 "$log" | tr '\n' ' ' | cut -c1-300)) — $WT is back on $BRANCH"
     [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" = "$HEAD_SHA" ] || terminal env-worktree-diverged "$WT is not at $HEAD_SHA after the fails-without-the-change check"
-    # #1053 D-9: the head leg — after the restore, at the head, one call per json runner and one per file for cases, over every
-    # pending test and each selected test of a {cases} runner that failed on the record commit's tree (D-28); each must pass there
+    # the head leg — after the restore, at the head, one call per json runner and one per file for cases, over every
+    # pending test and each selected test of a {cases} runner that failed on the record commit's tree; each must pass there
     if [ -n "$headq" ]; then
       { echo; echo "the head leg at $HEAD_SHA: every pending test, and each selected case that failed on the record commit's tree, must pass there"; } >> "$log"
       while IFS= read -r i; do
@@ -1018,9 +1018,9 @@ EOF
 smoke_red() { echo "RED: $*" >> "$SMOKE_LOG"; say "smoke: $*"; SMOKE_RC=1; }
 
 # -- the review input (rows I9-I11) --
-TEST_PATH_ERE='(\.spec\.|\.test\.|_test\.|_spec\.|(^|/)(tests?|__tests__)/|(^|/)test_[^/]*\.py$|(^|/)conftest\.py$|-selftest\.)'   # a test path, on any stack (#956); -selftest. is this repo's own (#1011)
-# every name-list read takes core.quotePath=false: a default-quoted "caf\303\251.spec.ts" matches no pattern, glob or pathspec (#1011)
-expectations_changed() { # expectations_changed <name-status> -> each modified existing test or snapshot file, then its removed lines (#957)
+TEST_PATH_ERE='(\.spec\.|\.test\.|_test\.|_spec\.|(^|/)(tests?|__tests__)/|(^|/)test_[^/]*\.py$|(^|/)conftest\.py$|-selftest\.)'   # a test path, on any stack; -selftest. is this repo's own
+# every name-list read takes core.quotePath=false: a default-quoted "caf\303\251.spec.ts" matches no pattern, glob or pathspec
+expectations_changed() { # expectations_changed <name-status> -> each modified existing test or snapshot file, then its removed lines
   # an oracle edited with the code it pins stays green in CI: the old expectation is what the review traces to an AC or a record row
   local f removed n listed=0
   while IFS= read -r f; do
@@ -1032,7 +1032,7 @@ expectations_changed() { # expectations_changed <name-status> -> each modified e
   done < <(TEST_PATH_ERE="$TEST_PATH_ERE" awk -F'\t' '$1 == "M" && ($2 ~ ENVIRON["TEST_PATH_ERE"] || $2 ~ /(^|\/)__snapshots__\/|\.snap$/) { print $2 }' <<<"$1")
   [ "$listed" -eq 1 ] || echo "(none)"
 }
-policy_edited() { # policy_edited <name-status> -> each row that adds, edits, deletes or renames a review-policy file, either side of a rename (#1009)
+policy_edited() { # policy_edited <name-status> -> each row that adds, edits, deletes or renames a review-policy file, either side of a rename
   # the review session loads these from the head, so a PR is reviewed against policy it can edit
   awk -F'\t' 'function policy(f) { return f == ".claude/second-shift.config.json" || index(f, ".claude/second-shift/") == 1 }
     policy($2) || ($3 != "" && policy($3)) { print; k++ } END { if (!k) print "(none)" }' <<<"$1"
@@ -1043,7 +1043,7 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
   full="$(git -C "$WT" diff "$FIRST"..HEAD 2>/dev/null)" || return 1
   names="$(git -C "$WT" -c core.quotePath=false diff --name-only "$FIRST"..HEAD 2>/dev/null)" || return 1
   {
-    # stack-neutral and advisory (#956): on a non-JS repo an empty section must not read as clean evidence
+    # stack-neutral and advisory: on a non-JS repo an empty section must not read as clean evidence
     echo "### Deleted or renamed test files"
     TEST_PATH_ERE="$TEST_PATH_ERE" awk -F'\t' '$1 ~ /^[DR]/ && $2 ~ ENVIRON["TEST_PATH_ERE"] { print; n++ } END { if (!n) print "(none)" }' <<<"$ns"; echo
     echo "### Existing test or snapshot expectations changed (removed lines)"
@@ -1065,7 +1065,7 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
 # -- the two prompts (rows F15-F20) --
 build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-check-file-or-empty>
   echo "Implement ticket $ISSUE of this repository. Fetch the ticket text yourself from the tracker (${TRACKER})."
-  # #1048 D-5 D-19: the fetch is named, so the build's first command is never composed
+  # the fetch is named, so the build's first command is never composed
   if [ "$TRACKER" = github ]; then echo "Fetch it with exactly 'gh issue view $ISSUE --json title,body,comments', as written."
   else echo "Fetch it with the getJiraIssue MCP tool, under whichever Atlassian namespace this session exposes."; fi
   echo "Do not merge. Do not delete, skip or weaken a test to make a check pass. If a test is wrong, say so in the PR."
@@ -1080,7 +1080,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   echo "Pass every PR or comment body with --body-file <a file you wrote with Write>. Never pass a body inline with --body."
   echo "A stored field the change newly reads, or a field it sends across a service boundary, gets a test that moves it through the real schema or model. Do not use a hand-built fixture for this test. A fixture that already holds the value does not prove that the store keeps the value."
   echo "A test double of a dependency this repo does not own that returns an error or an empty result cites where that shape comes from. Cite the dependency's types, its docs or a recorded real response. A double that shows only what you expect proves nothing about the dependency."
-  # #1076 D-10 D-11: unconditional, so a UI ticket with no design frames carries it too
+  # unconditional, so a UI ticket with no design frames carries it too
   echo "Before you write a comment that claims a UI library does or does not do something, open the installed source of that library and check the claim. Cite the installed file in the comment when the claim is not obvious."
   echo "The PR title and every commit message say what changed. Never put $([ "$TRACKER" = github ] && echo "#$ISSUE" || echo "$ISSUE") in them. The ticket's one link is the PR body's Closes line."
   [ "$BOT_OK" -eq 1 ] && echo "Commit through the repo's bot identity. Never use plain git commit. Run it exactly as '$TOOLS/bot-commit.sh -C $WT -F <a message file you wrote with Write>'. Start the command with the bare path. Do not put bash before it. Run each --amend through bot-commit.sh too. A plain --amend makes you the committer and gives no warning."
@@ -1100,13 +1100,13 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   else echo "Address the review below: fix each [blocker] finding, or rebut it in a PR comment. Fix each record row the review scored violated or undeterminable, or edit that row as the record rules below allow. A [note] finding requires nothing: fix one only if you choose to, and never rebut or reply to one. Then commit and push $BRANCH. If you added or edited a record row, add it to the '## Decisions made for you' table inside the PR body's second-shift fold. Keep every other line of the body, the marker lines and the scheduler's lines between them included. Edit the body with 'gh pr edit <pr> --body-file <a file you wrote with Write>'."; fi
   echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record's '## Knowledge source' and '## Fan-out' sections are context, not binding. They hold evidence that intake read, not decisions. Only the D-n rows bind. The record is committed at $RECORD_REL; edit rows there. If you must change the decision of a row, edit that row in place. Write the new resolution and set the provenance to user-delegated. End the cell with one sentence that starts 'Changed in build:' and gives the reason. A material decision that no row covers gets a new row with provenance user-delegated. End its cell with one sentence that starts 'Added in build:' and gives the reason. Commit each edit with the code. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
   echo; record_at_first
-  if record_has_test_intent; then # #1039 D-4 D-5 D-6 D-12: the plan is a coverage map the scheduler checks, never a tick list
+  if record_has_test_intent; then # the plan is a coverage map the scheduler checks, never a tick list
     echo; echo "For each acceptance criterion (AC), the record's '## Test intent' section names the observable behavior that its test must prove. For an exempt AC, it names the exemption and its reason."
     echo "Your first commit after the record commit $FIRST is a task plan at $PLAN_REL. Write each group as '## N. Group'. Write each task as '- [ ] N.M Description (files)'. Put each test task before the implementation task that it covers. End each test task with the ids of the ACs that its test proves. Put each id in its own brackets. Put nothing after the last id. Example: '- [ ] 1.1 Description (files) [AC-1] [AC-3]'."
     echo "Tag each AC that the section does not exempt on at least one test task. Do not tag an id that the section's 'ACs:' line does not list. Make sure that each AC's tagged test proves the behavior its line states. A ticked box has no meaning. A line that starts with '- [' and is not a task in that form is an unparseable line."
     echo "Before a review starts, the scheduler checks the plan at the pushed head against the record at $FIRST. These problems come back to you as findings: an uncovered AC, an id that the record does not define, a missing plan, an unparseable line. A red plan check spends one checks-red attempt."
     echo "In each task that carries an AC id, name its test files in the parentheses that end the description. Separate the file names with commas. A tagged task that names no test file comes back to you as findings in the same way."
-    # #1040 S-3, #1053 S-3: the check the scheduler runs next, stated only when a runner is configured to run it; the
+    # the check the scheduler runs next, stated only when a runner is configured to run it; the
     # file::case grammar only when a runner judges named tests
     if test_runners | jq -e 'select((.format // "exit") != "exit")' >/dev/null 2>&1; then
       echo "A runner with format cases, vitest-json or jest-json judges named tests, not files. For a file such a runner matches, name each test as file::case. For vitest and jest, the case is the test's describe titles and its own title, joined with ' > ', as the runner renders them at the head. For a cases runner, the case is the id the test prints: in run-selftest-lib.sh, the name of the fixture block. Put the case in backticks when it holds a space, '>', '(', ')', ',' or '['. A case without backticks runs to the next comma. Example: (src/a.test.ts::\`Importer > dup > rejects (409)\`, src/b.test.ts::adds). A case cannot hold a backtick. An unterminated backtick, or a case that needs backticks and has none, is an unparseable line."
@@ -1121,9 +1121,9 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     echo "4. Render every screen with the repo's render command. Open the PNG and compare it with its frame. Fix each difference. Do up to three rounds per screen."
     echo "A screen that shows an error page, a login page or a spinner is not done."
   fi
-  # the scheduler's pass at the pushed head is the authority (#1035): the build runs what covers its change, not the whole list again
+  # the scheduler's pass at the pushed head is the authority: the build runs what covers its change, not the whole list again
   echo; echo "While iterating, rerun only the test file or suite your change touches."
-  # #1048 D-4 D-20: a repo's CLAUDE.md or docs may list more; those commands are not granted
+  # a repo's CLAUDE.md or docs may list more; those commands are not granted
   echo "Run the checks listed below and the tests your change touches, never a verification list from the repo's CLAUDE.md or docs."
   echo "Before you push, run the checks below that cover what you changed and make them green; running the whole list is not required. The scheduler runs every command below at the pushed head before a review starts. A lane with changed-file globs runs only when a changed file matches its globs. Of these commands, a red one comes back to you as findings and spends a checks-red attempt."; checks_list all | sed 's/^/- /'
   [ -n "$SETUP_RED" ] && { echo; echo "## Setup lanes red before this build"; echo "The scheduler ran the setup lanes in $WT before this build and one failed, so dependencies may be missing. A check that cannot start is skipped: name it in the PR body. The scheduler runs the setup lanes again before its checks at the pushed head. The end of the setup log:"; tail -n 80 "$SETUP_RED"; }
@@ -1186,7 +1186,7 @@ REACH
   echo "Before you post, check your draft: run 'bash $TOOLS/verdict-check.sh <your draft in $SCRATCH> $WT/$RECORD_REL $SCRATCH/record-at-first.md' (the record at the head, then at $FIRST). It prints every rule the draft breaks. Fix the draft until it exits 0. The scheduler runs the same check on the comment you post. A comment that fails the check does not count: the scheduler posts no status and starts a new review."
   echo "Your \`reviewed-by:\` line is exactly '$REVIEWED_BY'."
   echo
-  # #991: the verdict grammar, stated once here and once in review/SKILL.md step 8; tools/verdict-check.sh enforces it
+  # the verdict grammar, stated once here and once in review/SKILL.md step 8; tools/verdict-check.sh enforces it
   grep -v 'LOCKSTEP-' <<'GRAMMAR'
 # LOCKSTEP-BEGIN verdict-grammar
 The verdict comment has these parts, in this order and nothing else:
@@ -1256,7 +1256,7 @@ STYLE
 }
 build_allowlist() { # row F3: derived from what the record and config name
   # bash $WT/*: a build runs the scripts it writes in its worktree, which the checks already execute.
-  # #1048: Grep and Glob are its lookups (D-1), never a Bash grep, ls, wc or head; a later round may edit the PR body (D-3)
+  # Grep and Glob are its lookups, never a Bash grep, ls, wc or head; a later round may edit the PR body
   local allow="Read,Grep,Glob,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr edit * --body-file *),Bash(gh issue view*),Bash(bash $WT/*)$MCP_ALLOW" c
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash(bash $TOOLS/bot-commit.sh*),Bash($GH *)"   # the bash form too: the scheduler calls it that way, and a build copies it
   [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
@@ -1341,7 +1341,7 @@ join_verdicts() { # join_verdicts <lane draft> <plain draft or ''> <why plain is
 worktree_inflight() { # worktree_inflight <archive-tag> -> 0 collected · 8 in flight · 1 unreadable
   # tracked dirt (modified, staged, intent-to-add, submodule) and unpushed commits are in flight; untracked files alone,
   # on a tree at the pushed head, are what a session left behind: archived to $STATE/quarantine-<tag>.tar, never discarded
-  # INFLIGHT_UNPUSHED holds the unpushed commits when they, on a clean tree, are all that is in flight (#973)
+  # INFLIGHT_UNPUSHED holds the unpushed commits when they, on a clean tree, are all that is in flight
   local dirty unpushed; INFLIGHT_REASON=""; INFLIGHT_UNPUSHED=""
   dirty="$(git -C "$WT" status --porcelain --untracked-files=no 2>&1)" || { INFLIGHT_REASON="its status could not be read ($dirty)"; return 1; }
   if [ -n "$dirty" ]; then INFLIGHT_REASON="its tree is not clean"; return 8; fi
@@ -1524,7 +1524,7 @@ verdict() { # verdict <start-iso> <end-iso> -> prints approve|needs-work and sav
   cut -f2 "$STATE/verdict.tsv" | base64 --decode > "$STATE/verdict-body.md"
   cut -f1 "$STATE/verdict.tsv"
 }
-# -- the verdict check (#991 D-9): a bound verdict counts only when its own body backs it, under the grammar the review
+# -- the verdict check: a bound verdict counts only when its own body backs it, under the grammar the review
 # prompt states. The record is read at the head as well as at FIRST, so a row the build added or deleted is owed a score --
 verdict_check() { # verdict_check <attempt> -> verdict-check.sh's exit: 0 backed · 1 breaks a rule (the rules in $STATE/verdict-check-<attempt>.txt) · 2 uncheckable
   local hr="$STATE/record-head-$1.md" fr="$STATE/record-first.md"
@@ -1559,7 +1559,7 @@ joined_post() { # joined_post <attempt>: joins the lane draft with the plain one
   err="$("$GH" pr comment "$PR" --body-file "$j" 2>&1 >/dev/null)" || { JOINED_MISS="the joined verdict could not be posted on PR #$PR: $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"; return 1; }
   say "verdict: the joined verdict is posted on PR #$PR"
 }
-# -- the review status (#915 D-1 D-3 D-4 D-5 D-7): the BOUND verdict as a commit status on the sha it names. Called only
+# -- the review status: the BOUND verdict as a commit status on the sha it names. Called only
 # after the head-moved check, so a voided verdict posts nothing; a failed post is reported in the run block, never fatal --
 STATUS_CONTEXT="second-shift/review"; STATUS_NOTES=""
 RUN_NOTES=""   # run-scoped notes for the run block (row H14's scaled-smoke note); STATUS_NOTES stays verdict-scoped
@@ -1582,7 +1582,7 @@ review_status() {
   fi
   STATUS_NOTES="${STATUS_NOTES}status: NOT posted ($STATUS_CONTEXT=$state on $HEAD_SHA) — $why"$'\n'; say "status: NOT posted on $HEAD_SHA — $why"
 }
-# -- the earlier verdicts (#946 D-3 D-5 D-6 D-7): once a verdict binds, every earlier lane verdict on the PR is minimized
+# -- the earlier verdicts: once a verdict binds, every earlier lane verdict on the PR is minimized
 # as outdated through $GH, so the bound one is the one a human sees expanded. A failure is one run-block line, never fatal --
 minimize_earlier_verdicts() {
   local id repo err
@@ -1625,9 +1625,9 @@ run_report() { # <terminal slug>: the block's content, between its markers
   echo "| run | outcome | rounds | verdict | reviewed head | cost | CI |"; echo "| --- | --- | --- | --- | --- | --- | --- |"
   echo "| $RUN_ID | $1 | $ROUND | ${VERDICT:-none} | ${HEAD_SHA:-—} | \$$(usd "$COST")${UNPRICED:+ + unpriced} | $CI |"; echo
   [ -z "$RUN_NOTES" ] || printf '%s' "$RUN_NOTES" | awk '{print; print ""}'
-  [ -z "$PLAN_NOTES" ] || printf '%s' "$PLAN_NOTES" | awk '{print; print ""}'       # #1039: the latest coverage check, and the plan's position
-  [ -z "$FWC_NOTES" ] || printf '%s' "$FWC_NOTES" | awk '{print; print ""}'         # #1040: the latest fails-without-the-change check, its holds and unchecked notes
-  # #964 D-4: one denial count per session, from the denials file the scheduler wrote after it ("?" when its JSON was unread);
+  [ -z "$PLAN_NOTES" ] || printf '%s' "$PLAN_NOTES" | awk '{print; print ""}'       # the latest coverage check, and the plan's position
+  [ -z "$FWC_NOTES" ] || printf '%s' "$FWC_NOTES" | awk '{print; print ""}'         # the latest fails-without-the-change check, its holds and unchecked notes
+  # one denial count per session, from the denials file the scheduler wrote after it ("?" when its JSON was unread);
   # a review's count misses the denials made inside its Workflow subagents, which its result JSON does not list
   echo "| session | turns | cost | denials |"; echo "| --- | --- | --- | --- |"
   local f n c dn df; for f in "$STATE"/build-*.json "$STATE"/review-*.json; do
@@ -1687,7 +1687,7 @@ write_run_block() { # <terminal slug>; a body that cannot be read is never repla
 # ============================ 3. preflight, read-only (rows A4, A13, A27, D10, D11, H1, J1, J3, K6-K8) ============================
 say "run $RUN_ID: issue $ISSUE, tracker $TRACKER (writes $TRACKER_WRITES), branch $BRANCH, worktree $WT, record $RECORD_REL"
 committed_record_exists() { # the branch on origin already carries the record: the receipt on disk is no longer read at all
-  # #1024: asked of the remote, never of a local ref — a failed fetch keeps a stale refs/remotes/origin/$BRANCH, and
+  # asked of the remote, never of a local ref — a failed fetch keeps a stale refs/remotes/origin/$BRANCH, and
   # fetch exits 128 for both "unreachable" and "no such branch"; ls-remote --exit-code gives the second its own 2
   local out rc sha found="" wt_ref stale
   out="$(git -C "$MAIN_ROOT" ls-remote --exit-code origin "refs/heads/$BRANCH" 2>/dev/null)"; rc=$?
@@ -1722,7 +1722,7 @@ bad_lane="$(lanes_malformed)"; [ -z "$bad_lane" ] || terminal env-config-lanes "
 if [ "$RECORD_SOURCE" = receipt ] && ! design_declared; then
   terminal env-design-undeclared "design.provider is configured but the record's design section ('## Design frames' or '## Design') neither carries RS rows nor a 'Design: none — <reason>' line — a UI ticket cannot skip the render silently"
 fi
-# #1022: a receipt from disk is linted before the claim; a committed record was linted when it was a receipt and is not
+# a receipt from disk is linted before the claim; a committed record was linted when it was a receipt and is not
 # re-linted. The lint's rc 1 is the receipt's fault (resumable); anything else, or a lint that knows fewer receipt
 # versions than the receipt carries, is a lint this run cannot trust
 if [ "$RECORD_SOURCE" = receipt ]; then
@@ -1790,7 +1790,7 @@ EOF
   CLAIMED=1
 fi
 mkdir -p "$STATE" || terminal env-state-dir "cannot create $STATE"
-# #964 D-10: a --handoff build runs after this process has exited, so no scratch dir is made for it to outlive
+# a --handoff build runs after this process has exited, so no scratch dir is made for it to outlive
 if [ "$HANDOFF" -eq 0 ]; then
   SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/second-shift-$ISSUE-scratch.XXXXXX")" || terminal env-scratch-dir "cannot create a scratch dir under ${TMPDIR:-/tmp}"
   SCRATCH="$(cd "$SCRATCH" && pwd -P)"   # the physical path: a session's --add-dir and the prompt must name the same dir
@@ -1805,7 +1805,7 @@ fi
 if [ -d "$WT" ]; then
   wt_ref="$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)" || terminal env-worktree "$WT exists but is not a git worktree"
   case "$wt_ref" in "$BRANCH"|HEAD) : ;; *) terminal env-worktree-mismatch "$WT is on branch '$wt_ref', not $BRANCH — remove it (git worktree remove) and re-launch" ;; esac
-  # #1040 D-7: a run killed during its fails-without-the-change check left $WT on the record commit's tree; it goes back on
+  # a run killed during its fails-without-the-change check left $WT on the record commit's tree; it goes back on
   # the branch before anything else, by the same unforced checkout, which refuses rather than discard a change
   if [ -f "$RED_TREE_MARK" ]; then
     red_tree_restore || terminal env-worktree "$WT was left on the record commit's tree by an interrupted fails-without-the-change check ($(cat "$RED_TREE_MARK" 2>/dev/null)), and git checkout $BRANCH refuses there — reconcile it by hand, delete $RED_TREE_MARK, then --resume"
@@ -1849,12 +1849,12 @@ red_attempt() { # a red check, smoke or convention spends the checks-red counter
   RED_LOG="$(findings_excerpt "$2")"; NEED_BUILD=1; say "$1 red — the findings are the log; another BUILD attempt of round $ROUND"
 }
 denials_cite() { # denials_cite <attempt> -> the build's denials as a detail line cites them; nothing when it was denied none
-  # under read_denials a missing file is "unread", never "none" (#967), so the line says which
+  # under read_denials a missing file is "unread", never "none", so the line says which
   local f="$STATE/denials-$1.txt"
   if [ ! -e "$f" ]; then echo "; its permission denials are unread (its result JSON carried none to read)"
   elif [ -s "$f" ]; then echo "; it was denied $(grep -c '' "$f") command(s), listed in $f"; fi
 }
-unpushed_log() { # unpushed_log <attempt> -> writes $STATE/unpushed-<attempt>.log, what the re-spawned build reads (#973 D-1)
+unpushed_log() { # unpushed_log <attempt> -> writes $STATE/unpushed-<attempt>.log, what the re-spawned build reads
   local f="$STATE/denials-$1.txt" log="$STATE/unpushed-$1.log"
   {
     echo "The BUILD session exited 0 on a clean tree, but these commits are not on origin/$BRANCH:"
@@ -1884,16 +1884,16 @@ findings_excerpt() { # findings_excerpt <log> -> the path of what the next build
   else mv "$out.tmp" "$out"; fi
   printf '%s' "$out"
 }
-new_uuid() { # an RFC 4122 v4 uuid, lowercase as transcript file names are (macOS uuidgen prints upper case, D-31)
+new_uuid() { # an RFC 4122 v4 uuid, lowercase as transcript file names are (macOS uuidgen prints upper case)
   local h; h="$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')"
   [ "${#h}" -eq 32 ] || return 1
   printf '%s-%s-4%s-%x%s-%s' "${h:0:8}" "${h:8:4}" "${h:13:3}" $(( (16#${h:16:1} & 3) | 8 )) "${h:17:3}" "${h:20:12}"
 }
-# -- the watch call (#939 D-9 D-10 D-26 D-27): once per launch, once the worktree is first ready; whatever it does, one
+# -- the watch call: once per launch, once the worktree is first ready; whatever it does, one
 # `watch:` line and nothing else. It runs from the main checkout in its own process group under its own watchdog —
 # bounded() would cd into the worktree and reap only one level down — with its output in its own file: never the detach
 # log, never a command substitution, which a forked descendant holding the pipe would stall. Nothing it says is read back.
-WATCH_TO=10   # OR-1: one constant; a watch that misbehaves changes no outcome at any value
+WATCH_TO=10   # one constant; a watch that misbehaves changes no outcome at any value
 WATCHED=0
 watch_once() {
   [ "$WATCHED" -eq 0 ] || return 0; WATCHED=1
@@ -1901,7 +1901,7 @@ watch_once() {
   [ -n "${RUN_DETACHED_LOG:-}" ] || { say "watch: skipped for a foreground run (only a --detach run is watched)"; return 0; }
   command -v -- "$RUN_WATCH_CMD" >/dev/null 2>&1 || { say "watch: FAILED — '$RUN_WATCH_CMD' is not an executable; the run goes on unwatched"; return 0; }
   local out="$STATE/watch.out" t=0 rc
-  # the pane, tab and workspace the operator launched from are not the watch's: the adapter names its own by id (AC-21)
+  # the pane, tab and workspace the operator launched from are not the watch's: the adapter names its own by id
   ( cd "$MAIN_ROOT" && exec env -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!\n"' -- \
       "$RUN_WATCH_CMD" "$ISSUE" "$REPO_SLUG" "$RUN_DETACHED_LOG" "$WT" ) > "$out" 2>&1 < /dev/null & CHILD=$!; CHILD_GROUP=1
   while kill -0 "$CHILD" 2>/dev/null && [ "$t" -lt $((WATCH_TO*5)) ]; do sleep 0.2; t=$((t+1)); done
@@ -1924,9 +1924,9 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
   # Both sessions run every command in the foreground, inside their own bound. Passed as --settings env, which sits above
   # the user, project and local files, so a repo's own settings.json env cannot quietly put a session back on the 120 s default
   local sets envv=(env ${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"})
-  # #1048 D-6 D-8 D-18: the BUILD alone gets the PermissionRequest hook, which fires only on a call its allowlist denies
+  # the BUILD alone gets the PermissionRequest hook, which fires only on a call its allowlist denies
   # and answers it with a reason; here, never in the plugin's hooks.json, which every session with the plugin loads.
-  # #1080: it is given the record and the plan, the two files the build must write even when plansDir is under .claude/
+  # it is given the record and the plan, the two files the build must write even when plansDir is under .claude/
   if [ "$1" = build ]; then
     sets="$(jq -cn --arg ms "$BUILD_BASH_MS" --arg hook "bash $(shquote "$TOOLS/lane-permission-hook.sh") $(shquote "$WT") $(shquote "$SCRATCH") $(shquote "$WT/$RECORD_REL") $(shquote "$WT/$PLAN_REL")" \
       '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms},hooks:{PermissionRequest:[{hooks:[{type:"command",command:$hook}]}]}}')" \
@@ -1940,7 +1940,7 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
     printf '%s\n' "$CONFIG_JSON" > "$SCRATCH/second-shift.config.json" || terminal env-scratch-dir "cannot write the session's copy of the config into $SCRATCH"
     envv+=(SECOND_SHIFT_CONFIG="$SCRATCH/second-shift.config.json")
   fi
-  # #939 D-13: every session is named and findable while it runs (`claude agents`), and its transcript is on disk under its id
+  # every session is named and findable while it runs (`claude agents`), and its transcript is on disk under its id
   local sid name; sid="$(new_uuid)" || terminal env-session-id "cannot read /dev/urandom for a session id"
   name="$ISSUE-$1-$(printf '%s' "$3" | tr -c 'A-Za-z0-9-' '-')"
   say "session: $1 $3 $sid ~/.claude*/projects/*/$sid.jsonl"
@@ -1978,7 +1978,7 @@ while :; do
       worktree_inflight "$A"; ifrc=$?
       case "$ifrc" in
         0) : ;;
-        8) if [ -n "$INFLIGHT_UNPUSHED" ]; then # committed but not pushed (#973 D-1): a new build pushes it, on the checks-red counter
+        8) if [ -n "$INFLIGHT_UNPUSHED" ]; then # committed but not pushed: a new build pushes it, on the checks-red counter
              say "build: exited 0 with $(grep -c '' <<<"$INFLIGHT_UNPUSHED") commit(s) not on origin/$BRANCH on a clean tree — another BUILD pushes them and opens the draft PR"
              red_attempt push "$(unpushed_log "$A")"; continue
            fi
@@ -2002,13 +2002,13 @@ while :; do
       sync_to_remote
       CHANGED="$(git -C "$WT" -c core.quotePath=false diff --name-only "$FIRST" HEAD 2>/dev/null)" || terminal env-worktree "cannot diff $FIRST..HEAD in $WT — a diff that cannot be read must not skip every when-scoped lane"
       run_checks "$RA" || { red_attempt checks "$STATE/checks-$RA.log"; continue; }
-      plan_coverage "$RA"; pcrc=$?   # #1039: after the checks, before the smoke; not-applicable goes on
+      plan_coverage "$RA"; pcrc=$?   # after the checks, before the smoke; not-applicable goes on
       case "$pcrc" in
         0|3) : ;;
         1) red_attempt "plan coverage" "$STATE/plan-coverage-$RA.log"; continue ;;
         *) terminal plan-coverage-uncheckable "tools/plan-coverage.sh exited $pcrc on the record at $FIRST and $PLAN_REL at $HEAD_SHA ($(tr '\n' ' ' < "$STATE/plan-coverage-$RA.log" 2>/dev/null | cut -c1-300)) — a check that cannot run is not one that passed, and no build can change the record at its first commit" ;;
       esac
-      if [ "$pcrc" -eq 0 ]; then # #1040: after the coverage, before the smoke; a red spends the checks-red counter (D-5)
+      if [ "$pcrc" -eq 0 ]; then # after the coverage, before the smoke; a red spends the checks-red counter
         fails_without_change "$RA"; fwrc=$?
         [ "$fwrc" -ne 1 ] || { red_attempt "fails without the change" "$STATE/fails-without-$RA.log"; continue; }
       else # the record carries no Test intent, or the ticket no AC block: the coverage's own not-applicable reason
@@ -2039,7 +2039,7 @@ while :; do
       date +%s > "$STATE/review-$RA.end"
       [ "$JOINED" = false ] || [ -z "$PLAIN_PID" ] || plain_collect "$RA" || say "plain review: $PLAIN_WHY"
       end="$(now)"
-      # #964 D-4: the review's denials, read as the build's are. Known gap: a denial inside the review's Workflow
+      # the review's denials, read as the build's are. Known gap: a denial inside the review's Workflow
       # subagents is not in this result JSON, so it is not counted here
       read_denials "$STATE/review-$RA.json" "$STATE/denials-review-$RA.txt"
       rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$RA.json" 2>/dev/null)"
@@ -2055,7 +2055,7 @@ while :; do
         after="$(remote_head)" || terminal env-remote-unreadable "cannot read origin/$BRANCH after the review — a verdict is not discarded for a network blip; --resume"
         if [ "$after" != "$HEAD_SHA" ]; then miss="the head moved during the review ($HEAD_SHA -> $after). The checks run again on the new head"; NEED_CHECKS=1
         elif [ "$vrc" -ne 0 ]; then miss="no unedited 'verdict:' comment naming head $HEAD_SHA was posted between $start and $end"; fi
-        if [ -z "$miss" ]; then # #991: the bound verdict binds only when its own comment backs it; checked before any status
+        if [ -z "$miss" ]; then # the bound verdict binds only when its own comment backs it; checked before any status
           vurl="$(cut -f3 "$STATE/verdict.tsv" 2>/dev/null)"
           verdict_check "$RA"; vcrc=$?
           if [ "$vcrc" -eq 1 ]; then
@@ -2079,7 +2079,7 @@ while :; do
   minimize_earlier_verdicts
   [ "$VERDICT" = approve ] && break
   # row H13: a review that could not render, read the ticket or dispatch its seat is the environment's failure, not the
-  # build's — no round is spent. The grammar puts the reason on line 3 (#991); the same words in ## Notes are prose
+  # build's — no round is spent. The grammar puts the reason on line 3; the same words in ## Notes are prose
   case "$(awk '{ sub(/\r$/, "") } NR == 3 { print; exit }' "$STATE/verdict-body.md")" in
     "reason: render-unavailable") terminal env-not-ready "the review could not render the design frames at $HEAD_SHA (reason: render-unavailable) — fix the render environment and re-launch" ;;
     "reason: ticket-unreadable") terminal env-not-ready "the review could not read ticket $ISSUE at $HEAD_SHA (reason: ticket-unreadable) — fix the tracker access and re-launch" ;;

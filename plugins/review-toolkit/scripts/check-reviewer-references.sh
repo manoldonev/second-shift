@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Verify the review-lead reviewer registry stays in lockstep with the agent files
-# that back it — now across THREE ROOTS after pluginization.
+# that back it, across THREE ROOTS.
 #
 # Three-root contract
 # -------------------
@@ -84,8 +84,7 @@ if [ ! -t 0 ]; then
         # outer command string, and the configured glob (`Bash(git -c * commit *)`)
         # over-matches non-commit commands that merely contain a `git -c`/`git -C`
         # substring plus a `commit`/`commitSha` substring (e.g. a gate call whose
-        # inline `git -C <wt> rev-parse` + expanded JSON payload carry both). That
-        # produced spurious denials on non-commit Bash calls (issue #208). The glob's
+        # inline `git -C <wt> rev-parse` + expanded JSON payload carry both). The glob's
         # tokenization is engine-internal and unverifiable, so we self-gate here
         # instead of trusting it: allow (exit 0) unless the command actually invokes
         # `git ... commit` as a subcommand. Tolerates leading global option pairs
@@ -171,7 +170,7 @@ fi
 # Nothing to check if the plugin's review-lead skill isn't present.
 [ -f "$SKILL" ] || exit 0
 
-# Standalone adoption (#14, F17): in HOOK mode with NO consumer second-shift config,
+# Standalone adoption: in HOOK mode with NO consumer second-shift config,
 # the reviewer-registry lockstep contract is not in force — a repo that adopts
 # review-toolkit alone (no dev-pipeline, no config) must not have its commits denied.
 # Fail OPEN (allow the commit); the orphan/shadow deny loops below apply only to
@@ -396,7 +395,7 @@ if [ -n "$CONSUMER_AGENTS" ] && [ -d "$CONSUMER_AGENTS" ] && [ -n "$PLUGIN_ROOT"
 fi
 
 # --- (b) ORPHAN: consumer reviewer-shaped files must be registered ----------
-#     "reviewer-shaped" heuristic preserved from the single-root era: *-reviewer.md.
+#     "reviewer-shaped" means *-reviewer.md.
 #     A file that shadows a plugin agent is reported by (d), not here.
 if [ -n "$CONSUMER_AGENTS" ] && [ -d "$CONSUMER_AGENTS" ]; then
     for f in "$CONSUMER_AGENTS"/*-reviewer.md; do

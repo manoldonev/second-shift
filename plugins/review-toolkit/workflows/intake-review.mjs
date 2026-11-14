@@ -13,12 +13,10 @@ export const meta = {
 // args.config.reviewers.modelOverrides (bare-keyed) wins per agent.
 // Tier -> dispatch token. INLINED because the Workflow sandbox forbids imports; the
 // authority is the `## Tier alphabet` table in ../model-tiering.md, and
-// check-model-tiers.sh holds this copy against it (TIER-MAP-DRIFT) so the duplication
-// is checked rather than merely regretted. Keys are UNQUOTED deliberately: the guard's
-// entry scans match a quoted key followed by a quoted value, so quoting these would make
-// every tier read as a dispatch-table entry and be reported DANGLING. (Writing that shape
-// out here would itself trip the scan — a comment quoting a matched shape is an instance
-// of it.)
+// check-model-tiers.sh holds this copy against it. Keys are UNQUOTED deliberately: the
+// guard's entry scans match a quoted key followed by a quoted value, so quoted keys would
+// read as dispatch-table entries and be reported DANGLING. A comment that writes that
+// shape out trips the scan too.
 const DEFAULT_TIER_MAP = {
   reasoning: 'opus',
   code: 'sonnet',
@@ -29,8 +27,7 @@ const DEFAULT_TIER_MAP = {
 const INTAKE_MODEL = {
   'review-toolkit:spec-reviewer': 'reasoning',
   'review-toolkit:codebase-explorer': 'code',
-  // See code-review.mjs: the sink joins the governed table instead of carrying an
-  // un-overridable inline literal (#351).
+  // The transcription sink takes its tier from this table too, so config can retarget it.
   'review-toolkit:structured-emitter': 'emit',
 }
 
@@ -135,8 +132,7 @@ const CODEBASE_EXPLORER_SCHEMA = {
 //                  detached origin/<base> worktree). When set, every
 //                  sub-agent is instructed to perform ALL codebase reads under it and
 //                  never the main checkout (whose branch/dirty state must not inform
-//                  intake). Empty = the
-//                  legacy unpinned behavior (reads resolve against the session CWD).
+//                  intake). Empty = unpinned (reads resolve against the session CWD).
 // `args` arrives as the value passed to Workflow's `args` input. Defensive: it may
 // be an object, or (per the Workflow contract's stringified-args caveat) a JSON string.
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
@@ -149,8 +145,8 @@ const {
   config = {},
 } = a
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
-// Consumer tier retargeting, MERGED per tier over the shipped default (#351) — same
-// contract as code-review.mjs.
+// Consumer tier retargeting, MERGED per tier over the shipped default — same contract as
+// code-review.mjs.
 const tierMap = { ...DEFAULT_TIER_MAP, ...((config && config.reviewers && config.reviewers.tierMap) || {}) }
 const modelFor = (agentType) => {
   const declared = modelOverrides[bare(agentType)] || INTAKE_MODEL[agentType] || 'code'
@@ -168,12 +164,8 @@ if (!Array.isArray(agents) || agents.length === 0) {
 
 // Workflow runtime globals used below — injected by the runtime, not imported:
 // log(), phase(), parallel(), agent(). See the Workflow tool API.
-//
-// #306: docsNote used to tell sub-agents these docs were "already read — do not
-// re-fetch" while never placing `d.content` anywhere in the prompt — worse than a
-// no-op, since it forbade the read it never provided. docsBlock now renders the
-// content the caller already resolved (the referenced-docs scan in intake's
-// requirements.md), so docsNote's claim is true whenever it fires.
+// docsNote tells sub-agents not to re-fetch, so docsBlock must render the content the
+// caller resolved (the referenced-docs scan in intake's requirements.md) whenever it fires.
 const docsNote = referencedDocs.length
   ? ` Referenced docs are included below (do not re-fetch): ${referencedDocs.map((d) => d.path).join(', ')}.`
   : ''
@@ -181,7 +173,7 @@ const docsBlock = referencedDocs.length
   ? '\n\n' + referencedDocs.map((d) => `--- REFERENCED DOC: ${d.path} ---\n${d.content}`).join('\n\n') + '\n'
   : ''
 
-// Read-surface pin (issue #59): prefixed to EVERY dispatch prompt so the
+// Read-surface pin: prefixed to EVERY dispatch prompt so the
 // sub-agents ground against origin/<base>, not the operator's checkout. Leads the
 // prompt (not appended) so it is the first instruction the agent reads.
 const readRootNote = readRoot
@@ -206,7 +198,7 @@ if (typeof budget !== 'undefined' && budget && budget.total) {
   }
 }
 
-// --- explorer/emitter transport (the structural stall fix; #169) ---
+// --- explorer/emitter transport (the structural stall fix) ---
 // Explorers dispatch schema-FREE and end with a sentinel + fenced JSON block parsed here;
 // the schema objects become in-script validators, and only the transcription-only
 // structured-emitter agent (tools: [], maxTurns: 2) ever carries a schema — fired solely
@@ -261,14 +253,12 @@ const emitStructured = (text, opts) =>
   )
 
 
-// #283: spec-reviewer is an EXHAUSTIVE-class reviewer (same treatment as code-review.mjs's
-// scope-completeness-reviewer / unit-test-mutation-reviewer), not a boundable one — run #273
-// measured it dying at the turn cap having emitted nothing, the same failure class
-// BOUNDED_EXPLORATION-style "explore less" nudges do not cure (that framing REPLACED a
-// BOUNDED_SPEC_GROUNDING nudge here, which was already in place during #273's death and did not
-// prevent it). Verbatim-shared with code-review.mjs (workflows cannot `import`)
-// — kept honest by the `progressive-emit` LOCKSTEP markers. Belt-and-suspenders half of the same pair as
-// spec-reviewer.md's own turn-numbered emit deadline (see check-emit-deadline.sh enrollment).
+// spec-reviewer is an EXHAUSTIVE-class reviewer (same treatment as code-review.mjs's
+// scope-completeness-reviewer / unit-test-mutation-reviewer), not a boundable one. Measured: it
+// died at the turn cap having emitted nothing while an "explore less" nudge was in place.
+// Verbatim-shared with code-review.mjs (workflows cannot `import`), held by the
+// `progressive-emit` LOCKSTEP markers. spec-reviewer.md's own turn-numbered emit deadline is the
+// other half of the pair (see check-emit-deadline.sh enrollment).
 // LOCKSTEP-BEGIN progressive-emit
 const PROGRESSIVE_EMIT =
   ' EMIT AS YOU GO — do NOT save your result for the end. As soon as you have enumerated your' +
@@ -333,20 +323,13 @@ if (selected.length === 0) {
   throw new Error(`intake-review workflow: no known agent in ${JSON.stringify(agents)} (known: spec-reviewer, codebase-explorer)`)
 }
 
-// The StructuredOutput death class is structurally impossible here (#169): explorers carry
-// no schema, and the emitter cannot explore. The contract-miss ladder in dispatchIntake owns retry.
-
-// One intake dispatch with ONE automatic retry when it dies without StructuredOutput.
-// The retry runs INLINE in this task closure (awaits a second agent() before resolving)
-// so it adds no new task to parallel() and inherits the concurrency cap. This gives
-// intake the same protection code-review already had — the #199 run lost a spec-reviewer
-// to a StructuredOutput death this retry would have recovered.
-//   - success (first or second attempt) → { agentType, result }
-//   - non-StructuredOutput rejection     → { agentType, result: null, error } (no retry;
-//     forwarded so the orchestrator can fall back to its own reading and note the gap)
-//   - StructuredOutput death twice        → { agentType, result: null, error,
-//     retried: true, failed: true } — flagged so the orchestrator cannot mistake a dead
-//     sub-agent for a clean result.
+// One intake dispatch with ONE automatic retry, run INLINE in this task closure so it adds
+// no task to parallel() and inherits its concurrency cap.
+//   - success (either attempt)    → { agentType, result }
+//   - dispatch error on attempt 0 → { agentType, result: null, error } (no retry; forwarded
+//     so the orchestrator can fall back to its own reading and note the gap)
+//   - dead on both attempts       → { agentType, result: null, error, retried: true, failed: true },
+//     flagged so the orchestrator cannot mistake a dead sub-agent for a clean result.
 const dispatchIntake = async (d) => {
   const opts = {
     agentType: d.agentType,
@@ -355,8 +338,8 @@ const dispatchIntake = async (d) => {
     phase: 'Intake',
     schema: d.schema,
   }
-  // Explorer/emitter ladder — dark-marker shapes unchanged (the orchestrator keys on
-  // { result: null } and { retried: true, failed: true }).
+  // Dark-marker shapes are a contract: the orchestrator keys on { result: null } and
+  // { retried: true, failed: true }.
   let lastText = null
   for (let attempt = 0; attempt < 2; attempt++) {
     let text
@@ -394,14 +377,12 @@ const dispatchIntake = async (d) => {
   }
 }
 
-// Per-agent wall-clock ceiling (#283, mirrors code-review.mjs's #219 mechanism). The Workflow
-// runtime's own agent-stall loop can let a genuinely wedged sub-agent run far longer than any
-// turn-cap death would suggest, and that loop is a RUNTIME property this script cannot reach
-// (agent() exposes no timeout/abort option). Race the full dispatch (both attempts) against this
+// Per-agent wall-clock ceiling, the same mechanism as code-review.mjs. The Workflow runtime's
+// own agent-stall loop can let a wedged sub-agent run far longer than a turn-cap death, and
+// agent() exposes no timeout/abort option. Race the full dispatch (both attempts) against this
 // ceiling and, on timeout, resolve — NEVER reject — to the SAME died-after-retry dark-marker
-// shape dispatchIntake's own turn-cap-exhaustion path already returns: a ceiling timeout is a
-// SUB-CAUSE of that path, not a new dark case, so the orchestrator's existing
-// { result: null } + { retried: true, failed: true } handling covers it unchanged.
+// shape, so the orchestrator's { result: null } + { retried: true, failed: true } handling
+// covers it unchanged.
 const REVIEWER_CEILING_MS = 15 * 60 * 1000
 const withCeiling = (agentType, dispatchPromise) => {
   let timer
