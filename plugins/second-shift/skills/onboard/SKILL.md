@@ -64,9 +64,6 @@ Build the draft config from detection — the configVersion 3 shape, and only th
   `"writes": false` in the draft (the documented JIRA default) — reviewable on the screen.
   Say what it does on the screen: the pipeline never comments on or transitions the ticket,
   and `/dev-pipeline:run` starts its sessions without Atlassian write tools.
-- **Never emit `topology`, `gates`, `stageParams` or `grillWaivers`, and never
-  `design.liveRender.cwd` or `design.liveRender.tolerancePx`** — configVersion 3 removed them and
-  config-lint rejects each by name (`docs/migrations/v2-to-v3.md`).
 - `commands.<key>`, where `<key>` is this checkout's directory name —
   `basename "$(git rev-parse --show-toplevel)"`, or in a linked worktree the MAIN checkout's
   directory name (`git rev-parse --git-common-dir`, one level up). That is the key
@@ -84,9 +81,7 @@ Build the draft config from detection — the configVersion 3 shape, and only th
   not rewrite files: when detect's `lint` provenance says the script runs `--fix`, flag it on the
   review screen and ask for the non-mutating command.
   (Integration/API test tiers, and `build`, are NOT config command keys — ship them via
-  `extraLanes`. Never emit `integrationTest`/`apiTest`/`build` under `commands.<key>`, never
-  emit `testFile`/`unitTestScope`, and never `stageWorkflows`/`implementDelegates`/`planGates`
-  — a draft carrying one self-rejects at config-lint.)
+  `extraLanes`.)
   `lanes` (setup steps) is deliberately NOT in that key list — detection cannot prove a
   repo's install command, so onboard never writes one. It is raised on the review screen
   instead (below), where the human can supply it.

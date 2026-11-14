@@ -1,6 +1,6 @@
 ---
 name: local-dev-refresh
-description: Refresh THIS MACHINE's second-shift plugin state - update the second-shift marketplace catalog, then every plugin installed from it ('plugin update' is the verb that actually upgrades - 'install' no-ops as "already installed"), realign the current repo's project-scope stragglers - reporting rather than refreshing the ones a user-scope record already makes redundant - print the before/after version delta, remind to restart. Scoped to the second-shift marketplace only - other marketplaces on the machine are left untouched. Run after merging plugin bumps (dogfooding) or after a release/pin change.
+description: Refresh THIS MACHINE's second-shift plugin state - update the second-shift marketplace and every plugin installed from it, realign this repo's project-scope records, then print the before/after version delta. Other marketplaces are left untouched. Run after merging plugin bumps (dogfooding) or after a release/pin change.
 ---
 
 You are `/second-shift:local-dev-refresh`. You bring the plugins installed from the

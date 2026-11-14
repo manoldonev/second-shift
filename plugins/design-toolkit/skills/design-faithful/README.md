@@ -3,7 +3,7 @@
 The foundation of the `design-faithful` capability, in both directions:
 
 - **Read** — turn a Claude Design project into a structured, sanitized **design contract** that
-  the workflow engine consumes (`lib/extractor.mjs` and friends).
+  the `design-faithful` and `design-faithful-spec` skills consume (`lib/extractor.mjs` and friends).
 - **Push** — emit the repo's own design system (tokens + a representative component set) as Claude
   Design `@dsCard` previews and sync them delta-only to a design-system project
   (`lib/emit-*.mjs`, `lib/sync-plan.mjs`, `tools/build-ds-files.mjs`, [`PUSH.md`](./PUSH.md)).
@@ -18,8 +18,8 @@ driver/runbook, plus the invocable **`design-faithful` implement skill** (`SKILL
 body imports the lib to read a handoff and implement a screen in the repo's FE app. The sibling
 spec-producing skill lives at [`../design-faithful-spec/`](../design-faithful-spec/SKILL.md).
 
-> `SKILL.md` here is the **implement** skill (dispatched by the workflow engine as `agentType`
-> `design-faithful`); `lib/*.mjs` are plain importable ESM the skill loads.
+> `SKILL.md` here is the **implement** skill (also dispatched as `agentType` `design-faithful`);
+> `lib/*.mjs` are plain importable ESM the skill loads.
 
 ## What's here
 
@@ -45,9 +45,7 @@ spec-producing skill lives at [`../design-faithful-spec/`](../design-faithful-sp
 
 `DesignSync` is a model-invoked **tool**, not an importable function — so the actual
 `get_project` / `list_files` / `get_file` calls are made by the orchestrating agent: the
-`design-faithful` / `design-faithful-spec` skills, which carry the tool. (The Workflow
-engine has no tool/fs access — it only dispatches those skills; see its READ BOUNDARY note.)
-The code here is **pure**: it operates on already-fetched bytes. Shape-specific
+`design-faithful` / `design-faithful-spec` skills, which carry the tool. The code here is **pure**: it operates on already-fetched bytes. Shape-specific
 discovery (established by probing the DesignSync tool):
 
 - **`PROJECT_TYPE_PROJECT`** (handoff bundle) — open **by project id** via

@@ -130,7 +130,7 @@ silently pass.
 > surfacing DesignSync into the session. A silent grant failure looks like a
 > `design-source-unreachable` fail-close.
 
-## Output contract (pinned to the engine `PRODUCE_SCHEMA`)
+## Output contract
 
 Commit the change via **bot identity** — the bot configured for this repo (config
 `tracker.bot`; the wrapper/identity installed by dev-pipeline's `install-gh-bot.sh` —

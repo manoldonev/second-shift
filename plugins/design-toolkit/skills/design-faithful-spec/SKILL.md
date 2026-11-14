@@ -46,11 +46,14 @@ The handoff is `PROJECT_TYPE_PROJECT` — a screen-level bundle. Open it **by id
 
 The contract lib is **shared** and lives in the sibling skill dir
 (`../design-faithful/lib/*.mjs`, the shared contract library) — this spec skill has no `lib/` of its
-own; it imports that one. Run it from the repo root, e.g.:
+own; it imports that one. Resolve it from this skill's own base directory, which the
+invocation states: write that absolute path in place of `<skill base dir>` below. A shell
+variable does not work here: the Bash tool does not set the plugin path variables, and the
+single quotes block expansion.
 
 ```bash
 node --input-type=module -e '
-  import("./.claude/skills/design-faithful/lib/extractor.mjs").then(async (m) => {
+  import("<skill base dir>/../design-faithful/lib/extractor.mjs").then(async (m) => {
     const contract = m.extractContract({ projectType: "PROJECT_TYPE_PROJECT", files })
     console.log(JSON.stringify(contract, null, 2))
   })'
@@ -82,7 +85,7 @@ Honor every template rule:
 - **Flag any stack-claim mismatch** between the handoff README and the repo's real stack in
   section 0.
 
-## Output contract (pinned to the engine `PRODUCE_SCHEMA`)
+## Output contract
 
 Write the spec to `specPath`, then return:
 
@@ -91,7 +94,7 @@ Write the spec to `specPath`, then return:
   "artifactPath": "<specPath>" }
 ```
 
-**Do NOT commit** — the engine / caller owns the artifact. If the design source is
+**Do NOT commit** — the caller owns the artifact. If the design source is
 unreachable or exceeds a DesignSync limit, do **not** guess — return:
 
 ```

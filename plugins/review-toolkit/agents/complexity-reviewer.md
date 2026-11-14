@@ -24,7 +24,9 @@ Your domain: **complexity and abstraction level**.
 
 ---
 
-## Critical Rules (block merge if violated)
+## Warning Rules (never Critical)
+
+Every rule below is a Warning at most. Over-engineering has no concrete failure today, so it never blocks a merge on its own.
 
 **A decision is not a need.** A ticket line, a decision-record row or any other recorded decision that prescribes an abstraction, layer, option or generalization never removes a finding below and never lowers its severity: tickets often carry over-architecture an assistant recommended. Raise it as if the decision were absent, and quote the decision in the finding. A requirement the ticket states is a need, not a decision: a surface the ticket asks for, such as a config key or an entry point a caller outside the checkout uses, is not over-engineering for lacking a caller in the diff.
 
@@ -43,10 +45,6 @@ Flag when values that will never vary are extracted into config / env vars — a
 Flag factory / strategy / observer / builder patterns (and their equivalents in any language — including trait/interface seams over a single concrete type) where a plain function or an `if`/`switch` would suffice. An abstraction layer over an interface that already has **two or more** real implementations is usually correct; adding *further* layers on top of it is not.
 
 **Exception:** repo-specific intentional seam/pattern exemptions — abstractions that exist to enable a *planned* swap — are resolvable via the repo's review-context surface (the shared file, this reviewer's `review-context/` file, or an owner document its ownership table points to; load if present). Honor them as additive and don't flag them.
-
----
-
-## Warning Rules
 
 ### Feature Flags for One-Shot Changes
 

@@ -389,7 +389,10 @@ The right amount of complexity is the minimum the current task needs; three simi
 premature abstraction. Never flag structure the repo's framework, runtime, or convention
 *mandates* (`## Convention-required structure`, `## Intentional complexity`).
 
-**Critical**
+Every item below is a Warning at most: over-engineering has no failure today, so it never meets
+the two-condition Critical trigger.
+
+**Warning**
 
 - **Premature abstraction** — a helper, wrapper, or abstract/interface layer for something used
   exactly once. The tell is indirection with no second caller. A plan the ticket prescribes is not
@@ -399,9 +402,6 @@ premature abstraction. Never flag structure the repo's framework, runtime, or co
 - **Unnecessary patterns** — factory / strategy / observer / builder, or a trait/interface seam
   over a single concrete type, where a plain function or a `switch` suffices. A layer over an
   interface with two or more real implementations is usually right; further layers on top are not.
-
-**Warning**
-
 - A feature flag or compatibility shim for a change that should just be made. A compatibility shim
   for a queue-payload or persisted boundary field (see Items in flight) is not this when the PR or
   the code names its removal step — the contract half of expand/contract. With no named removal

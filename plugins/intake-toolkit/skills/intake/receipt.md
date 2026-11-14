@@ -136,13 +136,13 @@ Write the whole record in plain technical English:
 - Technical names stay as they are: paths, flags, commands, and ids such as D-3 and OR-1.
 
 Write each `Intake steps` key once, in the order above, at the start of its line. Write what the
-step did, or why it did not run. Use plain sentences of max 25 words. Never write an empty outcome
+step did, or why it did not run. Never write an empty outcome
 or a bare dash. Example: "Requirements: the ticket body as written. spec-reviewer: implementable.
 The interview resolved 2 gaps."
 
 - **Decision Ledger** — five columns (`Kind` included). Write the Decision cell as a short
   question or noun phrase. Write the Resolution cell as the answer. Put the chosen value first and the
-  reason after it. Use sentences of max 25 words. Write one decision per row. Never split one
+  reason after it. Write one decision per row. Never split one
   decision into several rows to make the cells shorter. Each extra row is one more row for the
   review to score. Keep a cell to 40 words when no condition is lost. A cell can be longer only to
   keep a condition, because only the rows bind the build. Put each condition in its own sentence.
@@ -158,7 +158,7 @@ The interview resolved 2 gaps."
 - **Open Regions** — every `open` row cites a declared `OR-n` with its disposition token. Under the
   table, write one short block per `reversible-default-and-flag` region: `OR-n default:` then the
   default, who chose it, and what reversing it costs. Use a list when there is more than one
-  default. Max 25 words per sentence.
+  default.
 - **Surface Inventory** — every surface `decided (D-n)` or `out-of-scope — <reason>`. Write the
   Surface cell in at most 10 words. Write an `out-of-scope` reason in one sentence.
 - **Checks** — start from the repo's verification recipe (its CLAUDE.md, the config's `commands.*`)
@@ -175,7 +175,7 @@ The interview resolved 2 gaps."
   (`Run: shared with the #<parent> split — slices #a, #b, #c`), and embed the shared snapshot. When
   the ticket came back to Split from the Interview, the `Run:` line also names the pre-split run
   this one superseded (`; supersedes the pre-split run on #<parent>`). Write each claim cell in one
-  sentence of max 25 words, with its pointer. Write each disposition cell in max 15 words.
+  sentence, with its pointer. Write each disposition cell in max 15 words.
 - **Knowledge source** — Requirements' outcome (`requirements.md`, "The knowledge source"), in
   exactly one form: `Provider: <plugin>:<agent>` and under it the provider's whole answer, verbatim,
   every line indented four spaces; `Knowledge source: none declared`; or `Knowledge source: failed
@@ -203,26 +203,15 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/ledger-lint.sh" \
 ```
 
 The scheduler runs the same lint before it claims and refuses a receipt that fails, so a red lint
-here is a run that will not launch. It has distinct causes:
+here is a run that will not launch. The lint prints each refusal with its remedy. Three rules it
+cannot check:
 
-- **Provenance** — an `intent` row backed by `codebase-derived`, `ticket-sourced` or `deferred`
-  records a decision you made as one the operator made. Ask it, or reclassify it honestly; never edit
-  the Kind cell to clear the lint.
-- **Evidence** — a `codebase-derived` row with no `run:` or `cited (…):` form. Run the command that
-  settles it; cite only what no command reaches. A `cited` reason outside `convention` / `adr` /
-  `kb` usually means the row records a choice — ask it.
-- **Surface inventory** — a surface with no `D-n` to cite or no reason it is out of scope. The empty
-  form is for work that renders nothing, not a way to clear the section.
-- **Checks or frames** — a check line the scheduler cannot read as one command; a missing design
-  section, or an empty `must-show`, on a provider repo.
-- **Fan-out** — a skip that does not name the operator; a missing part of the disposed form.
-- **Intake steps** — a missing, repeated, misordered or empty step.
-- **Knowledge source** — a missing or empty section, an answer line not indented four spaces, a
-  provider with no answer, or a `Knowledge source:` line outside its two forms.
-- **Test intent** — an id on the `ACs:` line with no line of its own, a line for an id the `ACs:`
-  line does not list, an exempt, holds or unchecked line with no reason, or a line in none of the
-  forms. Re-read the ticket's
-  AC block: the lint cannot see an id you left off the `ACs:` line.
+- **Provenance** — when it refuses an `intent` row's provenance, ask the decision, or reclassify
+  the row honestly; never edit the Kind cell to clear the lint.
+- **Surface inventory** — the empty form is for work that renders nothing, not a way to clear the
+  section.
+- **Test intent** — re-read the ticket's AC block: the lint cannot see an id you left off the
+  `ACs:` line.
 
 Fix and re-lint until it is clean.
 

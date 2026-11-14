@@ -2,25 +2,15 @@
 
 The audit system gives you on-demand and after-the-fact visibility into what tools Claude actually invoked during a session, vs. what Claude's chat output claims it invoked.
 
-**The ledger has two roles.** For `/audit` and `/audit-history` it is **advisory**: drift is surfaced in the reports, and follow-up is by team convention, not by an automatic block. Nothing in this plugin blocks pushes, commits, or PRs. Separately, the rows are **admissible as evidence** for tooling that chooses to gate on them — a pipeline can assert that a particular file was read inside a stage's window, which is a claim no self-report can fabricate. The plugin supplies the record; it never enforces against it.
+**The ledger is advisory.** `/audit` and `/audit-history` surface drift in their reports, and follow-up is by team convention, not by an automatic block. Nothing in this plugin blocks pushes, commits, or PRs.
 
 ## How the hooks get wired
 
-**Plugin mode (default).** The audit hooks ship in this plugin's `hooks/hooks.json`. Once the `audit-toolkit` plugin is enabled for the repo, the hooks fire **automatically** on `PostToolUse` / `PostToolUseFailure` / `SubagentStop` / `UserPromptExpansion` — no per-engineer settings edit, no restart dance beyond enabling the plugin. Nothing to copy.
-
-**Legacy / manual mode.** For a repo that wants the ledger writer but is *not* adopting the plugin (or an engineer who wants a local, per-checkout opt-in), wire the hook by hand from the template:
-
-```bash
-cp <plugin>/templates/settings.audit-template.json .claude/settings.local.json
-# OR, if you already have a settings.local.json, merge its `hooks` block by hand.
-# Then restart Claude Code.
-```
-
-`settings.local.json` is gitignored, so manual mode is per-engineer.
+The audit hooks ship in this plugin's `hooks/hooks.json`. Once the `audit-toolkit` plugin is enabled for the repo, the hooks fire **automatically** on `PostToolUse` / `PostToolUseFailure` / `SubagentStop` / `UserPromptExpansion` — no per-engineer settings edit, no restart dance beyond enabling the plugin. Nothing to copy.
 
 ## Cost
 
-The hook adds a small per-tool-call cost (~1–2 ms). In plugin mode it's on for everyone using the plugin; if that overhead is unwelcome for a given repo, disable the plugin (or use `reviewers`/`gates`-style config to keep it off) rather than editing the hook.
+The hook adds a small per-tool-call cost (~1–2 ms). It's on for everyone using the plugin; if that overhead is unwelcome for a given repo, disable the plugin rather than editing the hook.
 
 ## What you get
 
@@ -42,7 +32,7 @@ The hook adds a small per-tool-call cost (~1–2 ms). In plugin mode it's on for
 
 ## Verify
 
-After the plugin is enabled (or manual mode is wired + Claude Code restarted), run a few tool calls (anything will do). Then:
+After the plugin is enabled, run a few tool calls (anything will do). Then:
 
 ```bash
 # Confirm the ledger is being written (in the consumer repo). The directory is
@@ -62,14 +52,9 @@ Plugin maintainers can run the smoke test directly against the plugin checkout:
 <plugin>/scripts/audit-selftest.sh
 ```
 
-## Ledgers written before the main-checkout anchor
-
-Ledgers that earlier versions wrote *beside a worktree* are **abandoned, not migrated**. Most are already gone with the worktrees that held them, and the ones that survive are tamper-evidence for runs that have already merged. There is no migration tool and no reader-side worktree probe — a reader that fell back to the worktree would leave the ledger dying with it, which is a data-loss path indistinguishable from forgery. Known cost: a run in flight across this upgrade loses continuity between its old and its new ledger.
-
 ## Disable / opt out
 
-- **Plugin mode**: disable the `audit-toolkit` plugin for the repo. The hooks stop firing.
-- **Manual mode**: remove the `"hooks"` block from `.claude/settings.local.json` and restart Claude Code.
+Disable the `audit-toolkit` plugin for the repo. The hooks stop firing.
 
 There was no team-wide enforcement to begin with — the audit is observability — so opting out simply turns off the visibility signals for your sessions.
 

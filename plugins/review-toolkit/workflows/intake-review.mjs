@@ -206,12 +206,6 @@ if (typeof budget !== 'undefined' && budget && budget.total) {
   }
 }
 
-// Tell the sub-agent to emit the structured verdict FIRST, before any prose. Mirrors
-// code-review.mjs: a Sonnet agent that writes its full prose write-up before the
-// structured call can exhaust its turn budget and die without ever calling
-// StructuredOutput. The agents' own contract (reviewer-baseline / their agent files)
-// makes structured the sole output under schema dispatch; this nudge reinforces it at
-// dispatch time.
 // --- explorer/emitter transport (the structural stall fix; #169) ---
 // Explorers dispatch schema-FREE and end with a sentinel + fenced JSON block parsed here;
 // the schema objects become in-script validators, and only the transcription-only

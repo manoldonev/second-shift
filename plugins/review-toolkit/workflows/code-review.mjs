@@ -370,7 +370,7 @@ const FINDINGS_EPILOGUE =
 // is already last-match-wins, so re-emission is free here for the same reason it is free there.
 const BOUNDED_EXPLORATION =
   ' TRIAGE FIRST: skim the diff to judge whether it touches your domain at all. If it is' +
-  ' docs/config/reformatting — or otherwise has nothing in your domain — emit StructuredOutput' +
+  ' docs/config/reformatting — or otherwise has nothing in your domain — emit your result' +
   ' immediately (approve, no findings) WITHOUT opening every file. Open files only to ground a' +
   ' SPECIFIC finding you intend to raise; you do NOT have to exhaustively read the whole diff to' +
   ' assert the ABSENCE of findings.' +
