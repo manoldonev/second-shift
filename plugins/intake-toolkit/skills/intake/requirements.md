@@ -13,7 +13,9 @@ source" below, its last act). They pass to Split **in memory**.
 ## Classify the input
 
 1. **Shape** — a tracker ticket (a GitHub issue number; a JIRA key under `tracker.type: jira`),
-   a pasted blob, a rough idea, or a design handoff (`claude.ai/design/...`) that IS the input.
+   a pasted blob, a rough idea, or a design handoff (a `claude.ai/design/...` or `figma.com` link)
+   that IS the input. A ticket that carries such a link is still a ticket: the handoff travels
+   beside it (`SKILL.md`, "Design handoffs").
 2. **Is the ticket written?** A ticket is **written** when its body already states a goal, a
    scope and acceptance criteria (an `AC-n` block, or criteria a reader can score). A thin ticket
    (a title and a sentence) is a **rough input** with a key; treat it as one.
@@ -29,7 +31,7 @@ Read the ticket with `gh issue view <issue> --json title,body,labels,comments` (
 | Written ticket | "A written ticket" below | one pass, review only |
 | Rough input: a bug | "Rough input — interview", bug mode | none (bug reports are not specs) |
 | Rough input: a feature | "Rough input — interview", feature mode | one pass, the interview's self-check |
-| Design handoff as the input | "A design handoff" below | none (`design-faithful-spec` runs its own completeness check) |
+| Design handoff as the input | "A design handoff" below | none (the spec skill runs its own completeness check) |
 
 Ambiguous between two routes → ask the operator one question; do not guess.
 
@@ -161,17 +163,27 @@ a silence is not a yes.
 
 ## A design handoff
 
-The handoff is the input: run design-toolkit's `design-faithful-spec` (Skill tool) on it. Its
-completeness inventory and state contract are the requirements; its Open Questions become
-`deferred` rows (each mapped to an `OR-n` at the Receipt), and the facts it reads off the handoff
-enter as `codebase-derived` rows whose evidence is the read of the handoff. The spec's body then
-goes through **Filing** above when no ticket exists yet, and the sequence continues to Split —
-the handoff does not leave the sequence.
+The handoff is the input. Its link picks the design-toolkit spec skill to run on it (Skill tool):
+
+| Link | Spec skill | The requirements |
+| --- | --- | --- |
+| `claude.ai/design/...` | `design-faithful-spec` | its completeness inventory and state contract |
+| `figma.com`, with `design.provider: "figma"` in `.claude/second-shift.config.json` | `figma-faithful-spec` | its Element Inventory, Copy Index and state coverage |
+
+A `figma.com` link on a repo whose `design.provider` is not `figma` runs no spec skill:
+`figma-faithful-spec` needs that provider. Say so, and take the rough-input route with the link
+beside the input.
+
+Either skill's Open Questions become `deferred` rows (each mapped to an `OR-n` at the Receipt), and
+the facts it reads off the handoff enter as `codebase-derived` rows whose evidence is the read of
+the handoff. An ambiguity `figma-faithful-spec` resolves with the operator is a `user-answered`
+row. The spec's body then goes through **Filing** above when no ticket exists yet, and the sequence
+continues to Split — the handoff does not leave the sequence.
 
 ## The knowledge source — Requirements' last act
 
 Once the ticket body exists — after the spec-reviewer pass on a written ticket, after the interview
-and Filing on a rough input, after `design-faithful-spec` on a handoff — and before anything else:
+and Filing on a rough input, after the spec skill on a handoff — and before anything else:
 before Split, `codebase-explorer`, the fan-out and any Interview question. Once per intake; on a
 split it has already run, on the parent, before Split.
 
@@ -236,7 +248,7 @@ chooses to answer later.
 The receipt's `Requirements:` line names the route and what it did, in short sentences. Examples:
 `the ticket body as written. spec-reviewer: implementable. The interview resolved 2 gaps.`,
 `interviewed (feature). Filed as #N on the operator's yes. spec-reviewer: clean.`,
-`design-faithful-spec on <handoff>.`
+`design-faithful-spec on <handoff>.`, `figma-faithful-spec on <handoff>.`
 
 The knowledge source's outcome is not a step line: it is the receipt's own `## Knowledge source`
 section (`receipt.md`).

@@ -123,10 +123,14 @@ refuses before it claims (`env-design-undeclared`). The full row schema is in th
 
 ## What the sessions do with it
 
-- **Build.** On a ticket with frames, the build prompt names the `figma-faithful` sequence: read
-  every frame id first, write the token and component plan, have a subagent critique the plan
-  against the frames, then render every screen with `command`, open the PNG, compare it with its
-  frame and fix what differs.
+- **Build.** On a ticket with frames, the build prompt names the sequence of the configured
+  provider. Under `figma` (and with no provider set) it is the `figma-faithful` sequence: read
+  every frame id first and write the token and component plan. Under `claude-design` it is the
+  `design-faithful` sequence: read the handoff screen behind every frame id with DesignSync and
+  write the translation plan (each component with its reason, each sized node's dimensions). Both
+  then have a subagent critique the plan against the frames, render every screen with `command`,
+  open the PNG, compare it with its frame and fix what differs. The build and the review are
+  granted that provider's tools only: the Figma MCP servers, or DesignSync.
 - **Review.** The review session renders every screen at the PR head with `command` and compares
   it with its frame. If it cannot render, it cannot approve: it posts `verdict: needs-work` with a
   line `reason: render-unavailable`, and the scheduler stops the run as `env-not-ready` without
