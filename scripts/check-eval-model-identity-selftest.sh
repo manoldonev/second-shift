@@ -138,7 +138,7 @@ EOF
 expect_rc 0 "prose naming the aliases, and note strings containing them, stay green"
 
 # 8) The record-file exemption, one case per name, each carrying the literal that reds in (3).
-for record in changelog.md FINAL-REPORT.md CLOSEOUT-BASELINE.md BASELINE.md KNOWN_ISSUES.md FIXTURE-AUDIT.md; do
+for record in changelog.md BASELINE.md; do
     reset_fixture
     echo "2026-01-01 | model=$PIN | score=91.0%" > "$SURFACE/$record"
     expect_rc 0 "record file $record keeps its model attribution"

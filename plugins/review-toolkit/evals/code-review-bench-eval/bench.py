@@ -226,8 +226,6 @@ async def review_once(cfg, arm, pr, run_no, sem) -> dict:
         wall = (dt.datetime.now(dt.timezone.utc) - started).total_seconds()
         text, envelope = kit.extract_result_text(stdout)
         kit.check_rate_limit(text, f"{arm['name']}/{pr['id']}")
-        if "session limit" in text or "usage limit" in text:
-            raise kit.RateLimitedError(f"session limit in {arm['name']}/{pr['id']}: {text[:120]!r}")
         status_lines = sh(["git", "status", "--porcelain", "--ignored=no"], cwd=wt).splitlines()
         if status_lines:
             sh(["git", "checkout", "-q", "--", "."], cwd=wt)
@@ -268,8 +266,6 @@ async def judge_pair(cfg, golden: str, cand: str, sem) -> dict:
             rc, stdout, _err = await kit.run_claude(args, cfg["judge_timeout_s"], cwd=HERE)
             text, envelope = kit.extract_result_text(stdout)
             kit.check_rate_limit(text, "judge")
-            if "session limit" in text or "usage limit" in text:
-                raise kit.RateLimitedError(f"session limit in the judge: {text[:120]!r}")
             m = re.search(r"\{.*\}", text, re.S)
             if m:
                 try:

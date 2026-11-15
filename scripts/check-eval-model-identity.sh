@@ -56,11 +56,7 @@ fi
 # landed record of a run, not runnable machinery.
 RECORD_FILES=(
   changelog.md
-  FINAL-REPORT.md
-  CLOSEOUT-BASELINE.md
   BASELINE.md
-  KNOWN_ISSUES.md
-  FIXTURE-AUDIT.md
 )
 
 # (1) versioned vendor pin.
@@ -116,8 +112,8 @@ if [[ $violations -gt 0 ]]; then
     echo
     echo "[check-eval-model-identity] $violations vendor model reference(s) in the runnable eval surface under $ROOT."
     echo "  Model identity belongs to the operator, not to this repo. Read it from the environment"
-    echo "  (REVIEWER_MODEL / JUDGE_MODEL / MOCK_MODEL) and let the runner refuse a missing or"
-    echo "  floating value — see plugins/review-toolkit/evals/agent-eval-kit/README.md."
+    echo "  (REVIEWER_MODEL / JUDGE_MODEL) and let the runner refuse a missing value — see"
+    echo "  plugins/review-toolkit/evals/code-review-bench-eval/README.md."
     echo "  If the file is a landed RECORD of a run rather than machinery, its name belongs in this"
     echo "  guard's RECORD_FILES list, with the reason."
   } >&2

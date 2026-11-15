@@ -1017,8 +1017,6 @@ def session_result(stdout: bytes, bench, where: str) -> tuple[str, dict]:
     if bench:
         text, envelope = bench.kit.extract_result_text(stdout)
         bench.kit.check_rate_limit(text, where)
-        if "session limit" in text or "usage limit" in text:
-            raise bench.kit.RateLimitedError(f"session limit in {where}: {text[:120]!r}")
         return text, envelope
     try:
         envelope = json.loads(stdout.decode(errors="replace").strip() or "{}")
