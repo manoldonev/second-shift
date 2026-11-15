@@ -1,7 +1,7 @@
 export const meta = {
   name: 'review-toolkit-code-review',
   description:
-    "Reviewer fan-out for review-lead — used by standalone /review-lead. Dispatches the selected specialist reviewers as parallel agent() calls and returns their structured findings. On panel 'substantial' the seats run at the reasoning tier. Synthesis (dedup, triage, Scope Completeness Gate, cross-reviewer self-check) is NOT done here — it stays in the caller's session on the caller's model, per review-lead's Synthesis Rules.",
+    "Reviewer fan-out for review-lead — used by standalone /review-lead. Dispatches the selected specialist reviewers as parallel agent() calls and returns their structured findings. Synthesis (dedup, triage, Scope Completeness Gate, cross-reviewer self-check) is NOT done here — it stays in the caller's session on the caller's model, per review-lead's Synthesis Rules.",
   phases: [{ title: 'Review', detail: 'one agent() per selected specialist reviewer' }],
 }
 
@@ -42,22 +42,6 @@ const REVIEWER_MODEL = {
   'design-toolkit:figma-faithful-reviewer': 'code',
   // The transcription sink takes its tier from this table too, so config can retarget it.
   'review-toolkit:structured-emitter': 'emit',
-}
-
-// {agentType: tier} on `panel: 'substantial'` only: every specialist seat runs at
-// `reasoning`. It replaces REVIEWER_MODEL at the TABLE layer and nowhere else, so a consumer
-// modelOverrides entry still wins and a seat not named here keeps its REVIEWER_MODEL tier. The
-// agents' frontmatter is unchanged, which is what keeps standalone /review-lead on its cheaper
-// seats. NOT a frontmatter lockstep: these tiers deliberately differ from the agents' own, so
-// check-model-tiers.sh lifts this block out of its frontmatter scans and holds it against the
-// `## Substantial panel` table in ../model-tiering.md instead.
-const SUBSTANTIAL_MODEL = {
-  'review-toolkit:security-reviewer': 'reasoning',
-  'review-toolkit:performance-reviewer': 'reasoning',
-  'review-toolkit:maintainability-reviewer': 'reasoning',
-  'review-toolkit:complexity-reviewer': 'reasoning',
-  'review-toolkit:test-coverage-reviewer': 'reasoning',
-  'review-toolkit:unit-test-mutation-reviewer': 'reasoning',
 }
 
 // Bare (unqualified) agent name, from either `plugin:agent` or a bare form. Config keys
@@ -149,14 +133,9 @@ const FINDINGS_SCHEMA = {
 //   reviewers    — array of agentType strings already selected per review-lead routing
 //   changedFiles — array of changed paths (context for the prompt)
 //   prContext    — optional free-text branch/PR context
-//   requiredSeats — optional array of agentType strings dispatched IN ADDITION to `reviewers`.
-//                  Never trims either list; the union is deduped on the resolved name.
-//   panel        — optional; 'substantial' runs the seats at SUBSTANTIAL_MODEL's tiers and returns
-//                  `seats[]` in place of `reviewers[]`.
 // `args` may be an object or (per the Workflow contract's stringified-args caveat) a JSON string.
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { worktree, base, head, issue, issueLink, spec, reviewers = [], requiredSeats = [], panel, changedFiles = [], prContext = '', config = {} } = a
-const substantial = panel === 'substantial'
+const { worktree, base, head, issue, issueLink, spec, reviewers = [], changedFiles = [], prContext = '', config = {} } = a
 // Per-reviewer model-tier overrides from the consumer config (bare-keyed).
 const modelOverrides = (config && config.reviewers && config.reviewers.modelOverrides) || {}
 // Consumer tier retargeting, MERGED per tier over the shipped default: a config naming one
@@ -164,42 +143,20 @@ const modelOverrides = (config && config.reviewers && config.reviewers.modelOver
 const tierMap = { ...DEFAULT_TIER_MAP, ...((config && config.reviewers && config.reviewers.tierMap) || {}) }
 // One resolution path for EVERY dispatch in this file. An override or table value that
 // names a tier resolves through the map; anything else is already a raw dispatch token
-// (the closed union config-lint enforces) and passes through untouched. The substantial
-// table sits BETWEEN the override and REVIEWER_MODEL: the override still wins.
+// (the closed union config-lint enforces) and passes through untouched.
 const modelFor = (agentType) => {
-  const declared = modelOverrides[bare(agentType)] || (substantial && SUBSTANTIAL_MODEL[agentType]) || REVIEWER_MODEL[agentType] || 'code'
+  const declared = modelOverrides[bare(agentType)] || REVIEWER_MODEL[agentType] || 'code'
   return tierMap[declared] || declared
 }
 if (!worktree || !base || !head) {
   throw new Error('code-review workflow: args.worktree, args.base and args.head are required')
 }
-if (panel !== undefined && !substantial) {
-  throw new Error(`code-review workflow: args.panel must be 'substantial' or absent, got ${JSON.stringify(panel)}`)
-}
-if (!Array.isArray(requiredSeats)) {
-  throw new Error('code-review workflow: args.requiredSeats must be an array of agentType strings')
-}
-// Relaxed only for a non-empty requiredSeats: a call with neither still needs a non-empty
-// reviewers[], which is what standalone review-lead relies on.
-if ((!Array.isArray(reviewers) || (reviewers.length === 0 && requiredSeats.length === 0))) {
+if (!Array.isArray(reviewers) || reviewers.length === 0) {
   throw new Error('code-review workflow: args.reviewers must be a non-empty array of agentType strings')
 }
-// The seats this run dispatches. Without requiredSeats or a panel this is `reviewers` verbatim.
-// Otherwise it is the union, deduped on the RESOLVED name so a bare and a qualified spelling of
-// one reviewer dispatch once; the first spelling seen is the one returned.
-const seatNames = (() => {
-  if (!substantial && requiredSeats.length === 0) return reviewers
-  const seen = new Set()
-  return [...reviewers, ...requiredSeats].filter((r) => {
-    const k = resolveAgentType(r)
-    if (seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
-})()
 // scope-completeness-reviewer's prompt embeds the issue number; without it the prompt
 // degrades to `gh issue view undefined`, so fail here instead of dispatching it broken.
-if (seatNames.some((r) => bare(r) === 'scope-completeness-reviewer') && !issue) {
+if (reviewers.some((r) => bare(r) === 'scope-completeness-reviewer') && !issue) {
   throw new Error('code-review workflow: scope-completeness-reviewer requires args.issue (GitHub issue number or JIRA ticket key)')
 }
 // issueLink is the one piece of PR-authored text that reaches the scope reviewer, so it is held to a bare verb:
@@ -384,10 +341,7 @@ const ESCALATED_EMIT =
 //   ~6 min), ~6x tighter than the observed wedge. Raise it if a large-diff run needs a longer turn.
 const REVIEWER_CEILING_MS = 15 * 60 * 1000
 
-// One seats[] entry per requested seat on the substantial panel.
-const seatEntry = (agentType, model, status, findings, extra = {}) => ({ agentType, model, status, findings, ...extra })
-
-log(`code-review: ${seatNames.length} reviewers over ${range} in ${worktree}${substantial ? ' (substantial panel)' : ''}`)
+log(`code-review: ${reviewers.length} reviewers over ${range} in ${worktree}`)
 phase('Review')
 
 // The Workflow runtime enforces the operator's token budget across every agent() call in the
@@ -397,11 +351,6 @@ if (typeof budget !== 'undefined' && budget && budget.total) {
   log(`budget: ${Math.round(budget.remaining() / 1000)}k / ${Math.round(budget.total / 1000)}k tokens left before fan-out`)
   if (budget.remaining() <= 0) {
     log('budget exhausted — skipping reviewer fan-out (synthesis sees zero reviewers)')
-    // Every requested seat is listed dark rather than omitted, so a caller counting darkness
-    // needs no second list.
-    if (substantial) {
-      return { range, worktree, seats: seatNames.map((s) => seatEntry(s, modelFor(resolveAgentType(s)), 'dark', [])), budgetExhausted: true }
-    }
     // budgetExhausted marks this all-or-nothing skip: `reviewers` is empty by construction
     // (NOT a partial subset) and EVERY selected reviewer is dark, unlike a reviewer that died
     // after retry (PRESENT in `reviewers` as a failed:true entry). Mirrors intake-review.mjs.
@@ -555,21 +504,8 @@ const withCeiling = (agentType, dispatchPromise) => {
 }
 
 const results = await parallel(
-  seatNames.map((agentType) => () => withCeiling(agentType, dispatchReviewer(agentType))),
+  reviewers.map((agentType) => () => withCeiling(agentType, dispatchReviewer(agentType))),
 )
-
-// The substantial panel: seats[] — one entry per seat, in the order requested, each with
-// the model it dispatched on and whether it returned.
-if (substantial) {
-  const seats = seatNames.map((requested, i) => {
-    const r = results[i]
-    const model = modelFor(resolveAgentType(requested))
-    const returned = !!(r && r.result)
-    const findings = returned && Array.isArray(r.result.findings) ? r.result.findings : []
-    return seatEntry(requested, model, returned ? 'returned' : 'dark', findings, returned ? { verdict: r.result.verdict } : { error: r ? r.error : 'no result' })
-  })
-  return { range, worktree, seats }
-}
 
 // Error entries are FORWARDED, not dropped, so in-session synthesis can surface a reviewer that
 // died. A twice-dead or timed-out reviewer carries { result: null, retried: true, failed: true }

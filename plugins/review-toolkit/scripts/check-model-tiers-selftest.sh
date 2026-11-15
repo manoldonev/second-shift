@@ -45,11 +45,8 @@
 #   map inline mismatch  map file, inline 'opus' vs structured-emitter's 'haiku'
 #                        frontmatter, otherwise-clean table              -> exit 1 + MISMATCH
 #
-# Substantial-panel table (#992), held against `## Substantial panel`, never frontmatter:
-#   agreement            code block == doc table, rows differ from fm   -> exit 0
-#   drift to 'code'      a row equal to its frontmatter, unequal to doc -> exit 1 + SUBSTANTIAL-DRIFT
-#   extra code row       a row the doc table lacks                      -> exit 1 + SUBSTANTIAL-DRIFT
-#   no code block        doc table present, block absent                -> exit 1 + SUBSTANTIAL-DRIFT
+# Shipped tables:
+#   real plugin root     this plugin's own tables, alphabet and agents  -> exit 0
 #
 # Convention mirrors check-reviewer-references-selftest.sh. Bash 3.2 compatible.
 
@@ -558,60 +555,17 @@ if [ $? -eq 0 ]; then fail "missing alphabet table expected exit 1"; else
     || fail "missing alphabet: exit 1 but no UNPARSEABLE-ALPHABET line (stderr: $(cat "$TMP/.stderr"))"
 fi
 
-# --- #992: the substantial-panel table -------------------------------------------
-# SUBSTANTIAL_MODEL re-tiers seats away from their frontmatter on purpose, so it is held against
-# the parsed `## Substantial panel` doc table instead. performance-reviewer's frontmatter is
-# sonnet, so the agreement case also proves the block is lifted out of the frontmatter scans (a
-# 'reasoning' row there would otherwise read as MISMATCH), and the drift case is one the
-# frontmatter comparison passes silently: dropping the row to 'code' EQUALS that frontmatter.
-# Args: <dest_name> <code-tier-for-performance-reviewer> [omit-doc-row] -> prints the root path
-make_rt_substantial() {
-  local dst="$TMP/$1" perf="$2" omit="${3:-}"
-  cp -R "$RT" "$dst"
-  {
-    printf '\n## Substantial panel\n\n| Agent | Tier |\n| ----- | ---- |\n'
-    printf '| review-toolkit:security-reviewer | reasoning |\n'
-    [ -z "$omit" ] && printf "| \`review-toolkit:performance-reviewer\` | reasoning |\n"
-  } >> "$dst/model-tiering.md"
-  cat >> "$dst/workflows/code-review.mjs" <<MJS
-
-const SUBSTANTIAL_MODEL = {
-  'review-toolkit:security-reviewer': 'reasoning',
-  'review-toolkit:performance-reviewer': '$perf',
-}
-MJS
-  printf '%s' "$dst"
-}
-
-SUB_OK=$(make_rt_substantial substantial-ok reasoning)
-run_cli "$SUB_OK"
-[ $? -eq 0 ] && ok "substantial table agrees with its doc table, frontmatter not consulted -> exit 0" \
-  || fail "substantial agreement expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
-
-SUB_DRIFT=$(make_rt_substantial substantial-drift code)
-run_cli "$SUB_DRIFT"
-if [ $? -eq 0 ]; then fail "a substantial row dropped to 'code' expected exit 1"; else
-  grep -q "SUBSTANTIAL-DRIFT: code-review.mjs SUBSTANTIAL_MODEL declares 'performance-reviewer' => 'code'" "$TMP/.stderr" \
-    && ok "a substantial row dropped to 'code' (equal to its frontmatter) -> exit 1 + SUBSTANTIAL-DRIFT" \
-    || fail "substantial drift: exit 1 but no SUBSTANTIAL-DRIFT line (stderr: $(cat "$TMP/.stderr"))"
-fi
-
-SUB_EXTRA=$(make_rt_substantial substantial-extra reasoning omit)
-run_cli "$SUB_EXTRA"
-if [ $? -eq 0 ]; then fail "a substantial row with no doc row expected exit 1"; else
-  grep -q "SUBSTANTIAL-DRIFT: .*'performance-reviewer' => 'reasoning' but the '## Substantial panel' table .* has no row" "$TMP/.stderr" \
-    && ok "a SUBSTANTIAL_MODEL row the doc table lacks -> exit 1 + SUBSTANTIAL-DRIFT" \
-    || fail "substantial extra row: exit 1 but no SUBSTANTIAL-DRIFT line (stderr: $(cat "$TMP/.stderr"))"
-fi
-
-SUB_NOBLOCK=$(make_rt_substantial substantial-noblock reasoning)
-perl -0pi -e 's/\nconst SUBSTANTIAL_MODEL = \{.*?\n\}\n//s' "$SUB_NOBLOCK/workflows/code-review.mjs"
-run_cli "$SUB_NOBLOCK"
-if [ $? -eq 0 ]; then fail "a doc table with no SUBSTANTIAL_MODEL block expected exit 1"; else
-  grep -q "SUBSTANTIAL-DRIFT: .* has no 'const SUBSTANTIAL_MODEL = {' block" "$TMP/.stderr" \
-    && ok "a '## Substantial panel' table with no code block -> exit 1 + SUBSTANTIAL-DRIFT" \
-    || fail "substantial no block: exit 1 but no SUBSTANTIAL-DRIFT line (stderr: $(cat "$TMP/.stderr"))"
-fi
+# The fixtures above prove the guard's logic; only this run holds the tables that ship.
+# design-toolkit resolves as a sibling, and its rows are skipped when it is not installed.
+# shellcheck disable=SC2030,SC2031 # exports are deliberately subshell-scoped per case
+(
+  unset SECOND_SHIFT_DESIGN_TOOLKIT_ROOT SECOND_SHIFT_CONFIG
+  export SECOND_SHIFT_PLUGIN_ROOT="$SCRIPT_DIR/.."
+  export SECOND_SHIFT_REPO_ROOT="$EMPTY_CONSUMER"
+  bash "$CHECK" </dev/null 2>"$TMP/.stderr"
+)
+[ $? -eq 0 ] && ok "real plugin root: the shipped tables agree with the shipped agents and alphabet -> exit 0" \
+  || fail "real plugin root expected exit 0 (stderr: $(cat "$TMP/.stderr"))"
 
 echo
 echo "[check-model-tiers-selftest] $PASS passed, $FAIL failed"

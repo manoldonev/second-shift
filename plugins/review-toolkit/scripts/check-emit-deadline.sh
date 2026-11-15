@@ -76,13 +76,11 @@ DEFAULT_CAP=15
 #                             "by your 8th tool call" is too early for an agent that must load the
 #                             design-token reference first. review-panel-yield.md scores its dimension
 #                             "not decided" (zero dispatches), which is not a measured zero.
-#   performance-reviewer,     the one deliberate DEPARTURE: no demonstrated death, but required seats
-#   complexity-reviewer       on opus on the substantial panel, where one unbounded seat leaves the
-#                             panel short of a domain. Their dispatch also appends BOUNDED_EXPLORATION.
-# Not enrolled, for lack of a demonstrated death: design-faithful-reviewer (it carries a body
-# deadline anyway), a11y, db and pipeline. ESCALATED_EMIT in code-review.mjs covers them on a retry
+# Not enrolled, for lack of a demonstrated death: design-faithful-reviewer, performance-reviewer and
+# complexity-reviewer (each carries a body deadline anyway; the last two are dark in 0 of 35 and
+# 0 of 38 dispatches in docs/review-panel-yield.md), a11y, db and pipeline. ESCALATED_EMIT in code-review.mjs covers them on a retry
 # after an empty-text death.
-DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer test-coverage-reviewer maintainability-reviewer figma-faithful-reviewer performance-reviewer complexity-reviewer}"
+DEADLINE_AT_DEFAULT="${DEADLINE_AT_DEFAULT:-plan-reviewer spec-reviewer test-coverage-reviewer maintainability-reviewer figma-faithful-reviewer}"
 
 # The jq binary. A seam, not a configuration knob — see the Env note above.
 JQ="${EMIT_DEADLINE_JQ:-jq}"

@@ -58,21 +58,3 @@ A repo still retargets per agent through `reviewers.modelOverrides` (e.g. `"plan
 or per tier through `reviewers.tierMap` (`"cross": "opus"` turns Fable off). A tier the
 subscription cannot dispatch, set by override on an engine that does not degrade, produces a dead
 reviewer, reported as dead rather than quietly skipped.
-
-## Substantial panel
-
-On `panel: 'substantial'` the review fan-out runs its specialist seats at the tiers below instead
-of their frontmatter tiers. The agents' frontmatter is unchanged, so standalone `/review-lead` keeps
-its cheaper seats. A consumer `reviewers.modelOverrides` entry still wins over this table. The
-table is **parsed**. `check-model-tiers.sh` holds `SUBSTANTIAL_MODEL` in
-`workflows/code-review.mjs` against it in both directions, and it does not compare those rows
-against frontmatter, because they differ from it on purpose.
-
-| Agent                                      | Tier      |
-| ------------------------------------------ | --------- |
-| review-toolkit:security-reviewer           | reasoning |
-| review-toolkit:performance-reviewer        | reasoning |
-| review-toolkit:maintainability-reviewer    | reasoning |
-| review-toolkit:complexity-reviewer         | reasoning |
-| review-toolkit:test-coverage-reviewer      | reasoning |
-| review-toolkit:unit-test-mutation-reviewer | reasoning |

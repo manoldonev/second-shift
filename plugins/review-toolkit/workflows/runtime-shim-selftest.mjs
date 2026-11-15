@@ -151,6 +151,17 @@ console.log('── Case B: code-review.mjs text-contract ladder')
   eq('B1 success first try dispatches exactly once', calls.length, 1)
   ok('B1 a first-try success carries no retried/failed flags', !result.reviewers[0].retried && !result.reviewers[0].failed)
   eq('B1 range is the THREE-DOT form (#130)', result.range, 'aaa...bbb')
+  eq('B1 the return is exactly range, worktree, reviewers', Object.keys(result).sort(), ['range', 'reviewers', 'worktree'])
+}
+
+{
+  let threw = ''
+  try {
+    await runCodeReview([findingsBlock('approve')], { reviewers: [] })
+  } catch (e) {
+    threw = String(e)
+  }
+  ok('B1 an empty reviewers[] throws before any dispatch', /non-empty array/.test(threw))
 }
 
 {
@@ -952,106 +963,6 @@ const byRole = (calls, re) => calls.filter((c) => re.test(c.opts.agentType))
   ok('FO I and dispatches no fable at all', !calls.some((c) => c.opts.model === 'fable'))
 }
 
-}
-
-// ---------------------------------------------------------------------------
-// Case SP — code-review.mjs's substantial panel (#992). The REAL body runs with a fake agent routed
-// by role: every seat answers with canned findings.
-// ---------------------------------------------------------------------------
-console.log('── Case SP: code-review.mjs substantial panel and required seats (#992)')
-{
-const seatOut = (findings, verdict = 'request-changes') => reviewBlock({ verdict, findings })
-const fnd = (severity, title) => ({ severity, title, description: `${title} description`, confidence: 80, file: 'a.ts', line: 3 })
-const SEAT_FINDINGS = [fnd('blocker', 'B1'), fnd('major', 'M1'), fnd('minor', 'MINOR')]
-const spAgent = (handlers = {}) => {
-  const calls = []
-  const agent = async (prompt, opts) => {
-    calls.push({ prompt, opts })
-    const role = bare(opts.agentType)
-    if (handlers[role]) return handlers[role](prompt, opts, calls)
-    return seatOut(SEAT_FINDINGS)
-  }
-  return { agent, calls }
-}
-const bare = (t) => String(t).split(':').pop()
-const runSP = (agent, argsOverride = {}, budget = undefined) => {
-  const logs = []
-  const args = { worktree: '/tmp/wt', base: 'aaa', head: 'bbb', reviewers: ['review-toolkit:complexity-reviewer'], config: { reviewers: {} }, ...argsOverride }
-  return makeRunner(CODE_REVIEW_MJS)(agent, parallel, pipeline, args, (m) => logs.push(String(m)), noop, budget).then((result) => ({ result, logs }))
-}
-
-// SP1 — required seats ride alongside reviewers, every specialist on the reasoning tier, seats[] replaces reviewers[].
-{
-  const { agent, calls } = spAgent()
-  const { result } = await runSP(agent, { panel: 'substantial', requiredSeats: ['review-toolkit:security-reviewer', 'review-toolkit:unit-test-mutation-reviewer'] })
-  eq('SP1 reviewers and requiredSeats are both dispatched', calls.map((c) => bare(c.opts.agentType)).sort(), ['complexity-reviewer', 'security-reviewer', 'unit-test-mutation-reviewer'])
-  ok('SP1 every specialist seat dispatches on opus (substantial table)', calls.every((c) => c.opts.model === 'opus'), calls.map((c) => c.opts.model).join(','))
-  eq('SP1 seats[] replaces reviewers[]', Object.keys(result).sort(), ['range', 'seats', 'worktree'])
-  eq('SP1 one seats[] entry per seat, in request order', result.seats.map((s) => s.agentType), ['review-toolkit:complexity-reviewer', 'review-toolkit:security-reviewer', 'review-toolkit:unit-test-mutation-reviewer'])
-  ok('SP1 seats[].model records the dispatched model and status returned', result.seats.every((s) => s.model === 'opus' && s.status === 'returned'))
-}
-
-// SP2 — the substantial panel dispatches only its seats and returns their findings as they came.
-{
-  const { agent, calls } = spAgent()
-  const { result } = await runSP(agent, { panel: 'substantial' })
-  eq('SP2 only the seat is dispatched', calls.map((c) => bare(c.opts.agentType)), ['complexity-reviewer'])
-  eq('SP2 every finding is returned, unannotated', result.seats[0].findings.map((f) => [f.title, 'outcome' in f]), [['B1', false], ['M1', false], ['MINOR', false]])
-  eq('SP2 the seat entry carries its verdict', result.seats[0].verdict, 'request-changes')
-}
-
-// SP10 — a consumer modelOverrides entry beats the substantial table (D-5).
-{
-  const { agent, calls } = spAgent()
-  const { result } = await runSP(agent, { panel: 'substantial', config: { reviewers: { modelOverrides: { 'complexity-reviewer': 'sonnet' } } } })
-  eq('SP10 the override wins over the substantial tier', calls.find((c) => bare(c.opts.agentType) === 'complexity-reviewer')?.opts?.model, 'sonnet')
-  eq('SP10 seats[].model records what actually dispatched', result.seats[0].model, 'sonnet')
-}
-
-// SP11 — budget exhausted before the fan-out: every requested seat is listed dark (OR-1).
-{
-  const { agent, calls } = spAgent()
-  const { result } = await runSP(agent, { panel: 'substantial', requiredSeats: ['review-toolkit:security-reviewer'] }, makeBudget(1000, 0))
-  eq('SP11 nothing dispatches', calls.length, 0)
-  eq('SP11 every requested seat is dark', result.seats.map((s) => `${bare(s.agentType)}:${s.status}`), ['complexity-reviewer:dark', 'security-reviewer:dark'])
-  eq('SP11 and the budget marker is set', result.budgetExhausted, true)
-}
-
-// SP12 — a bare and a qualified spelling of one seat dispatch once (OR-2); a dark seat is status dark.
-{
-  const { agent, calls } = spAgent({ 'security-reviewer': () => '' })
-  const { result } = await runSP(agent, { panel: 'substantial', reviewers: ['security-reviewer'], requiredSeats: ['review-toolkit:security-reviewer'] })
-  eq('SP12 the duplicate seat dispatches once (plus its one retry)', calls.filter((c) => bare(c.opts.agentType) === 'security-reviewer').length, 2)
-  eq('SP12 one seats[] entry, under the first spelling', result.seats.map((s) => s.agentType), ['security-reviewer'])
-  eq('SP12 a seat that died after its retry is dark with no findings', [result.seats[0].status, result.seats[0].findings.length], ['dark', 0])
-}
-
-// SP14 — AC-4: no panel is today's dispatch: same seats, same models, same shape.
-{
-  const { agent, calls } = spAgent()
-  const { result } = await runSP(agent, {})
-  eq('SP14 the seat keeps its frontmatter tier', calls[0]?.opts?.model, 'sonnet')
-  eq('SP14 the return is exactly range, worktree, reviewers', Object.keys(result).sort(), ['range', 'reviewers', 'worktree'])
-  ok('SP14 the findings carry no outcome', result.reviewers[0].result.findings.every((f) => !('outcome' in f)))
-}
-{
-  // requiredSeats without a panel: the union dispatches, at frontmatter tiers, in today's shape.
-  const { agent, calls } = spAgent()
-  const { result } = await runSP(agent, { requiredSeats: ['review-toolkit:performance-reviewer'] })
-  eq('SP14 requiredSeats alone dispatch alongside reviewers at their own tiers', calls.map((c) => `${bare(c.opts.agentType)}:${c.opts.model}`), ['complexity-reviewer:sonnet', 'performance-reviewer:sonnet'])
-  eq('SP14 and return reviewers[]', result.reviewers.length, 2)
-}
-{
-  // D-10: a call with no reviewers and no requiredSeats still throws.
-  const { agent } = spAgent()
-  let threw = ''
-  try {
-    await runSP(agent, { reviewers: [] })
-  } catch (e) {
-    threw = String(e)
-  }
-  ok('SP14 an empty reviewers[] with no requiredSeats still throws', /non-empty array/.test(threw), threw)
-}
 }
 
 console.log(`\n[runtime-shim-selftest] ${PASS} passed, ${FAIL} failed`)
