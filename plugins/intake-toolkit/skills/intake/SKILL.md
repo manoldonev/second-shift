@@ -108,13 +108,14 @@ the channel it came through:
 
 ## Design handoffs, in or beside the input
 
-Before Requirements, look for a design handoff: a `claude.ai/design/...` link in the ticket or the
-operator's framing, a design section in the ticket, or a spec document for a sibling ticket on the
-same surface (grep the repo's spec and plan directories for the surface's name). Say what you found,
-including "none": an unstated absence reads like an unchecked one.
+Before Requirements, look for a design handoff: a `claude.ai/design/...` or `figma.com` link in the
+ticket or the operator's framing, a design section in the ticket, or a spec document for a sibling
+ticket on the same surface (grep the repo's spec and plan directories for the surface's name). Say
+what you found, including "none": an unstated absence reads like an unchecked one.
 
-- **The handoff is the input** → Requirements runs design-toolkit's `design-faithful-spec`
-  (`requirements.md`).
+- **The handoff is the input** → Requirements runs design-toolkit's spec skill for the link
+  (`requirements.md`): `design-faithful-spec` on a `claude.ai/design/...` link, `figma-faithful-spec`
+  on a `figma.com` link when the config's `design.provider` is `figma`.
 - **A handoff exists for a surface the input touches** → it travels with the input through every
   stage. Facts read from it enter the ledger as `codebase-derived` rows whose evidence is
   ``run: `<command>` → <output>``, the command being the read of the handoff. A question the board

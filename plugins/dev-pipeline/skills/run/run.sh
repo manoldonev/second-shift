@@ -1114,9 +1114,15 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     [ -z "$(test_runners)" ] || echo "Then the scheduler puts the worktree on the record commit $FIRST. It applies the head's tagged test files on top, with the changed files that commands.$(commands_key).testSupport names, and runs the tagged tests through their configured test runner (commands.$(commands_key).testRunners). Without your change, every one must fail there. A runner with format exit judges the whole file by its exit code. A runner with format cases, vitest-json or jest-json judges each named test by the result that it reports for that test, and a vitest-json or jest-json runner runs all of its files in one call. A named test whose file does not load there, or that a failing vitest beforeAll skips there, must pass at the head instead. A cases runner that takes {cases} runs only the named cases, and each of them that fails there must also pass at the head. There are two exceptions. The scheduler does not run the files of an AC that the section marks 'holds'. That AC is existing behavior, and the checks at the head prove it. It notes the files of an AC that the section marks 'unchecked', but does not run them. A tagged test is red if it passes there, if it is skipped there, if its runner does not run it, if two tests match its name, if its runner cannot judge the form that you named it in, if no runner matches its file, or if the head does not carry its file. Each red test comes back to you as findings, and a red check spends one checks-red attempt. A test that passes without the change does not test the change. Each file must also finish there within its runner's time bound ($(test_runners | jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" '"\(.when | join(", ")): \(.timeoutSeconds // $d)s\(if (.format // "exit") != "exit" then ", " + .format else "" end)"' | paste -sd ';' - | sed 's/;/; /g')), or it is red too. For a vitest-json or jest-json runner, the bound covers the one call over all of its files. Tag a test file that contains the cases of this change, not a whole slow suite."
   fi
   if [ -n "$(frames_rows)" ]; then
-    echo; echo "This ticket has design frames. Follow the figma-faithful sequence:"
-    echo "1. Read every frame id in the '## Design frames' section first."
-    echo "2. Write the token and component plan."
+    if [ "$DESIGN_PROVIDER" = claude-design ]; then
+      echo; echo "This ticket has design frames. Follow the design-faithful sequence:"
+      echo "1. Read the handoff screen behind every frame id in the '## Design frames' section first, with the DesignSync tool."
+      echo "2. Write the translation plan: each component with the reason you chose it, and the dimensions of each sized node."
+    else
+      echo; echo "This ticket has design frames. Follow the figma-faithful sequence:"
+      echo "1. Read every frame id in the '## Design frames' section first."
+      echo "2. Write the token and component plan."
+    fi
     echo "3. Before you write UI code, tell a subagent to compare that plan with the frames. The subagent lists what the plan gets wrong. Then fix the plan."
     echo "4. Render every screen with the repo's render command. Open the PNG and compare it with its frame. Fix each difference. Do up to three rounds per screen."
     echo "A screen that shows an error page, a login page or a spinner is not done."
@@ -1254,12 +1260,13 @@ STYLE
   fi
   echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, review-policy edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
+design_grants() { [ "$DESIGN_PROVIDER" = claude-design ] && printf ',DesignSync' || printf ',mcp__figma,mcp__plugin_figma_figma'; }
 build_allowlist() { # row F3: derived from what the record and config name
   # bash $WT/*: a build runs the scripts it writes in its worktree, which the checks already execute.
   # Grep and Glob are its lookups, never a Bash grep, ls, wc or head; a later round may edit the PR body
   local allow="Read,Grep,Glob,Edit,Write,Agent,Bash(git *),Bash(gh pr create*),Bash(gh pr view*),Bash(gh pr comment*),Bash(gh pr edit * --body-file *),Bash(gh issue view*),Bash(bash $WT/*)$MCP_ALLOW" c
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($TOOLS/bot-commit.sh*),Bash(bash $TOOLS/bot-commit.sh*),Bash($GH *)"   # the bash form too: the scheduler calls it that way, and a build copies it
-  [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
+  [ -n "$(frames_rows)" ] && allow="$allow$(design_grants)"
   while IFS= read -r c; do [ -n "$c" ] && allow="$allow$(cmd_grants "$c" xargs)"; done <<EOF
 $(checks_list all)
 EOF
@@ -1270,7 +1277,7 @@ review_allowlist() { # row F20: Agent is for the design-fidelity reviewer alone
   local allow="Read,Grep,Glob,Agent,Bash(jq *),Bash(bash *verdict-check.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
   [ "$JOINED" = true ] || allow="$allow,Bash(gh pr comment*)"   # joined, the scheduler posts the verdict
   [ -n "$RENDER_CMD" ] && allow="$allow$(cmd_grants "$RENDER_CMD")"
-  [ -n "$(frames_rows)" ] && allow="$allow,mcp__figma,mcp__plugin_figma_figma"
+  [ -n "$(frames_rows)" ] && allow="$allow$(design_grants)"
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH pr view*)"   # never the wrapper whole: it takes api -X DELETE
   [ "$BOT_OK" -eq 1 ] && [ "$JOINED" = false ] && allow="$allow,Bash($GH pr comment*)"
   printf '%s' "$allow"

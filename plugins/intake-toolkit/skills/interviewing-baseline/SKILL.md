@@ -514,7 +514,7 @@ Each interviewing surface keeps its own purpose; what unifies them is the ledger
 | `/intake` Receipt stage | post-merge checks, duplicates, probe guess-points | the only writer of the receipt |
 | `plan-interview` | the engineer's design decisions for a plan | the in-plan ledger; never a receipt |
 | `grill-me` | challenges to an existing plan/design | resolutions recorded back into the ledger as `user-answered` |
-| `design-toolkit:design-faithful-spec` | ambiguous states/transitions in a handoff (`/intake`'s Requirements on a handoff input) | Open Questions double as `deferred` rows |
+| `design-toolkit:design-faithful-spec`, `design-toolkit:figma-faithful-spec` | ambiguous states/transitions in a handoff (`/intake`'s Requirements on a handoff input) | Open Questions double as `deferred` rows |
 
 The order of the `/intake` stages lives in the `intake` skill; do not restate it here.
 

@@ -70,6 +70,20 @@ grep -q 'render-unavailable' "$FAKE_GH/prompt-2.txt" && ok "[H13] the review pro
 grep -qF "The record has RS-n rows, so dispatch one design-fidelity reviewer with the Agent tool." "$FAKE_GH/prompt-2.txt" && grep -qF "It is 'figma' here: figma picks figma-faithful-reviewer" "$FAKE_GH/prompt-2.txt" \
   && grep -qF "post 'verdict: needs-work' with line 3 'reason: seat-unavailable'." "$FAKE_GH/prompt-2.txt" && grep -qx 'Dispatch no other reviewer.' "$FAKE_GH/prompt-2.txt" \
   && ok "[F7] a frames record has the review dispatch its one design-fidelity reviewer by design.provider, and stop on seat-unavailable" || bad "[F7] the design-fidelity dispatch is missing from the frames review prompt"
+grep -qx 'This ticket has design frames. Follow the figma-faithful sequence:' "$FAKE_GH/prompt-1.txt" && grep -qx '2. Write the token and component plan.' "$FAKE_GH/prompt-1.txt" && ! grep -q 'design-faithful' "$FAKE_GH/prompt-1.txt" \
+  && ok "provider figma: the build prompt names the figma-faithful sequence and no other" || bad "provider figma: build sequence: $(grep -n 'faithful' "$FAKE_GH/prompt-1.txt" | cut -c1-160 | tr '\n' '|')"
+grep -q ',mcp__figma,mcp__plugin_figma_figma' "$FAKE_GH/args-1.txt" && grep -q ',mcp__figma,mcp__plugin_figma_figma' "$FAKE_GH/args-2.txt" && ! grep -q 'DesignSync' "$FAKE_GH/args-1.txt" "$FAKE_GH/args-2.txt" \
+  && ok "provider figma: both sessions are granted both Figma server names and not DesignSync" || bad "provider figma: grants: $(grep -ho 'mcp__[a-z_]*figma[a-z_]*\|DesignSync' "$FAKE_GH/args-1.txt" "$FAKE_GH/args-2.txt" | tr '\n' ' ')"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"claude-design\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture rkc "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | detail | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "provider claude-design: frames ticket"
+grep -qx 'This ticket has design frames. Follow the design-faithful sequence:' "$FAKE_GH/prompt-1.txt" && grep -q 'three rounds per screen' "$FAKE_GH/prompt-1.txt" && ! grep -q 'figma' "$FAKE_GH/prompt-1.txt" \
+  && ok "provider claude-design: the build prompt names the design-faithful sequence and nothing of figma" || bad "provider claude-design: build sequence: $(grep -n 'faithful\|figma' "$FAKE_GH/prompt-1.txt" | cut -c1-160 | tr '\n' '|')"
+grep -q ',DesignSync' "$FAKE_GH/args-1.txt" && grep -q ',DesignSync' "$FAKE_GH/args-2.txt" && ! grep -q 'mcp__figma\|mcp__plugin_figma' "$FAKE_GH/args-1.txt" "$FAKE_GH/args-2.txt" \
+  && ok "provider claude-design: both sessions are granted DesignSync and no Figma server" || bad "provider claude-design: grants: $(grep -ho 'mcp__[a-z_]*figma[a-z_]*\|DesignSync' "$FAKE_GH/args-1.txt" "$FAKE_GH/args-2.txt" | tr '\n' ' ')"
+fixture rkn "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-smoke-unconfigured "no provider: frames ticket"
+grep -qx 'This ticket has design frames. Follow the figma-faithful sequence:' "$FAKE_GH/prompt-1.txt" && grep -q ',mcp__figma,mcp__plugin_figma_figma' "$FAKE_GH/args-1.txt" && ! grep -q 'DesignSync' "$FAKE_GH/args-1.txt" \
+  && ok "no provider: a frames record builds on the figma sequence and grants" || bad "no provider: $(grep -n 'faithful' "$FAKE_GH/prompt-1.txt" | cut -c1-160 | tr '\n' '|')"
 # F20: the review session reviews the diff itself — no Skill, no Workflow, no staging or review-context lint; Agent stays
 # for the design-fidelity reviewer, and the session runs in the foreground
 fixture rpanel; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[F20] review tools"
