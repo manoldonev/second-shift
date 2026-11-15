@@ -202,8 +202,8 @@ else CONFIG=""; fi
 if [ -n "$CONFIG" ]; then
   stale="$(jq -r '[ (["topology","gates","stageParams","grillWaivers"][] as $k | select(has($k)) | $k),
       (if (.design.liveRender | type) == "object" then (["tolerancePx","cwd"][] as $k | select(.design.liveRender | has($k)) | "design.liveRender.\($k)") else empty end),
-      (if (.configVersion | type) == "number" and .configVersion < 3 then "configVersion \(.configVersion)" else empty end) ] | join(", ")' <<<"$CONFIG_JSON" 2>/dev/null)"
-  [ -z "$stale" ] || terminal env-config-stale "$CONFIG is a configVersion 2 config ($stale) — migrate it with docs/migrations/v2-to-v3.md, then re-launch"
+      (if (.configVersion | type) == "number" and .configVersion != 3 then "configVersion \(.configVersion)" else empty end) ] | join(", ")' <<<"$CONFIG_JSON" 2>/dev/null)"
+  [ -z "$stale" ] || terminal env-config-stale "$CONFIG is not a configVersion 3 config ($stale) — migrate an older one with docs/migrations/v2-to-v3.md or upgrade the marketplace pin for a newer one, then re-launch"
 fi
 # C6a: each engineer may name their own branch namespace in a gitignored <config>.local.json. It sets
 # tracker.branchPrefix and the bot's GitHub App keys (a repo may keep the app's ids out of its

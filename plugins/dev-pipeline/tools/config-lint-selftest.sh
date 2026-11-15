@@ -219,6 +219,23 @@ expect_violation invalid-bad-lane-shape.json        "commands.host.lanes[2]: mus
 expect_violation invalid-bad-lane-shape.json        "commands.host.lanes[3]: must be an object"
 expect_violation invalid-bad-lane-shape.json        "commands.host.extraLanes[0]: must be an object"
 
+# --- a non-object group is a named violation, and the rest of the config is still linted: each fixture
+# also carries an unknown top-level key that must still be reported.
+for g in tracker:tracker commands:commands commands-entry:commands.web tracker-labels:tracker.labels \
+    tracker-bot:tracker.bot tracker-bot-app:tracker.bot.app reviewers:reviewers \
+    reviewers-add-entry:'reviewers.add[0]' reviewers-modeloverrides:reviewers.modelOverrides \
+    reviewers-tiermap:reviewers.tierMap paths:paths run:run design:design design-liverender:design.liveRender; do
+  f="invalid-non-object-${g%%:*}.json"
+  case "${g#*:}" in tracker|commands) msg="${g#*:}: required object" ;; *) msg="${g#*:}: must be object" ;; esac
+  expect_violation "$f" "$msg"
+  expect_violation "$f" "unknown top-level keys: bogus"
+done
+
+# --- the route smoke substitutes its placeholders blindly, so a template without them greens every row.
+expect_violation invalid-liverender-placeholders.json "design.liveRender.command: must take the screenshot path as {out}"
+expect_violation invalid-liverender-placeholders.json "design.liveRender.smokeCommand: must take {route}"
+expect_violation invalid-liverender-placeholders.json "design.liveRender.smokeCommand: must take {mustShow}"
+
 # --- a setup lane with no command is refused by the scheduler's preflight; lint must refuse it too.
 expect_violation invalid-lane-no-commands.json      "commands.host.lanes[0].commands: required"
 expect_violation invalid-lane-no-commands.json      "commands.host.lanes[1].commands: at least one required"

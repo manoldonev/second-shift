@@ -1,0 +1,10 @@
+{
+  "configVersion": 3,
+  "tracker": "x",
+  "commands": {
+    "app": {
+      "test": "yarn test"
+    }
+  },
+  "bogus": 1
+}

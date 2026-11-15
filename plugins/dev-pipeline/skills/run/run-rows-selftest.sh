@@ -116,6 +116,9 @@ si=0; for stale in '"topology":{"type":"standalone","repos":{"x":{"path":".","ba
 done
 FIXTURE_CONFIG='{"configVersion":3,"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":null,"typecheck":null,"test":"true"}}}' fixture rv3
 printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[C2] a v3 config runs"
+FIXTURE_CONFIG='{"configVersion":4,"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"lint":null,"typecheck":null,"test":"true"}}}' fixture rv4
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-config-stale "[C2] a configVersion 4 config"
+[ "$RC" -eq 2 ] && [ ! -f "$FAKE_GH/calls" ] && printf '%s\n' "$OUT" | grep -q 'upgrade the marketplace pin' && ok "[C2] exit 2, nothing written, the pin upgrade named (configVersion 4)" || bad "[C2] rc=$RC, calls=$([ -f "$FAKE_GH/calls" ] && echo yes || echo no) (configVersion 4)"
 
 # I14 I16: a session with no result JSON (killed at its bound) is reported unpriced, never as $0
 fixture rcost; printf 'build-sleep\n' > "$FAKE_CLAUDE_PLAN"; RUN_BUILD_TIMEOUT=2 run_case "$d"; expect build-blocked "[I16] a build killed at its bound"

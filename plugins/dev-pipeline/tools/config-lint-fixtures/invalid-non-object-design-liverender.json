@@ -1,0 +1,16 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "app": {
+      "test": "yarn test"
+    }
+  },
+  "bogus": 1,
+  "design": {
+    "provider": "figma",
+    "liveRender": "x"
+  }
+}

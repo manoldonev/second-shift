@@ -30,6 +30,14 @@ else
   # The four app keys anywhere at all, so a block moved elsewhere in the file is caught too.
   hits="$(jq -r '[paths | map(tostring) | select(.[-1] | IN("clientId","appName","privateKeyFilename","installationId")) | join(".")] | join(", ")' <<<"$CFG")"
   if [ -n "$hits" ]; then bad "$REL carries the app key(s) $hits — they belong in $LOCAL_REL"; else ok "$REL names no app key anywhere"; fi
+  LINT_DIR="$(mktemp -d)"
+  printf '%s\n' "$CFG" > "$LINT_DIR/second-shift.config.json"
+  if lint_out="$(bash "$ROOT/plugins/dev-pipeline/tools/config-lint.sh" "$LINT_DIR/second-shift.config.json" 2>&1)"; then
+    ok "$REL passes config-lint"
+  else
+    bad "$REL fails config-lint: $(grep '✗' <<<"$lint_out" | tr '\n' ' ')"
+  fi
+  rm -rf "$LINT_DIR"
 fi
 
 # The config is not ignored (so an edit to it shows in git status); the per-engineer file still is.

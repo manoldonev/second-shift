@@ -1,0 +1,8 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": "x",
+  "bogus": 1
+}
