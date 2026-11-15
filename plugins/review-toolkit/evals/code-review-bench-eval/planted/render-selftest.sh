@@ -207,7 +207,7 @@ if [ -n "$HAVE_LANE" ]; then
 echo "== a runner case, with a fake npm and a fake jest-json runner =="
 J="$T/acme/calc"; mkdir -p "$J/src"
 printf 'sum() { echo $(( $1 - $2 )); }\n' > "$J/src/sum.sh"
-printf '{"name": "calc", "devDependencies": {"fakejest": "1.0.0"}}\n' > "$J/package.json"
+printf '{"name": "calc", "scripts": {"test": "bash test/sum.test.sh"}, "devDependencies": {"fakejest": "1.0.0"}}\n' > "$J/package.json"
 g -C "$J" init -q && g -C "$J" add -A && g -C "$J" commit -qm "initial import"
 g -C "$J" config uploadpack.allowAnySHA1InWant true
 JBASE="$(git -C "$J" rev-parse HEAD)"
@@ -245,9 +245,10 @@ echo "$PWD $*" >> "$FAKE_NPM_LOG"
 mkdir -p node_modules/fakejest && cp "$FAKE_JEST" node_modules/fakejest/jest.py
 EOF
 chmod +x "$T/npmbin/npm"
-for ov in acme__calc acme__calc-noreport; do mkdir -p "$R/overlays/$ov"; printf '# Review context\n\nShell functions print their result on stdout.\n' > "$R/overlays/$ov/review-context.md"; done
-printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"calc": {"test": "bash test/sum.test.sh", "testRunners": [{"when": ["test/*.test.sh"], "command": "python3 node_modules/fakejest/jest.py {report} {files}", "format": "jest-json"}]}}}\n' > "$R/overlays/acme__calc/config.json"
+for ov in acme__calc acme__calc-noreport acme__calc-noscript; do mkdir -p "$R/overlays/$ov"; printf '# Review context\n\nShell functions print their result on stdout.\n' > "$R/overlays/$ov/review-context.md"; done
+printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"calc": {"test": "npm test", "testRunners": [{"when": ["test/*.test.sh"], "command": "python3 node_modules/fakejest/jest.py {report} {files}", "format": "jest-json"}]}}}\n' > "$R/overlays/acme__calc/config.json"
 printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"calc": {"test": "bash test/sum.test.sh", "testRunners": [{"when": ["test/*.test.sh"], "command": "python3 node_modules/fakejest/jest.py %s/elsewhere.json {files}", "format": "jest-json"}]}}}\n' "$T" > "$R/overlays/acme__calc-noreport/config.json"
+printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"calc": {"test": "npm run test:unit", "testRunners": [{"when": ["test/*.test.sh"], "command": "python3 node_modules/fakejest/jest.py {report} {files}", "format": "jest-json"}]}}}\n' > "$R/overlays/acme__calc-noscript/config.json"
 mkrunner() { # mkrunner <id> <fix branch> <overlay>
   local d="$R/cases/$1"; mkdir -p "$d"
   printf '{"upstream": "file://%s", "instance": "acme__calc-42", "license": "MIT", "base": "%s", "base_branch": "main", "overlay": "%s", "issue": 41, "pr": 42, "commit": "fix: sum adds its arguments", "expect_stop": "fails_without_change", "truth": {"class": "P1", "description": "%s", "locations": [{"file": "test/sum.test.sh", "start": 1, "end": 1, "side": "head"}]}}\n' "$J" "$JBASE" "$3" "$DESC" > "$d/case.json"
@@ -279,6 +280,11 @@ vfy nor444; rc=$?
   && ok "npm install ran once for the four cases on one base, both arms each, with its result kept beside the bare clones" || bad "npm calls: $({ tr '\n' '|' < "$FAKE_NPM_LOG"; } 2>&1)"
 [ -z "$(git -C "$T/verify-vac111/vac111/plain/checkout" status --porcelain)" ] && [ -f "$T/verify-vac111/vac111/plain/checkout/node_modules/fakejest/jest.py" ] \
   && ok "each checkout holds the installed node_modules, and git does not list them" || bad "plain checkout: $(git -C "$T/verify-vac111/vac111/plain/checkout" status --porcelain | head -n 3 | tr '\n' '|')"
+mkrunner scr555 vacuous acme__calc-noscript
+vfy scr555; rc=$?
+[ "$rc" -eq 1 ] && grep -qx "commands.calc.test is 'npm run test:unit', but the base $JBASE's package.json defines no script 'test:unit'" "$T/verify-scr555.out" \
+  && grep -qx 'expected stop fails_without_change: met' "$T/verify-scr555.out" \
+  && ok "verify fails a case whose overlay names a test script the base's package.json does not define" || bad "scr555: rc=$rc $(tail -n 5 "$T/verify-scr555.out" | tr '\n' '|')"
 FAKE_NPM_EMPTY=1 PATH="$T/npmbin:$PATH" py render --case vac111 --arm lane --dest "$T/empty" --clones "$T/eclones" > "$T/empty.out" 2>&1; rc=$?
 [ "$rc" -ne 0 ] && grep -q "vac111: the runner needs node_modules/fakejest/jest.py, which the install at .* did not provide" "$T/empty.out" \
   && ok "an install that leaves no runner binary fails the build, naming the binary" || bad "empty install: rc=$rc $(tail -n 3 "$T/empty.out" | tr '\n' '|')"

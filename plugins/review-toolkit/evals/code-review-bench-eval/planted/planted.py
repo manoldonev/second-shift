@@ -13,7 +13,8 @@ Subcommands, model-free unless named:
   render    build one case for one arm, run the lane's gates and render the arm's prompt
   review    render, then spawn the arm's session and collect its verdict (billed)
   score     score review records with a canned judge; score-selftest.sh drives it
-  verify    build every case, check a runner case's expected stop, and print each ground-truth range at
+  verify    build every case, check a runner case's expected stop and that the base's package.json defines
+            the overlay's test script, and print each ground-truth range at
             the head (network; npm for a runner case)
   run       the operator's recipe: the judge's calibration, the reviews, the judge, the report (billed); with
             --pilot, the plain arm on the pilot cases only, and no changelog row
@@ -55,6 +56,7 @@ PLAN_COVERAGE = TOOLS / "plan-coverage.sh"
 CONFIG_LINT = TOOLS / "config-lint.sh"
 STOP_RED_RE = re.compile(r"^RED: AC-\d+ — (.+?)::.+ passes on the record commit's tree ")
 RUNNER_BIN_RE = re.compile(r"node_modules/\S+")
+TEST_SCRIPT_RE = re.compile(r"^(?:npm\s+(?:run(?:-script)?\s+(\S+)|(test)\b)|(?:yarn|pnpm)\s+(?:run\s+)?(\S+))")
 PATTERNS = ("rejects-held-input", "dead-guard", "two-hop-caller", "omitted-option")
 # the cases that predate the size floor, the distraction rule and truth.pattern; every other case meets all three
 FROZEN = frozenset("""
@@ -1391,9 +1393,35 @@ def stop_problem(case: dict, b: dict) -> str:
     return ""
 
 
+def test_script(command: str) -> str | None:
+    m = TEST_SCRIPT_RE.match(command.strip())
+    return (m[1] or m[2] or m[3]) if m else None
+
+
+def test_script_problems(case: dict, b: dict, root: Path) -> list[str]:
+    """Each overlay test command that runs a package script, against the scripts the base's package.json
+    defines."""
+    cmds = json.loads((root / "overlays" / case["overlay"] / "config.json").read_text()).get("commands") or {}
+    wanted = {gid: (c["test"], test_script(c["test"])) for gid, c in cmds.items()
+              if isinstance(c, dict) and isinstance(c.get("test"), str) and test_script(c["test"])}
+    if not wanted:
+        return []
+    text = git(["show", f"{b['base']}:package.json"], cwd=Path(b["checkout"]), check=False)
+    try:
+        scripts = (json.loads(text).get("scripts") or {}) if text else None
+    except (json.JSONDecodeError, AttributeError):
+        scripts = None
+    if scripts is None:
+        return [f"commands.{gid}.test is {cmd!r}, and the base {case['base']} has no readable package.json"
+                for gid, (cmd, _) in wanted.items()]
+    return [f"commands.{gid}.test is {cmd!r}, but the base {case['base']}'s package.json defines no script {s!r}"
+            for gid, (cmd, s) in wanted.items() if s not in scripts]
+
+
 def cmd_verify(args) -> int:
-    """Both arms of every case, built and rendered with no model: the lane's gates, a marker scan of each
-    rendered prompt, and each ground-truth range as the head and the base hold it."""
+    """Both arms of every case, built and rendered with no model: the lane's gates, the overlay's test
+    script against the base's package.json, a marker scan of each rendered prompt, and each ground-truth
+    range as the head and the base hold it."""
     root = Path(args.root)
     rc = 0
     for case in load_cases(root):
@@ -1409,6 +1437,9 @@ def cmd_verify(args) -> int:
         b = r["lane"]
         print(f"=== {case['id']} {case['instance']} {truth['class']}: {truth.get('description', '')}")
         print(f"gates: {' '.join(f'{k}={v}' for k, v in b['gates'].items())}{' — STOPPED' if b['stopped'] else ''}")
+        for problem in test_script_problems(case, b, root):
+            print(problem)
+            rc = 1
         for arm in ARMS:
             p = Path(r[arm]["prompt"])
             hits = markers_in(p.read_text(), truth if truth["class"] != CONTROL else None) if p.exists() else []
