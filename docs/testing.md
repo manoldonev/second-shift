@@ -464,26 +464,25 @@ Each is a real duplication someone reasoned about and chose not to mechanize, wi
 a decision that stays visible; one merely omitted is a decision that gets re-litigated. A change
 does not owe this list a new entry.
 
-- **`args.config` subset** — the Workflow dispatch sites' `config:` args and their explaining
-  comments ↔ the `config.` reads inside the dispatched `.mjs`. It has failed in both directions:
-  passing the whole parsed config killed a dispatch outright, and a `{ reviewers: {} }` recovery
-  serialized cleanly while silently disabling every model override. The caller side is
-  differently-worded prose inside differently-shaped args objects; the callee side is an
-  expression whose shape varies per key. Forcing a shared literal would mean writing dispatch
-  prose to satisfy a grep. **Behaviorally guarded**: `runtime-shim-selftest.mjs` Case H executes
-  the real `code-review.mjs` body under the documented subset alone — that a `modelOverrides`
-  value reaches the dispatched model, and that `tracker.type` still branches the
-  scope-completeness fetch. The tier ALPHABET is a different coupling and IS anchorable — that one
-  is a live `tier-alphabet-parse` group.
-- **The dark-reviewer re-dispatch mandate, across three prose sites.** `review-lead` Step 4b
-  mandates one in-session re-dispatch before a `[Coverage gap]` may be recorded; Step 4b-void
-  case 2 reads "still dark after that re-dispatch" as its post-dispatch trigger on an armed spec;
-  and `/dev-pipeline:review` step 6 hands such a round back. Loosen the mandate and step 6's trigger
-  stops matching what `review-lead` can produce. **Declined, with no guard added.** The only
-  mechanization available is a grep for prose that must be present, which the `writing-tests`
-  skill forbids; a `LOCKSTEP` anchor needs byte-identical blocks, and these three deliberately
-  are not — a mandate, a void trigger, a hand-back rule, each in its own file's voice.
-  **Reviewer-guarded**: the sites are short, two sit in the same section of one file, and the
+- **`args.config` subset** — the `config:` groups `review-lead`'s dispatch block passes ↔ the
+  `config.` reads inside `code-review.mjs`. It has failed in every direction: passing the whole
+  parsed config killed a dispatch outright, a `{ reviewers: {} }` recovery serialized cleanly
+  while silently disabling every model override, and a dispatch that passed no `config` at all
+  ignored the overrides and the tracker type. The caller side is prose around an args object; the
+  callee side is an expression whose shape varies per key, so no shared literal fits.
+  **Behaviorally guarded**: `runtime-shim-selftest.mjs` Case H takes the group names from the
+  dispatch block, picks those groups out of a whole consumer config and executes the real
+  `code-review.mjs` body on them — a `modelOverrides` value must reach the dispatched model and
+  `tracker.type` must word the scope-completeness fetch. The tier ALPHABET is a different
+  coupling and IS anchorable — that one is a live `tier-alphabet-parse` group.
+- **The dark-reviewer re-dispatch mandate, across two prose sites.** `review-lead` Step 4b
+  mandates one in-session re-dispatch before a `[Coverage gap]` may be recorded, and Step 4b-void
+  case 2 reads "still dark after that re-dispatch" as its post-dispatch trigger on an armed spec.
+  Loosen the mandate and the void trigger stops matching what Step 4b can produce.
+  **Declined, with no guard added.** The only mechanization available is a grep for prose that
+  must be present, which the `writing-tests` skill forbids; a `LOCKSTEP` anchor needs
+  byte-identical blocks, and these two deliberately are not — a mandate and a void trigger.
+  **Reviewer-guarded**: the sites are short, both sit in adjacent sections of one file, and the
   behavior is a session's judgment no selftest executes. The mechanized half —
   the turn-numbered deadline the re-dispatch prompt cites — is held by `check-emit-deadline.sh`,
   where the number actually lives.
