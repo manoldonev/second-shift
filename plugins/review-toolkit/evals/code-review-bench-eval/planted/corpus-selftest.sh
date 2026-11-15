@@ -2,7 +2,7 @@
 # corpus-selftest.sh — the shipped corpus passes `planted.py check`, and a copy that lacks any part a case
 # must carry, or holds a marker, or falls short of a class or a P4 pattern, or a new case that misses the
 # size floor or the distraction rule, or an upstream above 40% of the cases, or a runner case whose runner
-# the gate cannot run, or a promoted or pilot case that breaks a rule, or an instance in neither form, or two
+# the gate cannot run, or an overlay config that config-lint rejects, or a promoted or pilot case that breaks a rule, or an instance in neither form, or two
 # cases on one instance, fails naming it. The pilot checks inject a fixture id as PILOT; pilot cases fill no count. No network and no model.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -249,6 +249,8 @@ expect_red "$R" "a runner overlay whose format is exit" "a9n5jx: testRunners[0] 
 R="$(copy no-format)"; jq 'del(.commands[].testRunners[0].format)' "$HERE/$RO" > "$R/$RO"
 expect_red "$R" "a runner overlay with no format" "v2q8ci: testRunners[0] of overlay anuraghazra__github-readme-stats-jest has format None, not jest-json"
 if [ -n "$HAVE_LANE" ]; then
+R="$(copy lint-red)"; jq '.commands[].testRunners[0].command |= sub(" --bail=0"; "")' "$HERE/$RO" > "$R/$RO"
+expect_red "$R" "an overlay config that config-lint rejects" "corpus: overlay anuraghazra__github-readme-stats-jest fails config-lint: ✗ commands.github-readme-stats.testRunners[0].command: format jest-json requires --bail=0"
 R="$(copy bare-tag)"
 # shellcheck disable=SC2016  # the backticks are the plan's case quotes, matched literally
 sed 's/(tests\/fetchRepo\.test\.js::`Test fetchRepo > should fetch the repo through the token rotation`)/(tests\/fetchRepo.test.js)/' "$HERE/cases/t3h7we/patch.diff" > "$R/cases/t3h7we/patch.diff"

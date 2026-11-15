@@ -52,6 +52,7 @@ MAX_UPSTREAM_SHARE = 0.40
 RUNNER_FORMAT = "jest-json"
 EXPECT_STOPS = ("fails_without_change",)
 PLAN_COVERAGE = TOOLS / "plan-coverage.sh"
+CONFIG_LINT = TOOLS / "config-lint.sh"
 STOP_RED_RE = re.compile(r"^RED: AC-\d+ — (.+?)::.+ passes on the record commit's tree ")
 RUNNER_BIN_RE = re.compile(r"node_modules/\S+")
 PATTERNS = ("rejects-held-input", "dead-guard", "two-hop-caller", "omitted-option")
@@ -448,6 +449,19 @@ def check_case(case: dict, root: Path, pilot_ids: frozenset = PILOT, promoted_id
     return p
 
 
+def check_overlay_configs(root: Path) -> list[str]:
+    """Each overlay's config.json as the lane's config-lint.sh reads it, since the render commits it as the lane's config."""
+    if not CONFIG_LINT.is_file():
+        return []
+    problems = []
+    for cfg in sorted((root / "overlays").glob("*/config.json")):
+        r = subprocess.run(["bash", str(CONFIG_LINT), str(cfg)], text=True, capture_output=True)
+        if r.returncode:
+            lines = [l.strip() for l in (r.stdout + r.stderr).splitlines()[1:] if l.strip()] or [f"exit {r.returncode}"]
+            problems.append(f"corpus: overlay {cfg.parent.name} fails config-lint: {'; '.join(lines)}")
+    return problems
+
+
 def check_corpus(root: Path, pilot_ids: frozenset = PILOT,
                  promoted_ids: frozenset = PROMOTED) -> tuple[list[str], dict[str, int], dict[str, int], dict[str, int]]:
     """The problems, then the scored corpus's class and P4 pattern counts, then the pilot cases' pattern counts."""
@@ -458,6 +472,7 @@ def check_corpus(root: Path, pilot_ids: frozenset = PILOT,
     pilot = {p: 0 for p in PATTERNS}
     for cid in sorted(pilot_ids - {c["id"] for c in everything}):
         problems.append(f"corpus: PILOT names {cid}, which has no case")
+    problems += check_overlay_configs(root)
     for case in everything:
         problems += check_case(case, root, pilot_ids, promoted_ids)
         truth = case.get("truth") or {}
