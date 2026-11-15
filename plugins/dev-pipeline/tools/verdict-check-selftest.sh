@@ -5,7 +5,8 @@
 # head and at its first commit (round 1 names "needs-work with no blocker", round 2 "Findings not in
 # the grammar"); each rule passes and fails; a needs-work with any of the three line-3 reasons passes; a row the build
 # deleted or added is still owed a score; a folded rows table passes only under a summary that counts it and
-# beside a ## Summary, and a bare table still passes; every failed rule is printed, not only the first; a record
+# beside a ## Summary, and a bare table still passes; a user-delegated edit of a row parked under a pause-and-ask
+# region passes only scored violated; every failed rule is printed, not only the first; a record
 # that cannot be read is exit 2. The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
 #
 # Operator-safe: no network. Exit code = number of failed checks.
@@ -202,6 +203,21 @@ check line1 "$(body 'approve with notes' "$HEAD_ROWS" 'None.')"
 fails_with "(f19) line 1 not a verdict line" "line 1 is not a verdict line"
 check line2 "$(body approve "$HEAD_ROWS" 'None.' | sed "2s/.*/reviewed: ${SHA:0:12}/")"
 fails_with "(f19) line 2 names a short sha" "line 2 is not a reviewed line"
+
+# ---- a row under a pause-and-ask region is the requester's alone ----
+ask_record() { # ask_record <D-2 provenance> <D-3 provenance>: D-2 cites the pause-and-ask OR-1, D-3 the reversible OR-2
+  printf '# record\n\n| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | a | b | user-answered | intent |\n| D-2 | order (A \\| B) | parked under OR-1 | %s | open |\n| D-3 | window | parked under OR-2 | %s | open |\n\n## Open Regions\n\n| ID | Region | Disposition |\n| --- | --- | --- |\n| OR-1 | ordering | pause-and-ask |\n| OR-2 | retention | reversible-default-and-flag |\n' "$1" "$2"
+}
+ask_record deferred deferred > "$T/ask-first.md"
+ask_record user-delegated user-delegated > "$T/ask-delegated.md"
+ask_record user-answered user-delegated > "$T/ask-answered.md"
+FIRSTREC="$T/ask-first.md" HEADREC="$T/ask-delegated.md" check ask-departed "$(body needs-work $'| D-1 | honored | x |\n| D-2 | departed | Decided by the build (user-delegated). |\n| D-3 | departed | y |' '- [blocker] B1 a thing')"
+fails_with "(pa1) a user-delegated edit under a pause-and-ask region scored departed is rejected" "user-delegated row under a pause-and-ask region not scored violated: D-2 departed"
+! has "D-3" && ok "(pa1) the same edit under a reversible-default region is not named" || bad "(pa1) out=$(tr '\n' '|' <<<"$OUT")"
+FIRSTREC="$T/ask-first.md" HEADREC="$T/ask-delegated.md" check ask-violated "$(body needs-work $'| D-1 | honored | x |\n| D-2 | violated | the build decided it |\n| D-3 | departed | y |' '- [blocker] B1 a thing')"
+passes "(pa2) the same edit scored violated passes"
+FIRSTREC="$T/ask-first.md" HEADREC="$T/ask-answered.md" check ask-answered "$(body needs-work $'| D-1 | honored | x |\n| D-2 | departed | Decided by the requester (user-answered). |\n| D-3 | departed | y |' '- [blocker] B1 a thing')"
+passes "(pa3) the requester's own answer under the region is a departure, not a violation"
 
 # ---- every failed rule is printed, not only the first ----
 check many "$(body approve $'| D-1 a | violated | x |' $'- [blocker] B1 a\nprose')"

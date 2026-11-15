@@ -124,7 +124,11 @@ review.
      lane that did not run on this diff.
    - Every added, edited, deleted or renamed review-policy file. List them with
      `git diff --name-status $FIRST..HEAD`, and check both sides of a rename. The review-policy
-     files are `.claude/second-shift.config.json` and anything under `.claude/second-shift/`.
+     files are `.claude/second-shift.config.json`, anything under `.claude/second-shift/`, and
+     what your own session loads from the working tree: `.claude/settings.json`,
+     `.claude/settings.local.json`, `.mcp.json`, a `CLAUDE.md` or `CLAUDE.local.md` in any
+     directory, and anything under `.claude/rules/`, `.claude/agents/`, `.claude/skills/`,
+     `.claude/commands/`, `.claude/output-styles/` or `.claude/hooks/`.
      You load these files from the head, so the PR is reviewed against the policy it edits.
      Trace each one to an acceptance criterion or a record row. An untraced one is a `[blocker]`
      that requires the citation. The edit itself is never the blocker.
@@ -158,6 +162,10 @@ review.
    `departed` or `undeterminable`. A departed row was edited: name who decided, per its
    provenance. For an undeterminable row, say what you could not read. A violated or
    undeterminable row is a blocker. Do not approve when a row has either score.
+
+   <!-- LOCKSTEP-BEGIN review-pause-and-ask -->
+   A row can cite a region that the record's `## Open Regions` table marks `pause-and-ask` at its first commit. Only the requester decides that row. If its provenance was `deferred` at the first commit and is `user-delegated` at the head, score it `violated`, never `departed`. The build decided a question that it had to stop on. The row is no longer `violated` for this reason once the head restores it to `deferred` or carries the requester's answer as `user-answered`.
+   <!-- LOCKSTEP-END review-pause-and-ask -->
 
    <!-- LOCKSTEP-BEGIN review-row-reach -->
    A row can say where or to what a rule applies. Score that row against every caller of the unit that holds the rule, in the repository at the head. The row is `honored` only when the review names each caller and shows that each one gets the rule. A caller that only passes an opt-in along is followed up to the callers that decide it. A caller that the row or the ticket itself names as outside the rule does not count. External and dynamic callers do not count. Any other caller left outside the rule scores the row `violated`. The review then files a `[blocker]` at that caller's file:line, with a concrete input that the caller prints or handles differently from the rule.

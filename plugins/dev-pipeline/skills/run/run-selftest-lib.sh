@@ -220,6 +220,16 @@ case "$plan" in
                    git add -f .claude/second-shift .claude/second-shift.config.json .claude/agents; push; openpr ;;   # forced: the fixture gitignores .claude/
   build-pr-add-row) printf '| D-2 | added by the build | x | user-delegated |\n' >> "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: a row only the head carries
   build-pr-rm-record) git rm -q "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: no record at the head to check a verdict against
+  build-edit-session-files) # every kind of file the review session loads from the head, and three it does not
+    for f in .claude/agents/a.md .claude/commands/c.md .claude/hooks/h.sh .claude/output-styles/o.md .claude/rules/r.md .claude/settings.json .claude/settings.local.json .claude/skills/s/SKILL.md .mcp.json CLAUDE.md src/CLAUDE.local.md \
+             .claude/plans/p.md docs/NOT-CLAUDE.md src/settings.json; do mkdir -p "$(dirname "$f")"; echo x > "$f"; git add -f "$f"; done
+    push; openpr ;;
+  build-pause) # a build that stops the way its prompt says to: it writes the pause file the prompt names, and no PR
+    f=$(sed -n "s/.*Then write the file \(.*\) with the Write tool\. Its first line is exactly 'paused: OR-n'.*/\1/p" "$S/prompt-$n.txt" | head -n 1)
+    if [ -z "$f" ]; then :; elif [ -n "${FAKE_PAUSE_RAW+set}" ]; then printf '%s' "$FAKE_PAUSE_RAW" > "$f"   # the file's bytes as given: a malformed or empty one
+    else printf 'paused: %s\n\nOldest first,\nor newest first?\n' "${FAKE_PAUSE:-OR-1}" > "$f"; fi; echo half >> work.txt ;;
+  build-pr-decide-parked) # a build that decides the parked D-2 itself instead of stopping
+    rec=$(git ls-files 'docs/plans/*-decisions.md'); sed 's/^| D-2 | .*/| D-2 | backfill order | oldest first. Changed in build: it reads best. | user-delegated | intent |/' "$rec" > r.tmp && mv r.tmp "$rec"; push; openpr ;;
   build-pr-operator-departure) # #1085: the operator restored a guard mid-build — the head's record carries the decision as a
                    # user-answered D-2 row and its AC-9 under Test intent; the record at FIRST is untouched, and the plan tags AC-9
                    awk '$0 == "| D-1 | a | b | user-answered | intent |" { print; print "| D-2 | the guard | restored by the operator | user-answered | intent |"; next }
