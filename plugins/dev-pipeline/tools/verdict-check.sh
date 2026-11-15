@@ -28,7 +28,9 @@
 # `Ready to merge?` anywhere fails. An approve has no [blocker], no violated or undeterminable score
 # and no reason line; a needs-work has a [blocker], a violated or undeterminable score, or a reason
 # line. Every `D-n` row of either record version — only unindented lines `| D-n |` (#991 D-6) — is
-# scored, except under a reason line.
+# scored, except under a reason line. A row that was `deferred` at the first commit, citing an `OR-n`
+# its Open Regions table marks `pause-and-ask`, and is `user-delegated` at the head is scored
+# `violated` when it is scored: only the requester decides it.
 #
 # Exit: 0 the body passes · 1 it breaks a rule (stdout: one line per failure, every one of them, each
 # starting with the rule's stable name) · 2 usage, or a file cannot be read (nothing is evaluated).
@@ -40,6 +42,22 @@ for f in "$@"; do
 done
 ids="$(cat "$2" "$3" | tr -d '\r' | sed -n -E 's/^\|[[:space:]]*(D-[0-9]+)[[:space:]]*\|.*/\1/p' | sort -u -t- -k2,2n | tr '\n' ' ')" \
   || { echo "verdict-check: cannot read the record files — nothing evaluated" >&2; exit 2; }
+# shellcheck disable=SC2016  # an awk program, not shell
+asked="$(awk '
+  { sub(/\r$/, ""); s = $0; gsub(/\\\|/, "\001", s) }
+  s !~ /^\|[ \t]*(D|OR)-[0-9]+[ \t]*\|/ { next }
+  { n = split(s, c, "|"); for (i = 2; i <= n; i++) gsub(/^[ \t]+|[ \t]+$/, "", c[i]) }
+  at == "first" && c[2] ~ /^OR-/ { if (c[4] == "pause-and-ask") ask[c[2]] = 1; next }
+  at == "first" { if (c[5] == "deferred") cites[c[2]] = c[4]; next }
+  c[2] ~ /^D-/ { head[c[2]] = c[5] }
+  END {
+    for (id in cites) {
+      if (head[id] != "user-delegated") continue
+      r = cites[id]
+      while (match(r, /OR-[0-9]+/)) { if (substr(r, RSTART, RLENGTH) in ask) { print id; break }; r = substr(r, RSTART + RLENGTH) }
+    }
+  }' at=first "$3" at=head "$2" | tr '\n' ' ')" \
+  || { echo "verdict-check: cannot read the record files — nothing evaluated" >&2; exit 2; }
 
 # shellcheck disable=SC2016  # an awk program, not shell
 prog='
@@ -48,6 +66,7 @@ function cut(s) { return length(s) > 80 ? substr(s, 1, 77) "..." : s }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 BEGIN {
   n = split(ids, idl, " "); for (i = 1; i <= n; i++) if (idl[i] != "") rec[idl[i]] = 1
+  na = split(asked, al, " "); for (i = 1; i <= na; i++) if (al[i] != "") ask[al[i]] = 1
   order["## Summary"] = 1; order["## Decision record rows"] = 2; order["## Findings"] = 3; order["## Panel"] = 4; order["## Notes"] = 5
   score["honored"] = 1; score["violated"] = 1; score["departed"] = 1; score["undeterminable"] = 1
   sec = 0; last = 0; ts = 0; infind = 0; fd = 0; trows = 0
@@ -114,6 +133,7 @@ sec == 2 {
   split(trim(cell[2]), w, /[ \t]+/)
   if (!(w[1] in score)) { fail("score not in the grammar", id ": " cut(trim(cell[2]))); next }
   tcount[w[1]]++
+  if ((id in ask) && w[1] != "violated") fail("user-delegated row under a pause-and-ask region not scored violated", id " " w[1])
   if (w[1] == "violated" || w[1] == "undeterminable") badrows = badrows (badrows == "" ? "" : ", ") id " " w[1]
   if (w[1] != "honored") { nn++; notable[nn] = id }
   next
@@ -157,4 +177,4 @@ END {
   if (reason == "") for (i = 1; i <= n; i++) if (idl[i] != "" && !(idl[i] in scored)) fail("record row not scored", idl[i])
   exit bad
 }'
-awk -v ids="$ids" "$prog" "$1"
+awk -v ids="$ids" -v asked="$asked" "$prog" "$1"
