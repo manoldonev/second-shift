@@ -47,5 +47,23 @@ printf 'spawn: claude\n---\n{rules}\n\nA JSON example: {"a": 1}\n' > "$T/braced.
 out="$(load "$T")"
 [ "$(cut -f1,2 <<<"$out")" = "$(printf 'ERR\tbraced')" ] && ok "an arm with a literal brace is reported, not loaded" || bad "braced arm: [$(tr '\t' ' ' <<<"$out")]"
 
+echo "== the kit's quota stop =="
+out="$(python3 -I - "$HERE" <<'PY'
+import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("bench", Path(sys.argv[1]) / "bench.py")
+bench = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bench)
+for text in ("You've hit your session limit · resets 3pm", "Claude usage limit reached", "LGTM, no findings"):
+    try:
+        bench.kit.check_rate_limit(text, "selftest")
+        print("pass")
+    except bench.kit.RateLimitedError:
+        print("stop")
+PY
+)"
+[ "$(tr '\n' ' ' <<<"$out")" = "stop stop pass " ] \
+  && ok "a session-limit or usage-limit message stops the run; a review does not" || bad "quota stop: [$(tr '\n' ' ' <<<"$out")]"
+
 echo "bench-arms-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"
