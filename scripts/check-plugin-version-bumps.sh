@@ -13,8 +13,8 @@
 #
 # CALL SITE (#119): runs ONLY on the release PR (ci.yml release-pr-gates, branch
 # release/next) — feature PRs no longer bump versions (scripts/check-frozen-files.sh
-# enforces the inverse there); the bumps this script verifies are the ones
-# scripts/derive-release.sh derived onto the release PR.
+# enforces the inverse there). It checks only that each changed plugin's version string
+# changed, not that the level matches what scripts/derive-release.sh derived.
 #
 # Usage: check-plugin-version-bumps.sh [base-ref]
 #   base-ref defaults to the latest tag reachable from HEAD (excluding HEAD's own

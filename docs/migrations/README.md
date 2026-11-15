@@ -3,7 +3,7 @@
 `.claude/second-shift.config.json` is the marketplace's public API; `configVersion` is its
 version. The contract:
 
-- A schema-**breaking** change ⇒ major release tag + `configVersion` bump + a migration doc
+- A config-schema-**breaking** change ⇒ major release tag + `configVersion` bump + a migration doc
   here named `vN-to-vN+1.md` (exact field-by-field: what moved, what to write instead, a
   before/after example).
 - `config-lint` fails older configs WITH the pointer to that doc (never a bare "invalid") —
@@ -16,7 +16,9 @@ version. The contract:
 (`gates.figma`, `gates.apiTests`) on `configVersion: 1` — [`v1-to-v2.md`](v1-to-v2.md)
 documents that migration retroactively, and config-lint special-cases both removed keys
 with pointers to it. From the release that ships this contract on, the rule binds:
-breaking ⇒ major tag + configVersion bump + migration doc, before the tag.
+a config-schema-breaking change ⇒ major tag + configVersion bump + migration doc, before the
+tag. Other breaking changes take a major tag without a `configVersion` bump; they are listed
+below.
 
 **One filename, two namespaces.** The marketplace version and `configVersion` are numbered
 independently, and both crossed their 1 → 2 boundary — while the gate derives the migration
@@ -36,7 +38,7 @@ Later `vN-to-vN+1.md` docs are configVersion-only; this collision is not expecte
 ## Breaking changes that are not config changes
 
 These leave `configVersion` alone, so config-lint cannot point at them. Each is also in that
-release's `CHANGELOG.md` entry. Upgrading across them straight to v3 config, follow
+release's `CHANGELOG.md` entry. Upgrading across v13.0.0 or v14.0.0 straight to v3 config, follow
 [`v2-to-v3.md`](v2-to-v3.md) part 2 instead of the steps below: it deletes the files they tell you
 to re-copy or rename, and `/second-shift:doctor` flags a leftover copy of the CI workflow, its
 check script or the delta guard.
@@ -51,3 +53,16 @@ check script or the delta guard.
   of any `LEAN_*` knob, rename `.claude/lean-overrides.tsv` to `.claude/lane-overrides.tsv`, and
   export `SECOND_SHIFT_BOUNDARY_EVIDENCE` instead of `SECOND_SHIFT_LEAN_EVIDENCE`. A leftover old
   spelling is ignored, so a run proceeds without the override rather than failing.
+- **v16.0.0** — the `/dev-pipeline:pr-revision` skill was removed. Address PR review comments in
+  your own session or with `/dev-pipeline:build`, and remove any reference to
+  `/dev-pipeline:pr-revision`.
+- **v17.0.0** — `/intake-toolkit:intake` became the only way into intake: the
+  `/intake-toolkit:plan-interview <issue>`, `/intake-toolkit:intake-orchestrator`,
+  `/intake-toolkit:intake-interviewer` and `/intake-toolkit:decomposition-reviewer` entries were
+  removed, and the receipt lint refuses a Fan-out skip that does not name the operator. Enter a
+  ticket with `/intake-toolkit:intake <issue>`; `plan-interview` remains for plan mode only. A
+  receipt whose Fan-out section reads `skipped — by intake-orchestrator` or `by
+  intake-interviewer` no longer lints: re-run `/intake-toolkit:intake <issue>`.
+- **v18.0.0** — review-toolkit no longer ships the `review-lead-synth` agent, and review-lead
+  no longer has synthesis-only mode. A caller that handed review-lead pre-dispatched findings
+  invokes review-lead normally instead and lets it dispatch the reviewers.

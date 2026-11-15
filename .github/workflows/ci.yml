@@ -287,7 +287,7 @@ jobs:
 
       # BASE_REF rides in the environment, never spliced into the run body: git ref names
       # permit $, backticks and ; so `${{ }}` interpolation into a shell line is injectable.
-      - name: frozen files guard (plugin.json versions + CHANGELOG are release-owned)
+      - name: frozen files guard (plugin.json and marketplace versions, release stamps + CHANGELOG are release-owned)
         env:
           BASE_REF: ${{ github.base_ref }}
         run: bash scripts/check-frozen-files.sh "origin/$BASE_REF"
@@ -298,7 +298,7 @@ jobs:
         run: bash scripts/check-changelog-trailer.sh "origin/$BASE_REF"
 
   # Gates that run ONLY on the release PR: the old version-bump discipline (every
-  # content-changed plugin carries its derived bump — same script, new call site) and the
+  # content-changed plugin's version string changed — it does not check the level) and the
   # configVersion migration-doc gate (a schema-breaking change ships its upgrade doc).
   release-pr-gates:
     if: >-
@@ -311,7 +311,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: bump discipline (changed plugin ⇒ derived bump applied)
+      - name: bump discipline (changed plugin ⇒ version string changed)
         run: bash scripts/check-plugin-version-bumps.sh
 
       - name: configVersion migration-doc gate
