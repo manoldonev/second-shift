@@ -12,7 +12,7 @@ All extension files sit under the consumer repo's `.claude/second-shift/` direct
 
 | Extension | Read by | Purpose |
 | --- | --- | --- |
-| `.claude/second-shift/blocker-mutants.md` | unit-test-mutation-reviewer, unit-test-plan-reviewer | Domain-specific blocker-class mutants (e.g. "account-scope filter removed", "financial rounding guard flipped") appended to the generic blocker list |
+| `.claude/second-shift/blocker-mutants.md` | unit-test-mutation-reviewer, the `mutation-review` skill, test-coverage-reviewer | Domain-specific blocker-class mutants (e.g. "account-scope filter removed", "financial rounding guard flipped") appended to the generic blocker list |
 | `.claude/second-shift/security-rules.md` | security-reviewer | Domain security review rules (tenancy invariants, credential-handling rules, permission-set ↔ OAuth-scope mapping requirements) |
 | `.claude/second-shift/review-context.md` | the lane's review session (it reads it at the head); every panel reviewer + the ad hoc review-lead (each self-loads it) | Repo-wide review context: stack orientation, maturity/severity calibration, architectural invariants, known-accepted patterns, and an ownership table pointing at the docs that own enumerable values (the named-section catalog reviewers key on: "Authoring the review-context surface" below). **Database stack** (engine, ORM/ODM/driver, schema/model + data-access globs, migration tooling, special capabilities like vector search) — db-reviewer applies its checks in the terms this section (or `review-context/db-reviewer.md`) declares; absent = db-reviewer infers the stack and lowers confidence. plan-reviewer applies this section's round-trip traps at plan time only when they are in this shared file — it does not load `review-context/db-reviewer.md`, so traps declared only there are applied at review time |
 | `.claude/second-shift/review-context/<reviewer-name>.md` | exactly that reviewer (self-loaded after the shared file) when the ad hoc review-lead dispatches it; the lane's review does not read it | Per-reviewer repo rules: severity examples, what-not-to-flag lists, stack resolutions only that reviewer consumes. Basename must be a reviewer in the effective registry — linted fail-closed by `review-toolkit/scripts/check-review-context.sh` (review-lead pre-flight) on top of the manifest glob |
@@ -28,7 +28,7 @@ Each consuming agent's prompt declares its extension files explicitly ("if `.cla
 ## Placement: shared file, per-reviewer file, or standalone?
 
 - **Single-consumer prose** (rules exactly one reviewer uses) → `review-context/<reviewer-name>.md`.
-- **Multi-consumer contracts** (read by several agents or by tools — `security-rules.md` has three plugin consumers, `blocker-mutants.md` four) → their own standalone well-known file.
+- **Multi-consumer contracts** (read by several agents or by tools — `security-rules.md` has three plugin consumers, `blocker-mutants.md` three) → their own standalone well-known file.
 - **Cross-cutting calibration** (maturity stage, severity ladders every reviewer needs to triage) → the shared `review-context.md` core.
 
 Authoring litmus questions for the shared core (keep it small — owned facts point, they don't restate):

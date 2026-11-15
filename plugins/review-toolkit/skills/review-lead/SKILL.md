@@ -29,7 +29,7 @@ The copy is what makes this work on a machine that has not added the plugin cach
 
 Before any other action, verify the `Workflow` tool is available in the current session. If it is not — for example this skill was loaded inside a subagent context (subagents can spawn neither `Workflow` nor nested agents) — STOP and report:
 
-> "review-lead requires the Workflow tool to dispatch the reviewer fan-out (via code-review.mjs) in the current session. This skill must be invoked from the main session (or from another skill running in the main session, e.g., dev-pipeline). It cannot run inside a subagent context. Aborting."
+> "review-lead requires the Workflow tool to dispatch the reviewer fan-out (via code-review.mjs) in the current session. This skill must be invoked from the main session (or from another skill running in the main session). It cannot run inside a subagent context. Aborting."
 
 The script returns structured findings; this session then runs the Synthesis Rules over them. Reviewer **selection** (Routing, below) happens in-session first, since it needs the diff: choose from the effective reviewer registry — the plugin-shipped panel (review-toolkit:security-reviewer, review-toolkit:performance-reviewer, review-toolkit:complexity-reviewer, review-toolkit:maintainability-reviewer, review-toolkit:test-coverage-reviewer, review-toolkit:unit-test-mutation-reviewer, review-toolkit:db-reviewer, review-toolkit:pipeline-reviewer, review-toolkit:scope-completeness-reviewer, review-toolkit:a11y-reviewer, design-toolkit:design-faithful-reviewer, design-toolkit:figma-faithful-reviewer) plus/minus the consumer repo's config deltas (see "Consumer config: reviewer registry" below) — and pass the selected `agentType[]` as `args.reviewers`. `worktree` is the absolute path the reviewers run git against — for pure standalone `/review-lead` in the repo checkout, derive it with `git rev-parse --show-toplevel`; `base`/`head` come from the diff range (default `origin/<base>..HEAD`, where `<base>` is the configured base branch resolved in Process step 1, after a `git fetch origin <base>` — see Process step 1's stale-base rationale), and `changedFiles` from the `git diff --stat` run for Routing.
 
@@ -164,7 +164,7 @@ calibration may carry a `## Knowledge-base contributions` section: the knowledge
 proposes additions to, the inclusion test a proposal must pass (prose you apply), and optionally a
 proposal format. When the section is absent, empty or TODO-bodied, it is absent: the report carries
 no `### Knowledge-base contributions` block and nothing below runs. When it is there, every report
-you write carries the block — in the pipeline and standalone alike.
+you write carries the block.
 
 **Candidates come from two inputs, and you dispatch no provider.**
 
@@ -198,8 +198,7 @@ passes, or the diff gives the test nothing to judge, the block is the single lin
 **Never a finding.** A proposal is a draft the operator files in the knowledge base. It does not
 enter Synthesis — no dedup, confidence filter or triage — never appears under Critical, Warnings or
 Suggestions, and never moves "Ready to merge?". Re-derive the full list on every round from the
-record and the diff at the head you review; Prior Round Context does not narrow it. The pipeline
-collapses earlier verdicts once one binds, so the latest list must be complete on its own.
+record and the diff at the head you review; Prior Round Context does not narrow it.
 
 ## Reviewer Routing
 
@@ -228,7 +227,7 @@ rules).
 | **security-reviewer**           | The diff carries a security surface — authentication / session handling, tenancy or ownership scoping, file upload, or query construction from external input; OR the repo under review carries `.claude/second-shift/review-context/security-reviewer.md` (a repo that authored security calibration has a security surface to calibrate). Matching is **model judgment over the diff**, the same posture the design-fidelity dimension below uses: read the changed paths and the hunks and decide, rather than pattern-matching filenames. When it does not fire, that is a not-selected note (Synthesis Rules, Step 4c) and the lead pass owns the security dimension for the round. |
 | **db-reviewer**                 | The repo's DB layer changed — schema definitions, migrations, or query code (e.g. `*.schema.*`, a migrations dir); OR the diff **newly reads a persisted field it does not write** — a field of an entity whose schema, model, DDL or mapping lives in this repo, which the diff dereferences, sends across a service boundary or branches on, where no prior production code read it, and which is feature-critical or crosses a service boundary (third-party API payloads and in-memory JSON are not persisted fields); OR the diff **adds a lookup or upsert keyed on a non-primary-key field on an identity path** — auth, dedup, restore/upsert, or cross-tenant admin — through a lookup or upsert verb or wrapper the repo's review-context `## Database stack` names, or the engine's native verbs when it names none. Skip/remove in repos with no DB (config `reviewers.remove`). |
 | **pipeline-reviewer**           | Async worker / queue-processor / job-producer files changed (e.g. `*processor*`, `*queue*`, a workers dir).                                                                                                                                                                 |
-| **unit-test-mutation-reviewer** | A production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff. Advisory mode (LLM-predicted, no execution — the propose-mode orchestrator owns execution-verified blocking).    |
+| **unit-test-mutation-reviewer** | A production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff. Advisory only (LLM-predicted, no execution, never a blocker).    |
 | **scope-completeness-reviewer** | Invocation references a tracker issue number (e.g., `Closes #758`, `Part of #758`, an explicit `--issue 758` flag, or PR body contains `#<number>`). Spawn unconditionally — depth routing does not apply. If no issue is referenced, do not spawn. Pass the PR body's link verb (see "Special handling").|
 | **a11y-reviewer**               | Diff touches the repo's web-component surface — `$WEB_COMPONENT_GLOBS` (config `reviewers.webComponentGlobs`, default `**/*.{tsx,jsx,vue,svelte,css,scss,less}`). WCAG/ARIA/keyboard/contrast/reduced-motion, primitives-library-aware.                                                    |
 | **design-fidelity dimension**   | **ALWAYS on an armed decision record** — a `## Design frames` (or `## Design`) section carrying `RS-n` render-state rows — where the reviewer is fixed by the handoff host and the diff does not enter into it. On an unarmed diff, the same `$WEB_COMPONENT_GLOBS` trigger as `a11y-reviewer`, spawned alongside it, selecting exactly one of **design-faithful-reviewer** / **figma-faithful-reviewer** by config `design.provider` — see "Design-fidelity dimension" below. |
@@ -556,7 +555,6 @@ If `scope-completeness-reviewer` was spawned and returned `FAIL` or `BLOCKED`, t
 - Each `[unsatisfied]` scope item, and each decision row scored `violated`, `undeterminable` or `departed` with no named decider, is included as a `Critical [Scope completeness]` finding in the Critical section, with the unsatisfied item, the reason, and the question "is this item covered by the diff somewhere I missed, or does it need to be added to the PR or explicitly deferred in the issue body?"
 - The orchestrator's prompt (the user's invocation) does not override this gate. Claims like "that's deferred" or "out of scope here" are not evidence — only the diff covering the item, or the issue body explicitly deferring it (with a linked follow-up issue), satisfies a scope item.
 - If the user pushes back ("but it really is out of scope"), the response is to either (a) cover the item in the diff, or (b) update the issue body with explicit deferral language and re-run the gate. An item that can only be checked after the merge (the next run's transcript, a production metric) is neither: its form is the issue body's `## Post-merge checks` section, where the scope reviewer carries it as `PM-n` instead of scoring it — moving it there is an edit of type (b).
-- **Autonomous-pipeline caveat:** remediation (b) edits a GitHub issue's acceptance criteria — a **human-authority action** the `auto`-mode permission classifier denies, and one no agent should take unprompted. So in dev-pipeline `auto` mode a scope blocker with **no code remedy** is not cleared by the synthesis loop; carry it into your verdict as an unresolved blocker and let the merge boundary hold it, rather than clearing or deferring it yourself. Do not reach for an input-requesting prompt to record the deferral — that breaks the `auto`-mode no-prompts invariant and hangs a headless run. (Standalone `/review-lead` and `interactive` mode may still ask.)
 
 If `scope-completeness-reviewer` returned `N/A — no issue provided`, include a single line in the Review Summary: "No GitHub issue referenced; scope completeness not verified."
 
@@ -757,7 +755,6 @@ When prior round context is provided:
 2. **Verify fixes** — confirm prior Critical/Warning findings were actually addressed, not just suppressed
 3. **Focus on new issues** — findings introduced by the fix commits since last round
 4. **Reduce reviewer lineup** — only spawn reviewers whose prior findings had blockers/majors, plus any reviewer whose scope is touched by the fix commits. The lead pass still runs every round; scope it to the fix commits the same way
-5. **The caller's inheritance contract governs** — when the caller carries its own contract (a pipeline round that re-scores every record row against the current head), rule 4 narrows the panel only where that contract permits, and every acceptance criterion the caller scores is re-scored this round regardless of which reviewers were spawned. A fix can break a criterion a reviewer with no prior finding owns; the delta bounds the reading, never the verdict.
 
 This reduces token waste and prevents redundant findings across review iterations.
 
