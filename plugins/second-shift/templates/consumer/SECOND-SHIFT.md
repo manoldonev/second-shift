@@ -55,7 +55,8 @@ preference). The uninstall dialog's "disable for you alone" writes exactly this.
 
 Your own branch namespace goes in `.claude/second-shift.config.local.json`, kept out of git:
 `{ "tracker": { "branchPrefix": "you/" } }`. Your runs use it instead of the committed
-prefix; it may set nothing else.
+prefix. Besides the prefix it may hold only the bot's GitHub App keys
+(`tracker.bot.app.clientId`, `appName`, `privateKeyFilename`, `installationId`).
 
 ## Support boundary
 

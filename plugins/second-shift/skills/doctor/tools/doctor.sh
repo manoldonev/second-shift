@@ -243,18 +243,28 @@ while IFS=$'\t' read -r kind _ om os; do
   [[ "$kind" == "other-marketplace" ]] || continue
   OTHER_MKT_UNINSTALLS="${OTHER_MKT_UNINSTALLS:+$OTHER_MKT_UNINSTALLS, then }$(other_mkt_uninstall "$om" "$os")"
 done <<< "$SHADOW_ROWS"
+# A project-scope install writes enabledPlugins into the committed settings, so a project-scope
+# remedy is printed only for a plugin those settings already enable. `install` no-ops on an
+# installed plugin, so a non-user record is moved by uninstall then install.
+reinstall_fix() { # $1 plugin, $2 record scope, $3 enabled in project settings
+  local to="user"
+  if [[ "$2" == "local" ]]; then to="local"
+  elif [[ "$2" == "project" && "$3" == "true" ]]; then to="project"; fi
+  printf 'claude plugin uninstall %s@%s --scope %s && claude plugin install %s@%s --scope %s' "$1" "$MKT" "$2" "$1" "$MKT" "$to"
+}
 for p in $(jq -r '.plugins | keys[]' "$LOCK"); do
   want="$(jq -r --arg p "$p" '.plugins[$p]' "$LOCK")"
   entry="$(jq -c --arg id "$p@$MKT" --arg root "$ROOT" "$RESOLVE_RECORD" <<< "$PLUGLIST")"
+  enabled_in_settings=false
+  [[ "$SETTINGS_OK" -eq 1 ]] && enabled_in_settings="$(jq -r --arg k "$p@$MKT" '.enabledPlugins[$k] // false' "$SETTINGS" 2>/dev/null)"
   if [[ -z "$entry" ]]; then
-    fix="claude plugin install $p@$MKT --scope project"
+    fix="claude plugin install $p@$MKT --scope user"
+    [[ "$enabled_in_settings" == "true" ]] && fix="claude plugin install $p@$MKT --scope project"
     # A copy from another marketplace cannot serve the pin. User scope matches the README's hand
     # setup, so the marketplace copy serves every repo the other copy served before its uninstall.
     if [[ "$p" == "second-shift" && -n "$OTHER_MKT_UNINSTALLS" ]]; then
       fix="claude plugin marketplace add $LOCK_REPO && claude plugin install $p@$MKT, at user scope, then $OTHER_MKT_UNINSTALLS (a copy from another marketplace is unpinned, so it cannot serve the lockfile entry)"
     fi
-    enabled_in_settings=false
-    [[ "$SETTINGS_OK" -eq 1 ]] && enabled_in_settings="$(jq -r --arg k "$p@$MKT" '.enabledPlugins[$k] // false' "$SETTINGS" 2>/dev/null)"
     if [[ "$enabled_in_settings" == "true" ]]; then
       bad "$p: enabled in project settings but NOT installed (fresh clone / skipped trust prompt — the most common state). Fix: $fix"
     else
@@ -267,24 +277,22 @@ for p in $(jq -r '.plugins | keys[]' "$LOCK"); do
   # "latest" = the canary form (the marketplace repo consuming itself, lockfile ref
   # "main"): presence-only — any installed version is correct by definition.
   if [[ "$want" == "latest" ]]; then ok "$p @ $have installed (lockfile tracks latest — canary)"; continue; fi
-  # Both drift branches name the scope of the record they just graded. A `--scope project`
-  # install prescribed against a USER-scope record does not move it: on the behind branch the
-  # verb is wrong (`install` no-ops as "already installed"), and on the ahead branch there is no
-  # project pin behind the record for a reinstall to resolve against, so it re-serves the same
-  # newer version — a no-op that reads as a fix.
+  # Both drift branches name the scope of the record they just graded. On a USER-scope record the
+  # ahead branch has no project pin behind it for a reinstall to resolve against, so a reinstall
+  # re-serves the same newer version — a no-op that reads as a fix.
   if [[ "$have" == "$want" ]]; then ok "$p @ $want installed"
   elif semver_lt "$have" "$want"; then
     if [[ "$scope" == "user" ]]; then
-      bad "$p: installed $have, lockfile wants $want. Fix: claude plugin marketplace update $MKT && claude plugin update $p@$MKT (the record is USER-scope; 'update' is the upgrade verb and it touches user scope, 'install' would no-op)"
+      bad "$p: installed $have, lockfile wants $want. Fix: claude plugin marketplace update $MKT && claude plugin update $p@$MKT (the record is USER-scope; 'update' is the upgrade verb, 'install' would no-op)"
     else
-      bad "$p: installed $have, lockfile wants $want. Fix: claude plugin marketplace update $MKT && claude plugin install $p@$MKT --scope project"
+      bad "$p: installed $have, lockfile wants $want. Fix: claude plugin marketplace update $MKT && $(reinstall_fix "$p" "$scope" "$enabled_in_settings")"
     fi
     NEED_RESTART=1
   else
     if [[ "$scope" == "user" ]]; then
       bad "$p: installed $have is ahead of the lockfile ($want) — rollback case, and the record is USER-scope, so what it serves is decided by the marketplace registration ref, not by this repo's pin. Fix: re-point the registration (claude plugin marketplace add $LOCK_REPO@${LOCK_REF:-<ref>} — in-place replace, no uninstalls), then claude plugin update $p@$MKT. Do not reinstall: with no project pin behind the record it re-serves the same version. The registration line below reports the same lever."
     else
-      bad "$p: installed $have is ahead of the lockfile ($want) — rollback case. Fix: claude plugin marketplace update $MKT (settings pin $LOCK_REF resolves the older catalog) && claude plugin install $p@$MKT --scope project"
+      bad "$p: installed $have is ahead of the lockfile ($want) — rollback case. Fix: claude plugin marketplace update $MKT (settings pin $LOCK_REF resolves the older catalog) && $(reinstall_fix "$p" "$scope" "$enabled_in_settings")"
     fi
     NEED_RESTART=1
   fi

@@ -16,12 +16,11 @@
 # holds `epic`, a permanent classification rather than run state, and a hardcoded `epic`
 # exception against a consumer-redefinable list would silently miss.
 #
-# LABEL RESOLUTION. The names are config-driven, and the config is not always readable
-# from CI: the marketplace repo gitignores its own (it carries machine-local bot
-# identifiers). So resolution is live-when-readable, default-when-not — a consumer repo
-# commits its config and gets the configured names; the marketplace repo falls through to
-# the shipped defaults, which are its real labels. Nothing is substituted at install
-# time, so there is no rendered copy to drift.
+# LABEL RESOLUTION. The names are config-driven, and a config may be absent or leave the
+# label keys unset. So resolution is live-when-set, default-when-not — a repo that sets the
+# keys gets the configured names; the marketplace repo sets none and falls through to the
+# shipped defaults, which are its real labels. Nothing is substituted at install time, so
+# there is no rendered copy to drift.
 #
 # Usage:
 #   second-shift-unclaim.sh <issue-number>
@@ -70,13 +69,11 @@ CONFIG="${SECOND_SHIFT_CONFIG:-$ROOT/.claude/second-shift.config.json}"
 # Deliberately forgiving: an absent, unparseable or key-less config yields the shipped
 # default rather than an error.
 #
-# THE MARKETPLACE REPO ITSELF HAS NO READABLE CONFIG HERE — it gitignores its own,
-# because that file carries machine-local bot identifiers — so its workflow runs entirely
-# on these defaults, and nothing reconciles them against the real vocabulary. The failure
-# is silent but low-cost and self-announcing: rename a label away from a default and this
-# stops stripping it, whose symptom is exactly the stale label this script exists to
-# clear, visible on the very next close. A consumer repo commits its config and is
-# resolved live, so this applies to the canary alone.
+# THE MARKETPLACE REPO ITSELF SETS NO LABEL KEYS in its committed config, so its workflow
+# runs entirely on these defaults, and nothing reconciles them against the real vocabulary.
+# The failure is silent but low-cost and self-announcing: rename a label away from a default
+# without setting its key and this stops stripping it, whose symptom is exactly the stale
+# label this script exists to clear, visible on the very next close.
 cfg() { # cfg <jq-filter> <default>
   local v
   if [ -f "$CONFIG" ]; then

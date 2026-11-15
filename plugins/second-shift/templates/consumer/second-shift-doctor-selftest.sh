@@ -85,5 +85,12 @@ rm "$B/.claude/second-shift.config.local.json"
 out="$(cd "$B" && SECOND_SHIFT_CACHE_DIR="$CACHE" bash "$TOOL")"
 check "prefix: no nudge without dev-pipeline"   "$([[ -z "$out" ]] && echo 0 || echo 1)"
 
+# The marketplace repo consumes itself through a committed copy of this template; installed, the
+# suite has no such copy beside it and the comparison does not apply.
+CANARY_COPY="$HERE/../../../../.claude/tools/second-shift-doctor.sh"
+if [[ -f "$HERE/../../../../.claude-plugin/marketplace.json" && -f "$CANARY_COPY" ]]; then
+  check "canary copy matches the template" "$(cmp -s "$CANARY_COPY" "$TOOL" && echo 0 || echo 1)"
+fi
+
 if [[ "$FAILS" -gt 0 ]]; then echo "second-shift-doctor selftest: $FAILS FAILURE(S)"; exit 1; fi
 echo "second-shift-doctor selftest: all green"

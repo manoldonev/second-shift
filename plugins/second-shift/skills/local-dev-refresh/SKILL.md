@@ -24,7 +24,9 @@ Hard rules:
   `claude plugin marketplace add manoldonev/second-shift@<ref>` — in-place replace, no
   uninstalls).
 - `claude plugin install` does NOT upgrade (it no-ops as "already installed") — the
-  upgrade verb is `claude plugin update`, and it touches USER scope only.
+  upgrade verb is `claude plugin update`. It takes `--scope`, but whether it moves a
+  project-scope record is unverified, so a project-scope record is realigned by uninstall
+  then install (Step 4), the same remedy `/second-shift:doctor` prints.
 - **A `main`-pinned registration goes stale mid-cycle, and `update` cannot fix it.** In a
   repo whose versions are derived at release time (second-shift itself), `plugin.json`
   versions move only when the release PR merges — so between releases main's *content*
@@ -60,7 +62,7 @@ For every `@second-shift` plugin id in the before-snapshot:
 
 ## Step 4 — Project-scope stragglers (current repo only)
 
-`update` leaves project-scope installs where they were. For each `@second-shift`
+Step 3 is not relied on to move a project-scope record. For each `@second-shift`
 before-snapshot entry with `scope == "project"` and `projectPath == <current repo root>`
 whose version still differs from the freshly-updated cache version, **first ask whether that
 record should exist at all**:
