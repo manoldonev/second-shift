@@ -114,7 +114,7 @@ const knowledgeBlock = String(knowledgeSource || '').trim()
   : ''
 
 // --- text contract: a sentinel + fenced json block, parsed here (#169 explorer/emitter) ---
-const parseResult = (text) => {
+const parseReviewResult = (text) => {
   const m = [...String(text ?? '').matchAll(/REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g)]
   if (!m.length) return null
   try {
@@ -161,7 +161,7 @@ const dispatch = async (prompt, valid, opts, retryModel) => {
     if (attempt === 0) first = model
     const label = attempt === 0 ? opts.label : `${opts.label} (retry${attempt > 1 ? ', same tier' : ''})`
     const text = await tryAgent(prompt, { ...opts, model, label })
-    const parsed = parseResult(text)
+    const parsed = parseReviewResult(text)
     if (parsed && valid(parsed)) return { result: parsed, model }
     if (text != null) events.push(`${label}: no parseable REVIEW_RESULT block`)
     if (text == null && attempt === 1) {

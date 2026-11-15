@@ -28,10 +28,10 @@ wrapper; `runtime-shim-selftest.mjs` (per-workflow ladder cases) is its consumer
 about to re-declare a production function inside a selftest, use the shim instead.
 
 **The mjs-seam grep exception, narrowed.** The shim executes Workflow-runtime `.mjs` files, so the
-sanction covers only what the shim cannot reach: static/textual properties of a file that is never
-executed on the path under test (review-toolkit's `scripts/intake-readroot-selftest.sh`'s `intake-review.mjs` seam
-pins; `null-reviewer-selftest.mjs`'s Case F token + emit-wiring counts, which guard a constant's
-*wiring* rather than its behavior). Behavior belongs on the shim.
+sanction covers only what the shim cannot reach: static/textual properties that executing the file
+does not show (review-toolkit's `null-reviewer-selftest.mjs` counts how many prompt branches each
+emit nudge is appended to, which guards a constant's *wiring* rather than its behavior). Behavior
+belongs on the shim.
 
 **Where a new test goes** (the tier map — full version in [`docs/testing.md`](../../../docs/testing.md)):
 

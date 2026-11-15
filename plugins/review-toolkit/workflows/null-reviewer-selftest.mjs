@@ -1,31 +1,10 @@
 #!/usr/bin/env node
-// null-reviewer-selftest.mjs — verifies the dark-reviewer contract (#168). It entered the
-// tree as the staged review contract; that stage was deleted in #348 and the
-// contract's live consumer is now review-lead's dispatch (`code-review.mjs`), unchanged.
+// Reads code-review.mjs as TEXT and pins what executing it cannot show: that the
+// dark-reviewer contract tokens are still in the file, and how many prompt branches each
+// emit nudge is appended to. The dispatch ladder's behavior is asserted by
+// runtime-shim-selftest.mjs, which executes the production body.
 //
-// Style note: like its sibling Workflow scripts (code-review.mjs, intake-review.mjs),
-// this file is NOT covered by the repo `format` script (which globs only
-// .{ts,tsx,js,json,md}), so it follows their hand-style: no semicolons, single quotes.
-//
-// WHAT THIS FILE COVERS (and what moved out of it, #214):
-//   It used to carry a REFERENCE HARNESS mirroring dispatchReviewer()'s retry semantics,
-//   on the premise that code-review.mjs could not be executed under node (top-level
-//   `return`, runtime-injected globals). The premise was wrong and the copy rotted: it
-//   modelled the pre-#169 StructuredOutput-retry transport — including a predicate
-//   (isNoStructuredOutputError) production no longer has — and stayed green throughout.
-//   A copy cannot fail on a production edit, which is the only failure worth catching.
-//
-//   Behavioral coverage of the real ladder now lives in runtime-shim-selftest.mjs, which
-//   strips the meta block and executes the ACTUAL code-review.mjs body with injected fakes.
-//
-//   What remains here is Case F alone — the structural drift-guard reading code-review.mjs
-//   as TEXT. Its load-bearing half is the WIRING COUNTS (PROGRESSIVE_EMIT appended to
-//   exactly 2 exhaustive branches, BOUNDED_EXPLORATION to exactly 1); this is the only guard
-//   on that wiring in the tree.
-//
-// Mirrors the conventions of a since-deleted suite (removed in #348;
-// the same conventions survive in every `*-selftest.sh` here): numbered cases, pass/fail
-// counters, exit code = number of failed cases (0 = all pass).
+// Exit code = number of failed cases.
 //
 // Run: node plugins/review-toolkit/workflows/null-reviewer-selftest.mjs
 
@@ -46,90 +25,45 @@ const fail = (m) => {
   console.log(`  FAIL: ${m}`)
   FAIL++
 }
-const eq = (label, got, want) => {
-  const g = JSON.stringify(got)
-  const w = JSON.stringify(want)
-  g === w ? pass(label) : fail(`${label} — got ${g}, want ${w}`)
-}
-// Like eq(), but asserts `str` matches `regex` — keeps the pass/fail format uniform
-// for the one case (C4) that checks a substring rather than deep equality.
-const matches = (label, str, regex) => {
-  regex.test(String(str)) ? pass(label) : fail(`${label} — ${JSON.stringify(str)} did not match ${regex}`)
-}
 
 async function main() {
-  // ---- Case F: structural drift-guard against the production code-review.mjs ----
-  // The reference harness above is only trustworthy if production still carries the
-  // same load-bearing behavior. Assert the stable tokens are present (NOT whitespace
-  // or the cosmetic retry label, per the #168 plan-review warning).
-  {
-    let src = ''
-    try {
-      src = readFileSync(CODE_REVIEW_MJS, 'utf8')
-    } catch (e) {
-      fail(`F0 could not read code-review.mjs at ${CODE_REVIEW_MJS}: ${e}`)
-    }
-    // #169: the transport converted to explorer/emitter — the old StructuredOutput retry
-    // predicate is retired; the contract tokens below are its replacements. The reference
-    // harness above still models the DARK-MARKER CONTRACT (result/error/retried/failed/
-    // ceiling shapes), which is transport-independent and unchanged; the transport itself
-    // is guarded by the stall probe.
-    // parseReviewResult / REVIEW_RESULT are covered stronger by text-contract-selftest.sh, which
-    // byte-locksteps AND executes the extracted production copies; the three-dot range token is
-    // guarded by diff-range-selftest.sh Cases C-F (backtick-free token + a two-dot ABSENCE check
-    // that also catches a partial fix). Duplicating them here is maintenance, not detection.
-    const tokens = [
-      ['structured-emitter', 'tool-less schema sink — the only schema carrier (#169)'],
-      ['retried: true', 'twice-dead flag — synthesis must not mistake a dead reviewer for "no findings"'],
-      ['failed: true', 'twice-dead flag'],
-      ['budgetExhausted: true', 'all-or-nothing budget-skip dark-reviewer marker (#168)'],
-      ['REVIEWER_CEILING_MS', 'per-reviewer wall-clock ceiling constant (#219) — the wedge bound'],
-      ['ceiling: true', 'ceiling-timeout diagnostic flag (#219) on the reused died-after-retry marker'],
-      ['PROGRESSIVE_EMIT', 'emit-as-you-go nudge for the exhaustive reviewers (#183) — the turn-cap cure'],
-      ['turn-budget:', 'cap-death error string, kept distinct from the text-contract miss (#183)'],
-      ['ESCALATED_EMIT', 'escalating-retry nudge (#855) — without it the retry is bit-identical and reproduces the cap death'],
-    ]
-    for (const [tok, why] of tokens) {
-      src.includes(tok)
-        ? pass(`F drift-guard: code-review.mjs carries \`${tok}\` (${why})`)
-        : fail(`F drift-guard: code-review.mjs is MISSING \`${tok}\` (${why}) — production lost the behavior this selftest validates`)
-    }
-
-    // F-wiring: a constant that exists but reaches no prompt is a known rot ("shipped on
-    // exactly one of six dispatchers and the omission went unnoticed for months") — pin
-    // PROGRESSIVE_EMIT's wiring here.
-    // Count APPENDS (`+\n      PROGRESSIVE_EMIT`), not mentions: the definition and the
-    // explanatory comments also contain the bare name, so a mention count cannot tell a
-    // wired constant from a dead one.
-    const appends = (src.match(/\+\s*\n\s*PROGRESSIVE_EMIT\b/g) || []).length
-    appends === 2
-      ? pass('F wiring: PROGRESSIVE_EMIT is appended to exactly the 2 exhaustive prompt branches')
-      : fail(`F wiring: PROGRESSIVE_EMIT is appended to ${appends} prompt branch(es), expected 2 (scope-completeness + unit-test-mutation)`)
-
-    // The bounded/progressive split must stay disjoint: an exhaustive reviewer that also
-    // got BOUNDED_EXPLORATION would be told to skip the exhaustive enumeration that IS
-    // its deliverable — the failure mode the exemption exists to prevent.
-    const boundedAppends = (src.match(/\+\s*\n\s*BOUNDED_EXPLORATION\b/g) || []).length
-    boundedAppends === 1
-      ? pass('F wiring: BOUNDED_EXPLORATION stays on exactly the 1 generic branch')
-      : fail(`F wiring: BOUNDED_EXPLORATION is appended to ${boundedAppends} branch(es), expected 1 (generic only)`)
-
-    // ESCALATED_EMIT is wired at the DISPATCH, not at a prompt branch: it applies to whichever
-    // reviewer died, so it cannot be counted the way the two branch nudges are. What must hold is
-    // that it is conditional on the previous attempt having written NOTHING — appending it to
-    // every retry would cut short a parse-miss agent that was recoverable, and appending it to
-    // attempt 0 would bound every review by 8 tool calls. Both regressions read as a passing
-    // review round, so nothing else would catch them.
-    const escalateGated = /escalate\s*=\s*attempt\s*>\s*0\s*&&\s*!String\(lastText/.test(src)
-    escalateGated
-      ? pass('F wiring: ESCALATED_EMIT is gated on attempt > 0 AND empty previous text')
-      : fail('F wiring: ESCALATED_EMIT is no longer gated on (attempt > 0 && previous text empty) — a parse-miss retry would be told to stop exploring, or attempt 0 would be bounded at 8 tool calls')
-
-    const escalateWired = /agent\(prompt \+ \(escalate \? ESCALATED_EMIT : ''\) \+ FINDINGS_EPILOGUE/.test(src)
-    escalateWired
-      ? pass('F wiring: ESCALATED_EMIT reaches the dispatch prompt')
-      : fail('F wiring: ESCALATED_EMIT is defined but no longer reaches agent() — the retry is bit-identical again (#855)')
+  let src = ''
+  try {
+    src = readFileSync(CODE_REVIEW_MJS, 'utf8')
+  } catch (e) {
+    fail(`F0 could not read code-review.mjs at ${CODE_REVIEW_MJS}: ${e}`)
   }
+  const tokens = [
+    ['structured-emitter', 'tool-less schema sink — the only schema carrier'],
+    ['retried: true', 'twice-dead flag — synthesis must not mistake a dead reviewer for "no findings"'],
+    ['failed: true', 'twice-dead flag'],
+    ['budgetExhausted: true', 'all-or-nothing budget-skip dark-reviewer marker'],
+    ['REVIEWER_CEILING_MS', 'per-reviewer wall-clock ceiling constant — the wedge bound'],
+    ['ceiling: true', 'ceiling-timeout diagnostic flag on the reused died-after-retry marker'],
+    ['PROGRESSIVE_EMIT', 'emit-as-you-go nudge for the exhaustive reviewers — the turn-cap cure'],
+    ['turn-budget:', 'cap-death error string, kept distinct from the text-contract miss'],
+    ['ESCALATED_EMIT', 'escalating-retry nudge — without it the retry is bit-identical and reproduces the cap death'],
+  ]
+  for (const [tok, why] of tokens) {
+    src.includes(tok)
+      ? pass(`F drift-guard: code-review.mjs carries \`${tok}\` (${why})`)
+      : fail(`F drift-guard: code-review.mjs is MISSING \`${tok}\` (${why})`)
+  }
+
+  // Count APPENDS (`+\n      PROGRESSIVE_EMIT`), not mentions: the definition and the
+  // explanatory comments also contain the bare name, so a mention count cannot tell a
+  // wired constant from a dead one.
+  const appends = (src.match(/\+\s*\n\s*PROGRESSIVE_EMIT\b/g) || []).length
+  appends === 2
+    ? pass('F wiring: PROGRESSIVE_EMIT is appended to exactly the 2 exhaustive prompt branches')
+    : fail(`F wiring: PROGRESSIVE_EMIT is appended to ${appends} prompt branch(es), expected 2 (scope-completeness + unit-test-mutation)`)
+
+  // The split must stay disjoint: an exhaustive reviewer that also got BOUNDED_EXPLORATION
+  // would be told to skip the enumeration that is its deliverable.
+  const boundedAppends = (src.match(/\+\s*\n\s*BOUNDED_EXPLORATION\b/g) || []).length
+  boundedAppends === 1
+    ? pass('F wiring: BOUNDED_EXPLORATION stays on exactly the 1 generic branch')
+    : fail(`F wiring: BOUNDED_EXPLORATION is appended to ${boundedAppends} branch(es), expected 1 (generic only)`)
 
   console.log(`\n[null-reviewer-selftest] ${PASS} passed, ${FAIL} failed`)
   process.exit(FAIL)

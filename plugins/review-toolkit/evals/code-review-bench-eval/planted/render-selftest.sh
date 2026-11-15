@@ -57,7 +57,7 @@ mkcase() { # mkcase <id> <fix branch>
 }
 mkcase abc123 tested
 mkcase def456 untested
-leaks() { grep -Eiw 'plant|plants|planted|planting|ground.truth|answer.key|corpus|seeded|injected' "$@"; grep -iF "$DESC" "$@"; grep -F "$R" "$@"; }
+leaks() { local hit=1; grep -Eiw 'plant|plants|planted|planting|ground.truth|answer.key|corpus|seeded|injected' "$@" && hit=0; grep -iF "$DESC" "$@" && hit=0; grep -F "$R" "$@" && hit=0; return "$hit"; }
 
 if [ -n "$HAVE_LANE" ]; then
 echo "== the lane arm =="
@@ -89,6 +89,9 @@ policy="$(awk '/^### Review policy edited/{getline; print; exit}' "$P")"
 grep -qF 'Bash(gh issue view*)' "$T/lane/state/review.allow" && ok "the allowlist is review_allowlist()'s" || bad "allow: $(cat "$T/lane/state/review.allow")"
 cmp -s "$T/lane/scratch/record-at-first.md" "$R/cases/abc123/record.md" && ok "the record at its first commit is in the scratch dir" || bad "record-at-first.md differs"
 git -C "$CO" log -p > "$T/lane-log.txt"
+grep -qxE "Your \`reviewed-by:\` line is exactly 'reviewed-by: second-shift run [0-9]{8}T[0-9]{6}Z-[0-9]+'\." "$P" && ok "the reviewed-by line names a run id in run.sh's form" || bad "reviewed-by line: $(grep -F 'reviewed-by:' "$P" | head -n 1)"
+py verify --case abc123 --dest "$T/verify-lane" --clones "$T/clones" > "$T/verify-lane.out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ! grep -q 'carries a marker' "$T/verify-lane.out" && ok "verify's marker scan passes both rendered prompts of a case that goes to review" || bad "verify abc123: rc=$rc $(grep 'carries a marker' "$T/verify-lane.out" | tr '\n' '|')"
 if leaks "$P" "$T/lane-log.txt" "$T/lane/gh/issue.json" "$T/lane/gh/pr.json" > "$T/lane-leaks.txt"; then bad "a marker in the lane arm: $(head -n 3 "$T/lane-leaks.txt")"; else ok "no marker in the lane's prompt, commits, diff, ticket or PR"; fi
 
 echo "== the joined arm =="
@@ -105,6 +108,8 @@ grep -q '^You are acting as a reviewer' "$PJ" && grep -qxF '# Sum subtracts' "$P
   && grep -qF "saved to \`$T/joined/plain/scratch/verdict.md\`" "$PJ" && ok "the plain prompt is run.sh's plain-review.md: the ticket, the diff without the record, and its draft path" || bad "plain prompt: $(head -c 400 "$PJ")"
 grep -qx 'Read,Grep,Glob' "$J/plain.args" && grep -qx -- --strict-mcp-config "$J/plain.args" && grep -q ',Agent,Bash,' "$J/plain.args" \
   && ok "the plain session's flags are run.sh's plain_args" || bad "plain args: $(tr '\n' ' ' < "$J/plain.args")"
+
+if leaks "$J/review.prompt" "$PJ" > "$T/joined-leaks.txt"; then bad "a marker in the joined arm: $(head -n 3 "$T/joined-leaks.txt")"; else ok "no marker in the joined arm's lane prompt or its plain prompt"; fi
 
 echo "== the local gh =="
 lgh() { (cd "$CO" && env PATH="$T/lane/bin:$PATH" GH_LOCAL_DIR="$T/lane/gh" gh "$@"); }
@@ -207,7 +212,7 @@ if [ -n "$HAVE_LANE" ]; then
 echo "== a runner case, with a fake npm and a fake jest-json runner =="
 J="$T/acme/calc"; mkdir -p "$J/src"
 printf 'sum() { echo $(( $1 - $2 )); }\n' > "$J/src/sum.sh"
-printf '{"name": "calc", "devDependencies": {"fakejest": "1.0.0"}}\n' > "$J/package.json"
+printf '{"name": "calc", "scripts": {"test": "bash test/sum.test.sh"}, "devDependencies": {"fakejest": "1.0.0"}}\n' > "$J/package.json"
 g -C "$J" init -q && g -C "$J" add -A && g -C "$J" commit -qm "initial import"
 g -C "$J" config uploadpack.allowAnySHA1InWant true
 JBASE="$(git -C "$J" rev-parse HEAD)"
@@ -245,9 +250,10 @@ echo "$PWD $*" >> "$FAKE_NPM_LOG"
 mkdir -p node_modules/fakejest && cp "$FAKE_JEST" node_modules/fakejest/jest.py
 EOF
 chmod +x "$T/npmbin/npm"
-for ov in acme__calc acme__calc-noreport; do mkdir -p "$R/overlays/$ov"; printf '# Review context\n\nShell functions print their result on stdout.\n' > "$R/overlays/$ov/review-context.md"; done
-printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"calc": {"test": "bash test/sum.test.sh", "testRunners": [{"when": ["test/*.test.sh"], "command": "python3 node_modules/fakejest/jest.py {report} {files}", "format": "jest-json"}]}}}\n' > "$R/overlays/acme__calc/config.json"
+for ov in acme__calc acme__calc-noreport acme__calc-noscript; do mkdir -p "$R/overlays/$ov"; printf '# Review context\n\nShell functions print their result on stdout.\n' > "$R/overlays/$ov/review-context.md"; done
+printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"calc": {"test": "npm test", "testRunners": [{"when": ["test/*.test.sh"], "command": "python3 node_modules/fakejest/jest.py {report} {files}", "format": "jest-json"}]}}}\n' > "$R/overlays/acme__calc/config.json"
 printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"calc": {"test": "bash test/sum.test.sh", "testRunners": [{"when": ["test/*.test.sh"], "command": "python3 node_modules/fakejest/jest.py %s/elsewhere.json {files}", "format": "jest-json"}]}}}\n' "$T" > "$R/overlays/acme__calc-noreport/config.json"
+printf '{"configVersion": 3, "tracker": {"type": "github"}, "commands": {"calc": {"test": "npm run test:unit", "testRunners": [{"when": ["test/*.test.sh"], "command": "python3 node_modules/fakejest/jest.py {report} {files}", "format": "jest-json"}]}}}\n' > "$R/overlays/acme__calc-noscript/config.json"
 mkrunner() { # mkrunner <id> <fix branch> <overlay>
   local d="$R/cases/$1"; mkdir -p "$d"
   printf '{"upstream": "file://%s", "instance": "acme__calc-42", "license": "MIT", "base": "%s", "base_branch": "main", "overlay": "%s", "issue": 41, "pr": 42, "commit": "fix: sum adds its arguments", "expect_stop": "fails_without_change", "truth": {"class": "P1", "description": "%s", "locations": [{"file": "test/sum.test.sh", "start": 1, "end": 1, "side": "head"}]}}\n' "$J" "$JBASE" "$3" "$DESC" > "$d/case.json"
@@ -279,6 +285,11 @@ vfy nor444; rc=$?
   && ok "npm install ran once for the four cases on one base, both arms each, with its result kept beside the bare clones" || bad "npm calls: $({ tr '\n' '|' < "$FAKE_NPM_LOG"; } 2>&1)"
 [ -z "$(git -C "$T/verify-vac111/vac111/plain/checkout" status --porcelain)" ] && [ -f "$T/verify-vac111/vac111/plain/checkout/node_modules/fakejest/jest.py" ] \
   && ok "each checkout holds the installed node_modules, and git does not list them" || bad "plain checkout: $(git -C "$T/verify-vac111/vac111/plain/checkout" status --porcelain | head -n 3 | tr '\n' '|')"
+mkrunner scr555 vacuous acme__calc-noscript
+vfy scr555; rc=$?
+[ "$rc" -eq 1 ] && grep -qx "commands.calc.test is 'npm run test:unit', but the base $JBASE's package.json defines no script 'test:unit'" "$T/verify-scr555.out" \
+  && grep -qx 'expected stop fails_without_change: met' "$T/verify-scr555.out" \
+  && ok "verify fails a case whose overlay names a test script the base's package.json does not define" || bad "scr555: rc=$rc $(tail -n 5 "$T/verify-scr555.out" | tr '\n' '|')"
 FAKE_NPM_EMPTY=1 PATH="$T/npmbin:$PATH" py render --case vac111 --arm lane --dest "$T/empty" --clones "$T/eclones" > "$T/empty.out" 2>&1; rc=$?
 [ "$rc" -ne 0 ] && grep -q "vac111: the runner needs node_modules/fakejest/jest.py, which the install at .* did not provide" "$T/empty.out" \
   && ok "an install that leaves no runner binary fails the build, naming the binary" || bad "empty install: rc=$rc $(tail -n 3 "$T/empty.out" | tr '\n' '|')"

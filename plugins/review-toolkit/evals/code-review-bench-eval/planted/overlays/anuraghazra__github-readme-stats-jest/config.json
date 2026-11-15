@@ -10,7 +10,7 @@
       "testRunners": [
         {
           "when": ["tests/*.test.js"],
-          "command": "node --experimental-vm-modules node_modules/jest/bin/jest.js --ci --json --outputFile={report} --runTestsByPath {files}",
+          "command": "node --experimental-vm-modules node_modules/jest/bin/jest.js --ci --json --outputFile={report} --runTestsByPath --bail=0 {files}",
           "format": "jest-json",
           "timeoutSeconds": 300
         }

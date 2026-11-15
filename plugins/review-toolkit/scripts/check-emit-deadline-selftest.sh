@@ -177,11 +177,11 @@ rc=$(run_check_env "some-other-agent" "$d" "$TMP/.a13")
   || bad "A13 expected rc=0, got $rc ($(cat "$TMP/.a13"))"
 
 # A14: enrollment matches the agent name EXACTLY, never as a substring. `plan-reviewer`
-# is a substring of both `unit-test-plan-reviewer` (cap 15, no deadline) and
-# `figma-faithful-plan-reviewer`, so a substring implementation would sweep in agents
-# nobody enrolled and turn the live tree (B1) red.
+# is a substring of `figma-faithful-plan-reviewer` and `design-faithful-plan-reviewer`,
+# so a substring implementation would sweep in agents nobody enrolled and turn the live
+# tree (B1) red.
 d="$TMP/a14/agents"
-write_agent "$d" "unit-test-plan-reviewer" "maxTurns: 15" "No deadline; not enrolled."
+write_agent "$d" "figma-faithful-plan-reviewer" "maxTurns: 15" "No deadline; not enrolled."
 rc=$(run_check_env "plan-reviewer" "$d" "$TMP/.a14")
 [ "$rc" -eq 0 ] && ok "A14 enrollment matches whole agent names, not substrings" \
   || bad "A14 expected rc=0 (substring sweep), got $rc ($(cat "$TMP/.a14"))"

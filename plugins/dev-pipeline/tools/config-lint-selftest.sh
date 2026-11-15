@@ -196,6 +196,9 @@ expect_violation invalid-removed-reviewers-default.json "Delete the key (docs/mi
 expect_no_violation invalid-removed-reviewers-default.json "reviewers: unknown keys"
 expect_violation invalid-removed-reviewers-default-empty.json "reviewers.default was removed"
 expect_no_violation invalid-removed-reviewers-default-empty.json "reviewers: unknown keys"
+expect_violation invalid-removed-pipelinestatedir.json "paths.pipelineStateDir was removed"
+expect_violation invalid-removed-pipelinestatedir.json "Delete the key (docs/migrations/v2-to-v3.md)"
+expect_no_violation invalid-removed-pipelinestatedir.json "paths: unknown keys"
 
 # --- the config-lint type-check gaps. One packed fixture, one assertion per mutant class it
 # must KILL.

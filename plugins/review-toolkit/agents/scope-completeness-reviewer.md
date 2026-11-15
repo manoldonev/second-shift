@@ -99,7 +99,7 @@ Read changed file paths and a short excerpt of the diff for each meaningfully-ch
 
 ### Step 3b: Score the decision record (only when a decision record path was passed)
 
-Its **intent rows** are the `| D-n |` rows whose Provenance cell reads `user-answered` or `user-delegated` — the operator's answers. Other rows are not scored. No intent rows → skip this step. Score every intent row, all of them and no others, cold against the diff, with a `file:line`:
+Its **intent rows** are the `| D-n |` rows whose Kind cell reads `intent` — the operator's answers, whether the Provenance cell reads `user-answered`, `user-delegated` or `ticket-sourced` (an answer given in a cited ticket comment). A row with no Kind cell is an intent row when its Provenance cell reads one of those three. Other rows are not scored: a `ticket-sourced` row whose Kind reads `fact` is not an intent row. No intent rows → skip this step. Score every intent row, all of them and no others, cold against the diff, with a `file:line`:
 
 - `honored` — the code does what the row's Resolution says.
 - `violated` — it does not, and the row was not edited on this branch. A departure the build did not write into the record is `violated`, never `departed`.

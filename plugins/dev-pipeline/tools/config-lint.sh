@@ -306,9 +306,9 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
 
   # ---- paths / run / design ------------------------------------------------
   + (.paths | group("paths";
-      err(((keys) - ["plansDir","pipelineStateDir","runtimeData"]) != []; "paths: unknown keys")
+      err(has("pipelineStateDir"); "paths.pipelineStateDir was removed — the intake receipt and the run logs always live in .claude/pipeline-state. Delete the key " + $v3doc)
+      + err(((keys) - ["plansDir","pipelineStateDir","runtimeData"]) != []; "paths: unknown keys")
       + err((.plansDir != null) and ((.plansDir | type) != "string"); "paths.plansDir: must be string")
-      + err((.pipelineStateDir != null) and ((.pipelineStateDir | type) != "string"); "paths.pipelineStateDir: must be string")
       + err((.runtimeData != null) and ((.runtimeData | type) != "array"); "paths.runtimeData: must be array")
       + ((.runtimeData // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["paths.runtimeData: every entry must be a string"] else [] end) else [] end)
     ))

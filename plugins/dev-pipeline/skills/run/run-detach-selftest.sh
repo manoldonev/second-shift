@@ -20,8 +20,13 @@ OUT="$( cd "$d/main" && bash "$RUN" 42 --record /tmp/x.md 2>&1 )"; TERM_SLUG="$(
 OUT="$( cd "$d/main" && bash "$RUN" 42 --max-continuations 3 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; expect usage-max-continuations "[A10] the retired --max-continuations is named, not 'unknown option'"; [ "$RC" -eq 2 ] && ok "[A10] exit 2" || bad "[A10] exit $RC"
 
 # A18: --detach with an uncreatable log dir refuses before detaching
-FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans","pipelineStateDir":"blocker/state"}}' fixture rb; : > "$d/main/blocker"
+fixture rb; rm -rf "$d/main/.claude/pipeline-state"; : > "$d/main/.claude/pipeline-state"
 run_case "$d" --detach; expect env-detach-log-dir "[A18] --detach cannot create its log dir"; [ "$RC" -eq 2 ] && ok "[A18] exit 2" || bad "[A18] exit $RC"
+
+# The state directory is fixed: a config that still carries paths.pipelineStateDir does not move where the receipt is read
+FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans","pipelineStateDir":"elsewhere/state"}}' fixture rpsd
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "a retired paths.pipelineStateDir is ignored: the receipt is read from .claude/pipeline-state"
 
 # A17: --detach with no perl on PATH
 mkdir -p "$T/noperl"; for b in /bin/* /usr/bin/*; do case "$(basename "$b")" in perl*) ;; *) ln -sf "$b" "$T/noperl/$(basename "$b")" ;; esac; done

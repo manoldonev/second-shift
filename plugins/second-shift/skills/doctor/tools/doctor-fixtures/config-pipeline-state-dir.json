@@ -1,0 +1,6 @@
+{
+  "configVersion": 3,
+  "tracker": { "type": "jira" },
+  "commands": { "app": { "lint": "yarn lint", "test": "yarn test" } },
+  "paths": { "pipelineStateDir": ".claude/pipeline-state" }
+}
