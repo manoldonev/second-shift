@@ -14,7 +14,7 @@
 # marketplace CI release-pr-gates job, over git history, after the pipeline is done.
 # There is no verdict path to compose it onto.
 #
-# SCOPE (issue #215 decision D-1): this suite does NOT change the gate. Several of
+# SCOPE: this suite does NOT change the gate. Several of
 # its error branches degrade to PASS by design; each is pinned here as CHARACTERIZED
 # behavior with the masked risk named, so a future refactor that alters the
 # degradation turns a case red and gets a deliberate look. "Red case" here means
@@ -162,7 +162,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# CHARACTERIZED DEGRADATIONS (#215 D-1: pinned, not blessed).
+# CHARACTERIZED DEGRADATIONS (pinned, not blessed).
 # Each of these PASSES today while masking a real condition. The assertions lock
 # the current behavior so a change to it is visible in the diff, and each names
 # what stays masked.

@@ -145,10 +145,10 @@ An opt-in axis, off unless the key is present:
 
 `figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful skills and requires DesignSync. With it set, every ticket's intake record must declare its screens (`## Design frames`) or disarm with a reason, or the run refuses. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4. To let the scheduler smoke each declared route and the sessions render what they built, add the `design.liveRender` block — see [`live-render.md`](live-render.md).
 
-### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6) — **RETIRED (#569)**
+### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6) — **RETIRED**
 
-> **Historical record — retired in #569. The config key does not exist.** This extension point
-> was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
+> **Historical record — retired. The config key does not exist.** This extension point
+> was dispatched by the staged lane, since deleted; the key was removed from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
 > shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
 > gates and delegate seams at all, and what would dispatch them on the pipeline, is an open
@@ -159,12 +159,12 @@ An opt-in axis, off unless the key is present:
 > Keeping the key instead was considered and rejected. A dead-but-legal key **silently disarms**
 > what a consumer registered: they upgrade, see no error, and believe their gate still runs. A
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
-> removing one is breaking — so the retirement happened in the window #348 already opened.
+> removing one is breaking — so the retirement happened in the window that deletion already opened.
 
 The need it answered: something heavier than a verify command — a real workflow that ran at a chosen stage and blocked completion. A schema-compatibility gate before implementation, a codegen-drift check, a license scan. (For that need today, reach for `extraLanes` (§3.2): it is a blocking check the scheduler runs after every build.)
 
 ```jsonc
-// NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
+// NOT VALID CONFIG — config-lint rejects this key by name. Shown as designed.
 {
   "stageWorkflows": [
     { "stage": 5, "name": "schema-compat", "workflow": "acme-platform:workflows/schema-compat.mjs" },
@@ -175,10 +175,10 @@ The need it answered: something heavier than a verify command — a real workflo
 
 The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4) or a repo-relative path. As designed, it was dispatched **after** the named stage's built-in sub-steps and **before** that stage's completion write, as a blocking sub-step — no advisory field, because advisory gates don't exist here. The result was recorded under `stageCheckpoint[N].extWorkflows[<name>]`; a failure produced the stage's standard fail-fast write with reason **`ext-workflow-failed`** (your name in the detail field), and the workflow could write state **only** via the staged lane's checkpoint payloads namespaced `ext:` — adding evidence, never reinterpreting what the pipeline had recorded. Two things are still true today: registration lives in *consumer config* (auditable, per-repo) rather than the plugin manifest, and an unresolvable reference is a config-lint failure.
 
-### 3.7 `implementDelegates` — route implementation work to a specialist (EP-7) — **RETIRED (#569)**
+### 3.7 `implementDelegates` — route implementation work to a specialist (EP-7) — **RETIRED**
 
-> **Historical record — retired in #569. The config key does not exist.** This extension point
-> was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
+> **Historical record — retired. The config key does not exist.** This extension point
+> was dispatched by the staged lane, since deleted; the key was removed from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
 > shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
 > gates and delegate seams at all, and what would dispatch them on the pipeline, is an open
@@ -189,12 +189,12 @@ The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4
 > Keeping the key instead was considered and rejected. A dead-but-legal key **silently disarms**
 > what a consumer registered: they upgrade, see no error, and believe their gate still runs. A
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
-> removing one is breaking — so the retirement happened in the window #348 already opened.
+> removing one is breaking — so the retirement happened in the window that deletion already opened.
 
 The need it answered: certain implementation work done by a specialist agent instead of the inline implementer — a migrations specialist for schema changes, a codegen agent for a generated surface. (The pipeline is outcome-gated and silent on *how* a diff is produced, so a build session may still dispatch such an agent by choice. What has no home on the lane is the declared, config-routed, pre-flight-validated form.)
 
 ```jsonc
-// NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
+// NOT VALID CONFIG — config-lint rejects this key by name. Shown as designed.
 {
   "implementDelegates": [
     { "surface": "db/migrations/**", "agent": "acme-platform:migration-writer" },
@@ -203,12 +203,12 @@ The need it answered: certain implementation work done by a specialist agent ins
 }
 ```
 
-`surface` was a path glob or the reserved key `unit`; matching work items routed to the delegate. The delegate's output then passed through the **unchanged** scope-enforcement gate and every downstream gate — it *added work* (a different author) and *waived nothing*. `agent` was `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name, and an unresolvable one failed closed at pre-flight. That pre-flight arm went with the key in #569: `check-extensions.sh` had been enforcing referential integrity on behalf of a dispatcher that no longer existed, which could only ever block a run, never protect one.
+`surface` was a path glob or the reserved key `unit`; matching work items routed to the delegate. The delegate's output then passed through the **unchanged** scope-enforcement gate and every downstream gate — it *added work* (a different author) and *waived nothing*. `agent` was `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name, and an unresolvable one failed closed at pre-flight. That pre-flight arm went with the key: `check-extensions.sh` had been enforcing referential integrity on behalf of a dispatcher that no longer existed, which could only ever block a run, never protect one.
 
-### 3.8 `planGates` — a blocking plan-review gate (EP-8) — **RETIRED (#569)**
+### 3.8 `planGates` — a blocking plan-review gate (EP-8) — **RETIRED**
 
-> **Historical record — retired in #569. The config key does not exist.** This extension point
-> was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
+> **Historical record — retired. The config key does not exist.** This extension point
+> was dispatched by the staged lane, since deleted; the key was removed from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
 > shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
 > gates and delegate seams at all, and what would dispatch them on the pipeline, is an open
@@ -219,12 +219,12 @@ The need it answered: certain implementation work done by a specialist agent ins
 > Keeping the key instead was considered and rejected. A dead-but-legal key **silently disarms**
 > what a consumer registered: they upgrade, see no error, and believe their gate still runs. A
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
-> removing one is breaking — so the retirement happened in the window #348 already opened.
+> removing one is breaking — so the retirement happened in the window that deletion already opened.
 
 The need it answered: an extra reviewer of the *plan itself* — a QA-tier review of the test strategy for a surface, an ADR-compliance check — able to block a bad plan before any code was written. The pipeline has no plan gate for one to be additive to; the intake record is judged by the review session, after the diff exists.
 
 ```jsonc
-// NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
+// NOT VALID CONFIG — config-lint rejects this key by name. Shown as designed.
 {
   "planGates": [
     { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }

@@ -11,7 +11,7 @@
 // contract, and every CI run exercises it through both callers:
 //   - workflows/runtime-shim-selftest.mjs — the per-workflow dispatch-ladder cases
 //
-// WHY THE SHIM EXISTS (#214, epic #213)
+// WHY THE SHIM EXISTS
 // -------------------------------------
 // Workflow bodies carry a top-level `return` and reference runtime-injected globals, so
 // `node file.mjs` and even `node --check` both fail. That made grep-on-source look like
@@ -64,9 +64,9 @@ export const stripMeta = (src) => {
 // positional call site (args would arrive as log), and the cases would then fail for
 // reasons that look like production bugs rather than a harness edit.
 //
-// `workflow` was added for nested dispatch (#217): the runtime injects it into every
+// `workflow` was added for nested dispatch: the runtime injects it into every
 // body, and workflows that nested a child dispatch through it (mutation-gate.mjs:101,
-// until #574 retired that engine) died with a ReferenceError under a 7-parameter
+// until that engine was retired) died with a ReferenceError under a 7-parameter
 // wrapper. No shipped workflow invokes it today; the parameter stays because it mirrors
 // the runtime's injection set — dropping it would re-break the next nested dispatcher
 // the moment one ships. Callers that drive a workflow which never calls it simply omit
@@ -92,7 +92,7 @@ export const makeRunner = (path) => {
 // object.
 //
 // The string-vs-object distinction models the runtime faithfully and is load-bearing:
-// a schema-FREE dispatch (every explorer, post-#169) resolves to TEXT that production
+// a schema-FREE dispatch (every explorer) resolves to TEXT that production
 // parses itself, while a schema-carrying dispatch (only ever the structured-emitter)
 // resolves to an already-VALIDATED OBJECT. Feeding a text block to the emitter leg would
 // make production's validateShape reject a string and the case would fail for the wrong
@@ -110,7 +110,7 @@ export const makeFakeAgent = (behaviors) => {
 }
 
 // Build the REVIEW_RESULT sentinel + fenced-JSON block that every schema-free explorer
-// emits and every production carrier parses (#169). ONE definition of the wire shape:
+// emits and every production carrier parses. ONE definition of the wire shape:
 // the sentinel and the fence are load-bearing (production's parseReviewResult regex keys
 // on them), so a suite that spells them out per call site would let a format change pass
 // unnoticed in whichever copy nobody updated.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # gh-bot.sh — single resolver + passthrough for the GitHub App bot wrapper.
 #
-# Three modes over one ladder (issue #92):
+# Three modes over one ladder:
 #   gh-bot.sh <args…>   resolve, then exec the wrapper with <args…>
 #   gh-bot.sh --path    print the resolved wrapper path; exit 0 only when status=ok
 #                       (still prints the path on missing-file / not-executable so

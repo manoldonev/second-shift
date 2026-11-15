@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# derive-release-selftest.sh — proves scripts/derive-release.sh + the two PR-time gates (#119).
+# derive-release-selftest.sh — proves scripts/derive-release.sh + the two PR-time gates.
 #
 # Builds a throwaway git repo fixture (two plugins, a v1.0.0 tag, a curated commit series)
-# and asserts: changed-plugin derivation from paths (AC-2), bump levels from conventional
-# commit types incl. BREAKING (AC-2/AC-4), CHANGELOG rendering shape (AC-3), grep-anywhere
-# trailer extraction incl. mid-body blocks and 'Changelog: none' (AC-4), release-commit
-# exclusion, the cutover max rule + in-progress-section absorption without double-counting
-# (AC-8), apply-mode idempotency, version-field shape for consumers (AC-7), the What-breaks
-# assembly incl. "Nothing breaks." (AC-8), and both PR gates in pass and fail directions
-# (AC-1, AC-5). bash-3.2-safe; runs in CI via the '*-selftest.sh' discovery loop.
+# and asserts: changed-plugin derivation from paths, bump levels from conventional
+# commit types incl. BREAKING, CHANGELOG rendering shape, grep-anywhere
+# trailer extraction incl. mid-body blocks and 'Changelog: none', release-commit
+# exclusion, the cutover max rule + in-progress-section absorption without double-counting,
+# apply-mode idempotency, version-field shape for consumers, the What-breaks
+# assembly incl. "Nothing breaks.", and both PR gates in pass and fail directions.
+# bash-3.2-safe; runs in CI via the '*-selftest.sh' discovery loop.
 #
 # shellcheck disable=SC2016  # single-quoted needles carry literal markdown backticks
 set -uo pipefail
@@ -70,7 +70,7 @@ git tag stable
 
 # --- commit series since the tag ---
 
-# C1: fix on alpha, mid-body trailer with indented continuation, NOT the final paragraph (AC-4).
+# C1: fix on alpha, mid-body trailer with indented continuation, NOT the final paragraph.
 echo a >> "plugins/alpha/f.txt"
 git add -A
 git commit -qm "fix(alpha): guard the flux capacitor (#10)" -m "Changelog: flux capacitor no longer explodes.
@@ -78,13 +78,13 @@ git commit -qm "fix(alpha): guard the flux capacitor (#10)" -m "Changelog: flux 
 
 docs(pipeline): plan for #10 — trailing squash noise paragraph"
 
-# C2: feat touching BOTH plugins in one commit (AC-2 path derivation, no scope parsing).
+# C2: feat touching BOTH plugins in one commit (path derivation, no scope parsing).
 echo b >> "plugins/alpha/g.txt"
 echo b >> "plugins/beta/g.txt"
 git add -A
 git commit -qm "feat: shared surface across alpha and beta (#11)" -m "Changelog: none"
 
-# C3: breaking on beta via BREAKING CHANGE body (AC-4 major + note).
+# C3: breaking on beta via BREAKING CHANGE body (major + note).
 echo c >> "plugins/beta/h.txt"
 git add -A
 git commit -qm "feat(beta): rework config lanes (#12)" -m "BREAKING CHANGE: lanes[] entries must be objects now.
@@ -92,7 +92,7 @@ git commit -qm "feat(beta): rework config lanes (#12)" -m "BREAKING CHANGE: lane
 Changelog: lanes[] string shorthand removed.
   Migration: rewrite [\"npm ci\"] as [{\"name\":\"install\",\"commands\":[\"npm ci\"]}]."
 
-# C4: no trailer at all on alpha (AC-4 bare bullet + flagged).
+# C4: no trailer at all on alpha (bare bullet + flagged).
 echo d >> "plugins/alpha/i.txt"
 git add -A
 git commit -qm "chore(alpha): tidy internals (#13)"
@@ -161,15 +161,15 @@ check_jq() { # check_jq <label> <jq-expr expected to be true>
 }
 check_jq '.previousTag == "v1.0.0"' "previous tag"
 check_jq '.previousVersion == "1.0.0"' "previous marketplace version"
-check_jq '.plugins | keys == ["alpha","beta"]' "changed plugins from paths (AC-2)"
-check_jq '.plugins.beta.level == "major"' "BREAKING CHANGE body -> major (AC-4)"
-check_jq '.plugins.beta.new == "3.0.0"' "beta 2.0.1 major -> 3.0.0 (AC-2)"
-check_jq '.plugins.alpha.new == "1.4.0"' "alpha max rule: hand-bumped 1.4.0 beats derived 1.3.0 (AC-8 cutover)"
-check_jq '.releaseVersion == "2.0.0"' "release version = previous + max level (major) (AC-2)"
+check_jq '.plugins | keys == ["alpha","beta"]' "changed plugins from paths"
+check_jq '.plugins.beta.level == "major"' "BREAKING CHANGE body -> major"
+check_jq '.plugins.beta.new == "3.0.0"' "beta 2.0.1 major -> 3.0.0"
+check_jq '.plugins.alpha.new == "1.4.0"' "alpha max rule: hand-bumped 1.4.0 beats derived 1.3.0 (cutover)"
+check_jq '.releaseVersion == "2.0.0"' "release version = previous + max level (major)"
 check_jq '[.prs[].subject] | any(startswith("release:")) | not' "release: commits excluded"
-check_jq '[.prs[] | select(.prNumber == 10) | .changelog[0]] | .[0] | startswith("flux capacitor")' "mid-body trailer extracted grep-anywhere (AC-4)"
-check_jq '[.prs[] | select(.prNumber == 13) | .noTrailer] | .[0] == true' "no-trailer commit flagged (AC-4)"
-check_jq '[.prs[] | select(.prNumber == 11) | .noTrailer] | .[0] == false' "Changelog: none counts as trailer-present (AC-5 semantics)"
+check_jq '[.prs[] | select(.prNumber == 10) | .changelog[0]] | .[0] | startswith("flux capacitor")' "mid-body trailer extracted grep-anywhere"
+check_jq '[.prs[] | select(.prNumber == 13) | .noTrailer] | .[0] == true' "no-trailer commit flagged"
+check_jq '[.prs[] | select(.prNumber == 11) | .noTrailer] | .[0] == false' "Changelog: none counts as trailer-present"
 
 echo "== apply mode =="
 PR_BODY="$WORK/pr-body.md"
@@ -179,19 +179,19 @@ V_ALPHA="$(jq -r .version plugins/alpha/.claude-plugin/plugin.json)"
 V_BETA="$(jq -r .version plugins/beta/.claude-plugin/plugin.json)"
 V_MARKET="$(jq -r .metadata.version .claude-plugin/marketplace.json)"
 [[ "$V_ALPHA" == "1.4.0" ]] && ok "alpha version written (max rule)" || bad "alpha version: $V_ALPHA"
-[[ "$V_BETA" == "3.0.0" ]] && ok "beta version written (AC-7 same field shape)" || bad "beta version: $V_BETA"
+[[ "$V_BETA" == "3.0.0" ]] && ok "beta version written (same field shape)" || bad "beta version: $V_BETA"
 [[ "$V_MARKET" == "2.0.0" ]] && ok "marketplace lockstep version written" || bad "marketplace: $V_MARKET"
 [[ "$(cat plugins/alpha/.claude-plugin/release 2>/dev/null)" == "2.0.0" && "$(cat plugins/beta/.claude-plugin/release 2>/dev/null)" == "2.0.0" ]] \
   && ok "each bumped plugin is stamped with the release version" || bad "release stamp: alpha=$(cat plugins/alpha/.claude-plugin/release 2>/dev/null) beta=$(cat plugins/beta/.claude-plugin/release 2>/dev/null)"
 [[ ! -e plugins/gamma/.claude-plugin/release ]] && ok "an unbumped plugin gets no release stamp" || bad "gamma was stamped: $(cat plugins/gamma/.claude-plugin/release)"
 assert_contains "pinned-ref example updated" '"ref": "v2.0.0"' docs/onboarding.md
 
-assert_contains "generated release heading (AC-3)" '## v2.0.0' CHANGELOG.md
+assert_contains "generated release heading" '## v2.0.0' CHANGELOG.md
 assert_not_contains "in-progress heading absorbed" '(in progress)' CHANGELOG.md
-assert_contains "per-plugin heading with old -> new (AC-3)" '### `beta` 2.0.1 → 3.0.0' CHANGELOG.md
-assert_contains "hand-written prose preserved verbatim (AC-8 cutover)" 'hand-written rich entry for the flux fix' CHANGELOG.md
-assert_contains "trailer prose rendered as migration note (AC-3)" 'Migration: rewrite ["npm ci"]' CHANGELOG.md
-assert_contains "no-trailer commit still gets a bullet (AC-4)" 'tidy internals' CHANGELOG.md
+assert_contains "per-plugin heading with old -> new" '### `beta` 2.0.1 → 3.0.0' CHANGELOG.md
+assert_contains "hand-written prose preserved verbatim (cutover)" 'hand-written rich entry for the flux fix' CHANGELOG.md
+assert_contains "trailer prose rendered as migration note" 'Migration: rewrite ["npm ci"]' CHANGELOG.md
+assert_contains "no-trailer commit still gets a bullet" 'tidy internals' CHANGELOG.md
 assert_contains "punctuated no-op commit still gets its bullet" 'punctuated no-op trailer' CHANGELOG.md
 assert_contains "no-op lookalike still renders in full" 'none of the exported helpers changed shape' CHANGELOG.md
 # Exact-line, not substring: the lookalike bullet above legitimately BEGINS with "  none",
@@ -218,9 +218,9 @@ if diff -q "$CHG1" CHANGELOG.md > /dev/null; then ok "second apply is byte-ident
 echo "== release-notes mode =="
 NOTES="$WORK/notes.md"
 bash "$DERIVE" release-notes > "$NOTES" || bad "release-notes exited nonzero"
-assert_contains "What-breaks carries BREAKING prose (AC-8)" 'lanes[] entries must be objects' "$NOTES"
+assert_contains "What-breaks carries BREAKING prose" 'lanes[] entries must be objects' "$NOTES"
 assert_contains "What-breaks carries Migration trailer prose" 'Migration: rewrite' "$NOTES"
-assert_contains "upgrade recipe present (AC-8)" 'claude plugin marketplace update second-shift' "$NOTES"
+assert_contains "upgrade recipe present" 'claude plugin marketplace update second-shift' "$NOTES"
 
 echo "== release-notes: Nothing breaks. =="
 # A tag right here makes the remaining range empty -> the explicit no-breaks line.
@@ -231,7 +231,7 @@ echo x >> "plugins/alpha/k.txt"
 git add -A
 git commit -qm "fix(alpha): quiet fix (#16)" -m "Changelog: none"
 bash "$DERIVE" release-notes > "$NOTES" || bad "release-notes (clean range) exited nonzero"
-assert_contains "explicit Nothing breaks. (AC-8)" 'Nothing breaks.' "$NOTES"
+assert_contains "explicit Nothing breaks." 'Nothing breaks.' "$NOTES"
 
 plugin_section() { # plugin_section <plugin> <out> -> that plugin's lines of the newest CHANGELOG section
   awk -v h="### \`$1\`" 'index($0, h) == 1 { on = 1; print; next } on && /^##/ { exit } on { print }' CHANGELOG.md > "$2"
@@ -358,8 +358,8 @@ rm -f plugins/alpha/.claude-plugin/plugin.json.bak
 echo "manual entry" >> CHANGELOG.md
 git add -A
 git commit -qm "feat(alpha): sneaky manual bump (#17)"
-if bash "$FROZEN" v2.0.0 > /dev/null 2>&1; then bad "frozen-files gate passed a version bump + CHANGELOG edit (AC-1)"; else ok "frozen-files gate rejects version bump + CHANGELOG edit (AC-1)"; fi
-if bash "$TRAILER" v2.0.0 > /dev/null 2>&1; then bad "trailer gate passed a plugins/** PR with no trailer (AC-5)"; else ok "trailer gate rejects missing trailer (AC-5)"; fi
+if bash "$FROZEN" v2.0.0 > /dev/null 2>&1; then bad "frozen-files gate passed a version bump + CHANGELOG edit"; else ok "frozen-files gate rejects version bump + CHANGELOG edit"; fi
+if bash "$TRAILER" v2.0.0 > /dev/null 2>&1; then bad "trailer gate passed a plugins/** PR with no trailer"; else ok "trailer gate rejects missing trailer"; fi
 
 # Clean feature PR: plugins change, no frozen files, trailer present.
 git checkout -q v2.0.0
@@ -367,8 +367,8 @@ git checkout -qb good-pr
 echo y >> "plugins/beta/l.txt"
 git add -A
 git commit -qm "fix(beta): honest fix (#18)" -m "Changelog: none"
-if bash "$FROZEN" v2.0.0 > /dev/null 2>&1; then ok "frozen-files gate passes a clean PR (AC-1)"; else bad "frozen-files gate rejected a clean PR"; fi
-if bash "$TRAILER" v2.0.0 > /dev/null 2>&1; then ok "trailer gate passes with Changelog: none (AC-5)"; else bad "trailer gate rejected Changelog: none"; fi
+if bash "$FROZEN" v2.0.0 > /dev/null 2>&1; then ok "frozen-files gate passes a clean PR"; else bad "frozen-files gate rejected a clean PR"; fi
+if bash "$TRAILER" v2.0.0 > /dev/null 2>&1; then ok "trailer gate passes with Changelog: none"; else bad "trailer gate rejected Changelog: none"; fi
 
 git checkout -q v2.0.0
 git checkout -qb stamp-pr
@@ -403,9 +403,9 @@ git checkout -qb docs-pr
 echo z >> docs/onboarding.md
 git add -A
 git commit -qm "docs: no plugin surface (#19)"
-if bash "$TRAILER" v2.0.0 > /dev/null 2>&1; then ok "trailer gate skips non-plugins PR (AC-5)"; else bad "trailer gate demanded a trailer on a non-plugins PR"; fi
+if bash "$TRAILER" v2.0.0 > /dev/null 2>&1; then ok "trailer gate skips non-plugins PR"; else bad "trailer gate demanded a trailer on a non-plugins PR"; fi
 
-# --- frozen-files ADVISORY tier: .github/workflows/** warns, never fails (#273 AC-6) ---
+# --- frozen-files ADVISORY tier: .github/workflows/** warns, never fails ---
 # The advisory row exists because this script runs as a step inside the very workflow it would
 # freeze; the intended enforcer is a server-side push ruleset. A hard row would red-line every
 # sanctioned workflow change with no escape. These two cases pin BOTH halves of that contract:
@@ -419,11 +419,11 @@ git commit -qm "chore: touch a workflow file (#20)"
 FROZEN_OUT="$WORK/frozen-advisory.log"
 bash "$FROZEN" v2.0.0 > "$FROZEN_OUT" 2>&1
 rc=$?
-if [[ $rc -eq 0 ]]; then ok "frozen-files: a workflow-only PR still exits 0 — the row is advisory (AC-6)"
+if [[ $rc -eq 0 ]]; then ok "frozen-files: a workflow-only PR still exits 0 — the row is advisory"
 else bad "frozen-files: workflow edit failed the gate (rc=$rc) — the row must be warn-only"; fi
-assert_contains "frozen-files: the workflow edit is announced as an advisory (AC-6)" "advisory: this PR edits .github/workflows/**" "$FROZEN_OUT"
-assert_contains "frozen-files: the workflow file is named in the advisory (AC-6)" ".github/workflows/fixture.yml" "$FROZEN_OUT"
-assert_contains "frozen-files: the summary distinguishes clean-with-advisories from clean (AC-6)" "advisory notice(s) above" "$FROZEN_OUT"
+assert_contains "frozen-files: the workflow edit is announced as an advisory" "advisory: this PR edits .github/workflows/**" "$FROZEN_OUT"
+assert_contains "frozen-files: the workflow file is named in the advisory" ".github/workflows/fixture.yml" "$FROZEN_OUT"
+assert_contains "frozen-files: the summary distinguishes clean-with-advisories from clean" "advisory notice(s) above" "$FROZEN_OUT"
 
 # The advisory row must not MASK a real violation: a workflow edit plus a frozen-file edit
 # still exits 1. Without this case, "warn-only" could silently have been implemented as
@@ -436,7 +436,7 @@ echo "manual entry" >> CHANGELOG.md
 git add -A
 git commit -qm "chore: workflow edit alongside a frozen-file edit (#21)"
 if bash "$FROZEN" v2.0.0 > /dev/null 2>&1; then bad "frozen-files: advisory row masked a real CHANGELOG violation"
-else ok "frozen-files: the advisory row does not mask a hard violation (AC-6)"; fi
+else ok "frozen-files: the advisory row does not mask a hard violation"; fi
 
 echo "== configVersion migration-doc gate =="
 CFGGATE="$HERE/check-configversion-migration-doc.sh"

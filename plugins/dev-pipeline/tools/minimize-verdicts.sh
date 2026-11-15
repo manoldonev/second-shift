@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # minimize-verdicts.sh — collapse a PR's earlier verdict comments as outdated, so the one that binds
-# is the one a human sees expanded (#946). Shared by both posting paths: run.sh calls it once a
+# is the one a human sees expanded. Shared by both posting paths: run.sh calls it once a
 # verdict binds, the manual /dev-pipeline:review calls it after its verdict comment is posted.
 #
 # Usage:

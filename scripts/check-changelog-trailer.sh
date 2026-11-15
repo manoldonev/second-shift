@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-changelog-trailer.sh — PR-time guard: a plugins/** PR must carry changelog intent (#119).
+# check-changelog-trailer.sh — PR-time guard: a plugins/** PR must carry changelog intent.
 #
 # The release CHANGELOG is derived from 'Changelog:' commit trailers (grep-anywhere in the
 # squashed body — this repo's squash prefill is COMMIT_MESSAGES, so branch commit bodies

@@ -83,7 +83,7 @@
 #   `Design: none — <reason>`. RS rows are shape-checked whenever present: the route
 #   smoke reads them on any repo. No escaped pipe (`\|`): the scheduler splits on it.
 #
-# RECEIPT VERSIONS (#1022). A receipt names its version once, on a `Receipt: v<N>` line before
+# RECEIPT VERSIONS. A receipt names its version once, on a `Receipt: v<N>` line before
 # its first `##` heading; a receipt with no such line is v1. A section is mandated only on a
 # receipt at or above the version that introduced it (RECEIPT_SECTIONS below), so a section added
 # later bumps the version instead of failing every receipt written before it. Two `Receipt:`
@@ -103,16 +103,16 @@
 #   `Knowledge source: failed — <text>`. An empty section, any other line that is not indented
 #   four spaces, and a `Knowledge source:` line outside those two forms are each refused.
 #
-#   `## Test intent` — mandated from v4 (#1039). One `ACs: AC-1 AC-2 …` line, the ticket's AC ids
+#   `## Test intent` — mandated from v4. One `ACs: AC-1 AC-2 …` line, the ticket's AC ids
 #   as labeled (or `ACs: none — <reason>` when the ticket has no AC block), then one line per id:
-#   `AC-n: <the observable behavior its test must prove>` or `AC-n: exempt — <reason>`, or (#1040)
+#   `AC-n: <the observable behavior its test must prove>` or `AC-n: exempt — <reason>`, or
 #   `AC-n: holds — <the existing behavior its test keeps>` or `AC-n: unchecked — <tier and reason>`.
 #   An id in `ACs:` with no line, a line whose id is not in `ACs:`, a second line for one id, a
 #   token in `ACs:` that is not `AC-<n>`, an empty behavior, an exempt, holds or unchecked line with
 #   no reason, and any other line are each refused, naming it. dev-pipeline's plan-coverage.sh
 #   reads the same section from the committed record and holds the build's plan to its ids; the
 #   scheduler keeps holds files off its fails-without-the-change leg and notes unchecked ones unrun.
-#   The two #1040 forms are additive inside v4's section: no version bump (its record's OR-1).
+#   The holds and unchecked forms are additive inside v4's section: no version bump.
 #
 # Receipt mode also refuses a section title used twice: every reader takes the first copy, so
 # the second is never read.
@@ -171,8 +171,6 @@ violate() { echo "ledger-lint: VIOLATION: $1" >&2; VIOLATIONS=$((VIOLATIONS + 1)
 # SINGLE-SITED, and deliberately: this file holds the only MACHINE copy of the enum. The
 # prose mirrors in interviewing-baseline are a markdown table, which neither relation can
 # compare against a shell assignment. Guarded behaviorally by ledger-lint-selftest.sh.
-# The LOCKSTEP markers that once wrapped THIS assignment named two pairs that no longer
-# exist; removed in #604.
 PROVENANCE_ENUM='user-answered|user-delegated|codebase-derived|deferred|ticket-sourced'
 EMPTY_FORM='No decisions to record. The code settles every choice.'
 EMPTY_FORM_OLD='No material decisions — all choices codebase-derived.'   # older records carry it; still accepted
@@ -191,7 +189,7 @@ CHECKS_EMPTY_FORM='No ticket-specific checks. The configured checks cover this c
 CHECKS_EMPTY_FORM_OLD='No ticket-specific checks — the configured lanes cover this change.'   # older records carry it; still accepted
 FANOUT_TAG_ENUM='new|already-had|overturned|not material'
 FANOUT_EMPTY_POOL='Pool: empty — no claim survived refutation.'
-FANOUT_SKIP_BY='by the operator'   # the one name a fan-out skip may carry (#1023), read case-insensitively at a word end
+FANOUT_SKIP_BY='by the operator'   # the one name a fan-out skip may carry, read case-insensitively at a word end
 INTAKE_STEP_KEYS='Requirements|Split|Explore|Fan-out|Dup-scan|Post-merge scan|Sizing'
 KS_NONE='Knowledge source: none declared'
 KS_PROVIDER_NAME='[^[:space:]:]+:[^[:space:]:]+'   # the namespaced agent type, <plugin>:<agent>
@@ -431,7 +429,7 @@ FRAME_ROW_COUNT=0
 FANOUT_ROW_COUNT=0
 STEP_COUNT=0
 if (( RECEIPT == 1 )); then
-  # ---- Receipt check 0: the version line, and one title per section (#1022) ----------------
+  # ---- Receipt check 0: the version line, and one title per section ----------------
   # Read first: the version decides which sections the checks below mandate. Lines at the start
   # of a line only, so a receipt quoted in the indented Fan-out snapshot is not read as this one's.
   RECEIPT_LINES="$(awk '/^##+[[:space:]]/ {sec = 1} tolower($0) ~ /^receipt:/ {sub(/\r$/, ""); print (sec ? "in" : "top") "\t" $0}' "$PLAN")"
@@ -674,12 +672,12 @@ if (( RECEIPT == 1 )); then
     violate "config sets design.provider '$PROVIDER', so the receipt needs a Design frames section carrying at least one '| RS-n | route | state | frame | must-show |' row, or the disarm 'Design: none — <reason>'"
   fi
 
-  # ---- Receipt check G: the fan-out section (#916) ------------------------------------
+  # ---- Receipt check G: the fan-out section ------------------------------------
   # What the intake fan-out achieved over plain intake, per ticket: each surviving evidence
   # item tagged against the interviewer's pre-pool snapshot, a tally, and the snapshot itself
   # so the tags stay auditable from the committed record. A receipt that ran no fan-out says
   # so — skipped (by the operator) or failed (what) — because an absent section reads exactly like
-  # a fan-out nobody ran and nobody recorded. Only the operator skips it (#1023): a skip in any
+  # a fan-out nobody ran and nobody recorded. Only the operator skips it: a skip in any
   # other name is a stage deciding on its own that the evidence was not worth gathering.
   if ! has_section 'fan-out' "$PLAN"; then
     mandated 'Fan-out' && violate "missing mandated receipt section: Fan-out (the tagged evidence pool with its Tally, Refuter and Snapshot, or one explicit form: 'Fan-out: skipped — by the operator <where / why>' or 'Fan-out: failed — <what>')"
@@ -750,7 +748,7 @@ if (( RECEIPT == 1 )); then
     fi
   fi
 
-  # ---- Receipt check H: the intake steps (#1022) -----------------------------------------
+  # ---- Receipt check H: the intake steps -----------------------------------------
   # What each intake step did, in a fixed order, so a reader of the record never has to guess
   # which parts of intake ran. Shape-checked wherever present; mandated from v2.
   STEP_ORDER="${INTAKE_STEP_KEYS//|/, }"
@@ -775,7 +773,7 @@ if (( RECEIPT == 1 )); then
         STEPS_SEEN="$STEPS_SEEN$key|"; STEP_COUNT=$((STEP_COUNT + 1))
         [[ -n "$outcome" && ! "$outcome" =~ ^(-|—|–)$ ]] || \
           violate "Intake steps '$key:' records no outcome — say what the step did, or why it did not run"
-        # The step line says skipped too, so it names the same skipper the section must (#1023).
+        # The step line says skipped too, so it names the same skipper the section must.
         if [[ "$key" == 'Fan-out' ]] && grep -qiE '^skipped([^[:alnum:]_]|$)' <<< "$outcome" \
           && ! grep -qiE "^skipped[[:space:]]*(—|–|-|:)?[[:space:]]*${FANOUT_SKIP_BY}([^[:alnum:]_]|\$)" <<< "$outcome"; then
           violate "Fan-out skip does not name the operator — only the operator skips the fan-out; the Intake steps form is 'Fan-out: skipped — by the operator <where / why>': Fan-out: $outcome"
@@ -794,7 +792,7 @@ if (( RECEIPT == 1 )); then
     done
   fi
 
-  # ---- Receipt check I: the knowledge source (#1032) --------------------------------------
+  # ---- Receipt check I: the knowledge source --------------------------------------
   # What the consumer-declared knowledge provider answered, or why nothing did. The answer is
   # opaque: it is embedded whole, indented four spaces, so the headings, table rows and
   # `Receipt:` lines it may carry stay out of every column-0 scan (section_of, the ledger and
@@ -849,7 +847,7 @@ if (( RECEIPT == 1 )); then
     else KS_FORM="malformed"; fi
   fi
 
-  # ---- Receipt check J: the test intent (#1039) ------------------------------------------
+  # ---- Receipt check J: the test intent ------------------------------------------
   # Per acceptance criterion, the behavior its test must prove, or an exemption with a reason. The
   # `ACs:` line is the id set: the lint is offline and never reads the ticket, so an id dropped while
   # transcribing it is invisible here (the record's accepted residual). Ids compare as exact strings,

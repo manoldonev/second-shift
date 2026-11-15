@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-workflows-selftest.sh — every .github/workflows/*.yml must parse as YAML (#119).
+# check-workflows-selftest.sh — every .github/workflows/*.yml must parse as YAML.
 #
 # WHY THIS EXISTS: a workflow file with a YAML syntax error is rejected by GitHub with
 # "Invalid workflow file" and simply does not run — so a broken ci.yml cannot be caught by

@@ -3,7 +3,7 @@
 # Score a code reviewer against the Martian Code Review Bench offline set (data/): known bugs per
 # PR, the benchmark's own matching rule, precision/recall/F1 per arm.
 #
-# Model identity is the operator's, not the repo's (#356). REVIEWER_MODEL and JUDGE_MODEL are
+# Model identity is the operator's, not the repo's. REVIEWER_MODEL and JUDGE_MODEL are
 # REQUIRED. Each may be a version-pinned id or one of the CLI's dispatch aliases: the changelog row
 # records the id the CLI resolved, never the alias. The judge must be the other model family from
 # the reviewer; the harness checks that on the resolved ids and refuses otherwise.

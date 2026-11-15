@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# branch-prefix.sh — the ONE resolver for the work-branch namespace (#413).
+# branch-prefix.sh — the ONE resolver for the work-branch namespace.
 #
 # WHY THIS EXISTS. `<branchPrefix><key>` is the branch formula both lanes use, and both used to
 # resolve `branchPrefix` themselves with a `cfg '.tracker.branchPrefix' 'claude/acme-'` fallback.
@@ -87,7 +87,7 @@ bp_is_work_branch() { # bp_is_work_branch <ref> <prefix> <tracker> <key-pattern>
   [ "$got" = "$2" ]
 }
 
-# The other half of the same answer (#611): once a ref is known to belong to the namespace, WHICH
+# The other half of the same answer: once a ref is known to belong to the namespace, WHICH
 # ticket is it? Built on bp_is_work_branch rather than on a bare `${ref#$prefix}` so the
 # membership question and the extraction question can never disagree — a caller that stripped the
 # prefix itself would happily report `notes` as the key of `claude/second-shift-notes`, which is

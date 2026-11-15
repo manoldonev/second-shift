@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # derive-release.sh — derive plugin versions, the CHANGELOG section, and release metadata
-# from conventional commits + changed paths since the last release tag (#119).
+# from conventional commits + changed paths since the last release tag.
 #
 # The single source of release derivation: the release-PR workflow
 # (.github/workflows/release-pr.yml) and the publish workflow
@@ -17,7 +17,7 @@
 #                                     changed since the last tag.
 #   derive-release.sh release-notes   the GitHub Release body (What-breaks + upgrade recipe)
 #
-# Derivation rules (issue #119 + its DE decisions comment):
+# Derivation rules:
 #   - Commit list: <last-tag>..HEAD, excluding subjects matching '^release: ' (the release
 #     PR's own squash commits are never counted — explicit, not incidental to tag position).
 #   - Changed plugins per commit: from paths under plugins/<name>/, never the commit scope.

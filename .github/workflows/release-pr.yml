@@ -1,4 +1,4 @@
-# release-pr — open/update the accumulating release PR from every push to main (#119).
+# release-pr — open/update the accumulating release PR from every push to main.
 #
 # All derivation logic lives in scripts/derive-release.sh (selftest-covered, model-free);
 # this workflow is a thin shell: derive -> force-push the bot-owned release/next branch ->

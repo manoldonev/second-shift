@@ -6,7 +6,7 @@
 # "silent inside the file" gap where a renamed or emptied section silently degrades the
 # reviewer that keys on it.
 #
-# TWO TARGETS (#1032). The catalog's optional fourth column names the file a section lives in:
+# TWO TARGETS. The catalog's optional fourth column names the file a section lives in:
 # review-context.md (the default, which also covers the per-reviewer review-context/<reviewer>.md)
 # or intake-context.md, which /intake-toolkit:intake reads. A heading is checked only against its
 # own file's sections, and a target's sections count toward coverage only when its file is there.
@@ -17,7 +17,7 @@
 # per-reviewer files legitimately open with `# <reviewer> — <repo>` — and H3+ headings are
 # section content (subsection structure), not sections. Fenced code lines are never headings.
 #
-# VENUES / MODES (severity by venue — the approved #67 ladder):
+# VENUES / MODES (severity by venue — the approved ladder):
 #   (default, no flag)  mid-run posture: alias hits + present-but-empty catalog sections
 #                       print as WARN; novel + missing suppressed (unless --verbose). Exit 0
 #                       ALWAYS — mid-run never blocks on a pre-existing heading.
@@ -26,7 +26,7 @@
 #                       Also prints the one-line coverage summary (exit-neutral).
 #   --report            informational: prints ONLY the one-line coverage summary. Exit 0
 #                       ALWAYS (coverage can never contribute to the exit code — asserted by
-#                       the selftest). Feeds the #34 doctor --report bundle.
+#                       the selftest). Feeds the doctor --report bundle.
 #   --verbose           modifier (any mode): also surface INFO (novel + missing sections).
 #
 # ESCAPE HATCH (mirrors EP-3 .known-extensions): a heading listed in
