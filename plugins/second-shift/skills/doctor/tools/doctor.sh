@@ -494,6 +494,9 @@ else
   if jq -e '(.reviewers | type) == "object" and (.reviewers | has("default"))' "$CONF" >/dev/null 2>&1; then
     bad "config: reviewers.default was removed — nothing read it. Fix: delete it (docs/migrations/v2-to-v3.md)"
   fi
+  if jq -e '(.paths | type) == "object" and (.paths | has("pipelineStateDir"))' "$CONF" >/dev/null 2>&1; then
+    bad "config: paths.pipelineStateDir was removed — the intake receipt and the run logs always live in .claude/pipeline-state. Fix: delete it (docs/migrations/v2-to-v3.md)"
+  fi
 
   DP_PATH="$(jq -r --arg id "dev-pipeline@$MKT" --arg root "$ROOT" \
     "$RESOLVE_RECORD | .installPath // empty" <<< "$PLUGLIST")"

@@ -37,7 +37,7 @@ Later `vN-to-vN+1.md` docs are configVersion-only; this collision is not expecte
   `stageParams`, `grillWaivers`, `design.liveRender.tolerancePx`/`cwd` leave the schema,
   `webComponentGlobs` moves under `reviewers`; its part 2 lists the files to delete from your repo
   (the merge-boundary CI job, the delta guard) and the retired `LANE_*` knobs. Its dead-key
-  removal section covers `reviewers.default`.
+  removal sections cover `reviewers.default` and `paths.pipelineStateDir`.
 
 ## Breaking changes that are not config changes
 

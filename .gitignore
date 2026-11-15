@@ -3,7 +3,7 @@
 .claude/audit/
 
 # dev-pipeline run state — machine-local per-ticket state files (incl. this repo's
-# own canary/dogfooding runs). Transient; the default paths.pipelineStateDir.
+# own canary/dogfooding runs). Transient.
 .claude/pipeline-state/
 
 # Linked worktrees created in-tree (the lane's own default is ../<repo>-worktrees, outside

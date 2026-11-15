@@ -252,6 +252,8 @@ for want in "configVersion is 2" "config: topology was removed in configVersion 
 done
 scenario "removed-key: reviewers.default" plugin-list-green.json settings-green.json marketplace-list-pinned.json 1 \
   "config: reviewers.default was removed — nothing read it. Fix: delete it (docs/migrations/v2-to-v3.md)" lock-v1.json config-reviewers-default.json
+scenario "removed-key: paths.pipelineStateDir" plugin-list-green.json settings-green.json marketplace-list-pinned.json 1 \
+  "config: paths.pipelineStateDir was removed — the intake receipt and the run logs always live in .claude/pipeline-state. Fix: delete it (docs/migrations/v2-to-v3.md)" lock-v1.json config-pipeline-state-dir.json
 
 # --- consumer CI from the retired verdict-record lane ---------------------------------------
 # An installed evidence workflow / delta guard reads a record the lane no longer writes: one FAIL
