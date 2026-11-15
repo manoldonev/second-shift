@@ -81,7 +81,7 @@ const eq = (m, actual, expected) => {
   const e = JSON.stringify(expected)
   a === e ? pass(m) : fail(`${m}\n         expected ${e}\n         actual   ${a}`)
 }
-const ok = (m, cond) => (cond ? pass(m) : fail(m))
+const ok = (m, cond, detail) => (cond ? pass(m) : fail(detail === undefined || detail === '' ? m : `${m}\n         ${detail}`))
 
 // A well-formed REVIEW_RESULT block for code-review's FINDINGS_SCHEMA. The field names
 // and the verdict enum are NOT interchangeable with the intake/gate schemas — production's
@@ -145,12 +145,17 @@ for (const [name, path] of [
 // ---------------------------------------------------------------------------
 console.log('── Case B: code-review.mjs text-contract ladder')
 
+// The opening words of the retry nudge an empty reply earns.
+const ESCALATED_MARK = 'YOUR PREVIOUS ATTEMPT AT THIS EXACT REVIEW DIED HAVING WRITTEN NOTHING'
+
 {
   const { result, calls } = await runCodeReview([findingsBlock('approve')])
   eq('B1 success first try returns the parsed result', result.reviewers[0].result.verdict, 'approve')
   eq('B1 success first try dispatches exactly once', calls.length, 1)
   ok('B1 a first-try success carries no retried/failed flags', !result.reviewers[0].retried && !result.reviewers[0].failed)
   eq('B1 range is the THREE-DOT form (#130)', result.range, 'aaa...bbb')
+  ok('B1 the reviewer is told to diff the three-dot range', calls[0].prompt.includes('diff aaa...bbb`'), calls[0].prompt)
+  ok('B1 attempt 0 carries no escalated emit text', !calls[0].prompt.includes(ESCALATED_MARK))
   eq('B1 the return is exactly range, worktree, reviewers', Object.keys(result).sort(), ['range', 'reviewers', 'worktree'])
 }
 
@@ -165,11 +170,14 @@ console.log('── Case B: code-review.mjs text-contract ladder')
 }
 
 {
-  // Contract miss (no sentinel) then success — the escalated inline retry.
+  // Contract miss (no sentinel) then success: the retry repeats the prompt unchanged. An agent
+  // that wrote prose needs the format, not an order to stop exploring.
   const { result, calls } = await runCodeReview(['I have thoughts but no sentinel.', findingsBlock('approve')])
   eq('B2 retry after a text-contract miss recovers', result.reviewers[0].result.verdict, 'approve')
   eq('B2 retry dispatches exactly twice', calls.length, 2)
   ok('B2 the second dispatch is labelled a retry', String(calls[1].opts.label).includes('retry'))
+  eq('B2 the retry after a sentinel-less reply repeats the prompt unchanged', calls[1].prompt, calls[0].prompt)
+  ok('B2 and carries no escalated emit text', !calls[1].prompt.includes(ESCALATED_MARK) && !String(calls[1].opts.label).includes('escalated'))
   ok('B2 a recovered retry is indistinguishable from a first-try success', !result.reviewers[0].failed)
 }
 
@@ -198,6 +206,16 @@ console.log('── Case B: code-review.mjs text-contract ladder')
   eq('B4 turn-cap death yields a null result', r.result, null)
   ok('B4 turn-cap death carries the twice-dead markers', r.retried === true && r.failed === true)
   ok('B4 turn-cap death is reported as turn-budget, not a parser miss', String(r.error).startsWith('turn-budget:'))
+  ok('B4 attempt 0 carries no escalated emit text', !calls[0].prompt.includes(ESCALATED_MARK))
+  ok('B4 the retry after an empty reply carries the escalated emit text', calls[1].prompt.includes(ESCALATED_MARK), calls[1].prompt)
+  ok('B4 the escalated text sits ahead of the result format', calls[1].prompt.indexOf(ESCALATED_MARK) < calls[1].prompt.lastIndexOf('REVIEW_RESULT'))
+  eq('B4 the escalated retry is labelled as one', calls[1].opts.label, 'review-toolkit:complexity-reviewer (retry, escalated)')
+}
+
+{
+  const { result, calls } = await runCodeReview(['', findingsBlock('approve')])
+  eq('B4b an escalated retry that emits recovers the review', result.reviewers[0].result.verdict, 'approve')
+  ok('B4b and it was the escalated prompt that recovered it', calls[1].prompt.includes(ESCALATED_MARK))
 }
 
 {
@@ -249,50 +267,52 @@ console.log('── Case C: code-review.mjs budget clean-skip')
 }
 
 // ---------------------------------------------------------------------------
-// Case H — args.config delivery path: the SUBSET the dispatch prose passes must carry
-// everything code-review.mjs actually reads (#77).
+// Case H — the config review-lead's dispatch passes reaches the dispatched agents.
 //
-// The stage files tell the caller what to put in args.config. That prose cannot be
-// guarded by grepping it (CLAUDE.md bans prose-presence guards, and a markdown grep
-// cannot fail for a reason a diff reader would not already see). What IS guardable is
-// the receiving end: given ONLY the documented subset, does production still resolve a
-// model override, and does it still route the tracker branch? Both are silent-failure
-// paths — modelOverrides falls back to the shipped table, trackerType defaults to
-// 'github' — so neither errors when its key is missing. That is precisely why they need
-// a behavioral guard rather than a reviewer's attention.
+// review-lead is the script's one caller, and its dispatch block names the config groups it
+// passes. Both reads here fail silently when a group is missing — a model override falls
+// back to the shipped table, the tracker defaults to github — so the case takes the group
+// names from that block, picks exactly those groups out of a whole consumer config, and
+// runs the production body on the result. A dispatch that passes no config, or the whole
+// config under one name, picks nothing and H1/H2 go red.
 //
-// H2/H3 are the pair that makes this a killer. H2 alone would stay green if `tracker`
-// were dropped from the review subset and the default happened to match the fixture, so
-// H3 pins the opposite branch: the two must DIFFER. Each case also asserts it reached the
-// scope-completeness prompt at all — without that, a mis-wired reviewers override would
-// assert against runCodeReview's default complexity-reviewer prompt and pass vacuously
-// (the failure mode plan review flagged on this very case).
+// H2/H3 are a pair: H3 runs the same dispatch with no tracker group and must word the
+// fetch the other way.
 // ---------------------------------------------------------------------------
-console.log('── Case H: args.config subset delivery (#77)')
+console.log('── Case H: the config review-lead passes reaches the dispatched agents')
+const CONSUMER_CONFIG = {
+  configVersion: 3,
+  tracker: { type: 'jira', writes: false },
+  commands: { app: { lint: 'lint', typecheck: null, test: 'test', format: null } },
+  reviewers: { remove: ['db-reviewer'], modelOverrides: { 'complexity-reviewer': 'fable' } },
+  paths: { plansDir: 'docs/plans' },
+}
+const dispatchedConfig = (() => {
+  const skill = readFileSync(join(HERE, '..', 'skills', 'review-lead', 'SKILL.md'), 'utf8')
+  const dispatch = skill.match(/Workflow\(\{ scriptPath: "[^"]*code-review\.mjs",[\s\S]*?\}\)\n/)
+  const groups = dispatch && dispatch[0].match(/\bconfig: \{([^}]*)\}/)
+  const names = groups ? groups[1].split(',').map((s) => s.trim()).filter(Boolean) : []
+  return Object.fromEntries(names.filter((n) => n in CONSUMER_CONFIG).map((n) => [n, CONSUMER_CONFIG[n]]))
+})()
 {
-  // H1 — a modelOverrides entry survives the subset and reaches the dispatched model.
-  // Bare-keyed by agent name, per every consumer's `modelOverrides[bare(agentType)]`.
   const { calls } = await runCodeReview([findingsBlock()], {
     reviewers: ['review-toolkit:complexity-reviewer'],
-    config: { reviewers: { modelOverrides: { 'complexity-reviewer': 'fable' } } },
+    config: dispatchedConfig,
   })
-  ok('H1 modelOverrides reaches the dispatched opts.model', calls[0]?.opts?.model === 'fable')
+  eq('H1 a configured model override reaches the dispatched agent', calls[0]?.opts?.model, 'fable')
 }
 {
-  // H2 — tracker.type: jira survives the subset and routes the scope reviewer to the MCP.
   const { calls } = await runCodeReview([findingsBlock()], {
     reviewers: ['review-toolkit:scope-completeness-reviewer'],
-    issue: 'GH-540',
-    config: { reviewers: {}, tracker: { type: 'jira' } },
+    issue: 'PROJ-12',
+    config: dispatchedConfig,
   })
   const p = String(calls[0]?.prompt ?? '')
-  ok('H2a the scope-completeness prompt was actually dispatched (anti-vacuity)', /Verify scope completeness/.test(p))
-  ok('H2b tracker.type jira routes the fetch to the Atlassian MCP', /Atlassian MCP/.test(p))
+  ok('H2a the scope-completeness prompt was dispatched', /Verify scope completeness/.test(p), p)
+  ok('H2b under jira the prompt names a JIRA ticket, not a GitHub issue', p.includes('JIRA ticket PROJ-12') && !/GitHub issue/.test(p), p)
+  ok('H2c under jira the fetch goes to the Atlassian MCP, not gh', /Atlassian MCP for key `PROJ-12`/.test(p) && !/gh issue view/.test(p), p)
 }
 {
-  // H3 — the same dispatch with `tracker` ABSENT falls back to gh. This is the mutant
-  // detector: drop `tracker` from the review subset and H2b goes red while this stays
-  // green, so the two together prove the key is load-bearing rather than decorative.
   const { calls } = await runCodeReview([findingsBlock()], {
     reviewers: ['review-toolkit:scope-completeness-reviewer'],
     issue: '77',
@@ -300,7 +320,7 @@ console.log('── Case H: args.config subset delivery (#77)')
   })
   const p = String(calls[0]?.prompt ?? '')
   ok('H3a the scope-completeness prompt was actually dispatched (anti-vacuity)', /Verify scope completeness/.test(p))
-  ok('H3b no tracker key falls back to the gh issue view fetch', /gh issue view/.test(p) && !/Atlassian MCP/.test(p))
+  ok('H3b no tracker group words it as a GitHub issue fetched with gh', /GitHub issue #77/.test(p) && /gh issue view 77/.test(p) && !/Atlassian MCP/.test(p), p)
   ok('H3c no spec arg names no decision record', !/Decision record/.test(p))
 }
 {
@@ -530,6 +550,20 @@ console.log('── Case N: intake-review.mjs referencedDocs content injection')
   const { calls } = await runIntake([specBlock('implementable'), explorerBlock()])
   const noNote = calls.every((c) => !/Referenced docs|REFERENCED DOC/.test(c.prompt))
   ok('N4 an empty referencedDocs emits no docs note or block on either prompt', noNote)
+}
+
+console.log('── Case P: intake-review.mjs pins the read surface')
+{
+  const { calls } = await runIntake([specBlock('implementable'), explorerBlock()], { readRoot: '/w/pinned-base' })
+  eq('P1 both intake agents were dispatched', calls.map((c) => c.opts.agentType).sort(), ['review-toolkit:codebase-explorer', 'review-toolkit:spec-reviewer'])
+  for (const c of calls) {
+    ok(`P2 ${c.opts.agentType} is told first to read only inside the pinned checkout`, c.prompt.startsWith('PINNED READ SURFACE') && c.prompt.includes('inside /w/pinned-base'), c.prompt.slice(0, 200))
+    ok(`P3 ${c.opts.agentType} is told not to read the main checkout`, /Do NOT read from the main repo checkout/.test(c.prompt))
+  }
+}
+{
+  const { calls } = await runIntake([specBlock('implementable'), explorerBlock()])
+  ok('P4 without readRoot no prompt carries a pin', calls.length === 2 && calls.every((c) => !/PINNED READ SURFACE/.test(c.prompt)))
 }
 
 // ---------------------------------------------------------------------------

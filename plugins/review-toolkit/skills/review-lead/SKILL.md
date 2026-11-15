@@ -15,8 +15,11 @@ The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` 
 
 ```
 Workflow({ scriptPath: "<staged>/code-review.mjs",
-           args: { worktree, base, head, issue?, spec?, reviewers, changedFiles, prContext } })
+           args: { worktree, base, head, issue?, spec?, reviewers, changedFiles, prContext,
+                   config: { reviewers, tracker } } })
 ```
+
+`config` carries two groups of the consumer config, each as parsed from the file read at the start of Routing (see "Consumer config: reviewer registry" below): its `reviewers` group and its `tracker` group. Inside `config`, `reviewers` is that config group, not the selected `agentType[]` passed as `args.reviewers`. Leave out a group the file does not have, and pass `config: {}` when there is no config file. The script picks each dispatch's model from `reviewers.modelOverrides` and `reviewers.tierMap`, and words the scope-completeness fetch for the tracker named by `tracker.type`; without them every reviewer runs at its shipped tier and a JIRA key is fetched as a GitHub issue. Pass these two groups and never the whole config: the script reads nothing else from it.
 
 **Stage the script first — neither a bare filename nor the cache path dispatches.** The `Workflow` tool accepts only a path it returned itself, or one under the working directory or an added directory. The plugin cache is neither on a default install, so `scriptPath: "code-review.mjs"` comes back as "Workflow script file not found" and the cache's own absolute path as "must be a script path this tool returned". Resolve it from this skill's own base directory (which the invocation states) and copy it into the session scratchpad, then dispatch that copy:
 
