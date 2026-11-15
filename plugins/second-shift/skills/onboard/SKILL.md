@@ -155,8 +155,7 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      reviewers that don't fit — e.g. db-reviewer in an FE repo —, `.modelOverrides`, `.tierMap`).
      Say on the screen that the lane's review is one session: it reviews the diff itself, reads
      `review-context.md` (question 6), and dispatches no reviewer except a design-fidelity
-     reviewer on a record with design frames. These deltas shape only the ad hoc review. Never
-     draft `reviewers.default`: it is deprecated, and the grill reports a config that sets it.
+     reviewer on a record with design frames. These deltas shape only the ad hoc review.
      Recommended default: none. Emit the reviewer deltas ONLY when the answer is non-empty
      (`reviewers.webComponentGlobs`, drafted above, is independent of this answer).
   5. **github tracker only — the first-run wall, absorbed here:**

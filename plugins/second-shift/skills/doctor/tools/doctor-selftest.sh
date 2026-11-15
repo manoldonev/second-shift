@@ -241,6 +241,8 @@ for want in "configVersion is 2" "config: topology was removed in configVersion 
             "docs/migrations/v2-to-v3.md"; do
   scenario "stale-key: $want" plugin-list-green.json settings-green.json marketplace-list-pinned.json 8 "$want" lock-v1.json config-v2-stale.json
 done
+scenario "removed-key: reviewers.default" plugin-list-green.json settings-green.json marketplace-list-pinned.json 1 \
+  "config: reviewers.default was removed — nothing read it. Fix: delete it (docs/migrations/v2-to-v3.md)" lock-v1.json config-reviewers-default.json
 
 # --- consumer CI from the retired verdict-record lane ---------------------------------------
 # An installed evidence workflow / delta guard reads a record the lane no longer writes: one FAIL

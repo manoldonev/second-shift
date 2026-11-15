@@ -168,12 +168,6 @@
           "items": { "type": "string" },
           "description": "Plugin-shipped reviewers to disable in this repo (e.g. db-reviewer in an FE repo)."
         },
-        "default": {
-          "type": "array",
-          "items": { "type": "string" },
-          "deprecated": true,
-          "description": "DEPRECATED and ignored: nothing reads it. The lane's review is one session that dispatches no reviewer panel, and review-lead does not read the key. It stays valid so that an existing config still passes config-lint, which types the array; the config grill reports a set key as an advisory finding. A later major release removes it."
-        },
         "modelOverrides": {
           "type": "object",
           "description": "Per-agent model-tier override, keyed by any agent the .mjs dispatch tables model — the review-lead panel reviewers, the intake fan-out agents, and the structured-emitter transcription sink. check-model-tiers validates .mjs tables against frontmatter + these overrides. Values must be tiers this consumer's subscription can actually dispatch — an inaccessible tier surfaces as a dead reviewer. `fable` is override-only: never a shipped default, and a check-model-tiers error if it appears in a shipped dispatch table.",

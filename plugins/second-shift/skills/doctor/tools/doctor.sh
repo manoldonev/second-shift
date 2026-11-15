@@ -462,7 +462,7 @@ if [[ ! -f "$CONF" ]]; then
 elif ! jq empty "$CONF" 2>/dev/null; then
   bad "$CONF is not valid JSON — fix it, then re-run doctor"
 else
-  # --- 7.1 keys configVersion 3 removed -------------------------------------------
+  # --- 7.1 removed keys --------------------------------------------------------------
   # Named here, independently of config-lint below, so a repo whose dev-pipeline is not installed
   # yet still learns what to delete. One FAIL per key: each is its own edit.
   cv="$(jq -r '.configVersion // empty' "$CONF")"
@@ -483,6 +483,9 @@ else
       (if lr | has("tolerancePx") then ["design.liveRender.tolerancePx", "the pixel compare is replaced by the route smoke; set design.liveRender.smokeCommand."] else empty end),
       (if lr | has("cwd") then ["design.liveRender.cwd", "the render command runs in the ticket worktree; put any cd into the command itself. If it named another repo, that repo owns design: move the whole design block into its own config."] else empty end)
     ] | .[] | @tsv' "$CONF" 2>/dev/null)
+  if jq -e '(.reviewers | type) == "object" and (.reviewers | has("default"))' "$CONF" >/dev/null 2>&1; then
+    bad "config: reviewers.default was removed — nothing read it. Fix: delete it (docs/migrations/v2-to-v3.md)"
+  fi
 
   DP_PATH="$(jq -r --arg id "dev-pipeline@$MKT" --arg root "$ROOT" \
     "$RESOLVE_RECORD | .installPath // empty" <<< "$PLUGLIST")"

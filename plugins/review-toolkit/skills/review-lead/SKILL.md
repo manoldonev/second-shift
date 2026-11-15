@@ -51,7 +51,6 @@ The panel named throughout this skill is the **plugin-shipped generic registry**
 
 - `reviewers.add[]` — repo-local reviewer agents living in the repo's `.claude/agents/` (referenced **bare**, e.g. `orders-reviewer`). Each entry declares `dimensions[]` (a routing/dedup hint — treat those dimensions as the reviewer's domain when deciding whether to spawn it and when merging its findings). Register these alongside the plugin panel; spawn them per their declared domain the same way the conditional reviewers below are spawned.
 - `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; omit its Verdicts row.
-- `reviewers.default[]` — deprecated. Do not read it: it selects nothing on any path.
 - `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). The `code-review.mjs` fan-out reads these; pass the overridden tier, not the agent-frontmatter default.
 
 If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced **bare**, and plugin-shipped reviewers **qualified** (`docs/namespaces.md` rule 2) — that asymmetry is the disambiguation between roots, and it is what the panel above is spelled to satisfy. The names in the panel are dispatch names: they reach `agent({ agentType })` through `code-review.mjs`, so a bare plugin name there is not a stylistic choice but an agent type that does not resolve. `check-reviewer-references.sh` enforces both halves.
@@ -279,8 +278,8 @@ is a membership rule: a panel seat that never moves an outcome reads as coverage
 coverage.
 
 **Opting one back in — the caller's own judgment, with a reason.** The caller is the one carrier.
-A `review panel` row in a decision record is a retired row kind and selects nothing, and so does
-the deprecated config `reviewers.default[]`. The caller that declares the panel may name opt-ins
+A `review panel` row in a decision record is a retired row kind and selects nothing. The caller
+that declares the panel may name opt-ins
 itself when the diff touches their surface — `security` for authentication, sessions, tenancy or
 ownership scoping, or queries built from external input; `a11y` for the web-component surface;
 `unit-test-mutation` for new logic with a co-located spec; `performance` for a new entry point (a

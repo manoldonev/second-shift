@@ -6,6 +6,9 @@ version. The contract:
 - A schema-**breaking** change ⇒ major release tag + `configVersion` bump + a migration doc
   here named `vN-to-vN+1.md` (exact field-by-field: what moved, what to write instead, a
   before/after example).
+- A key with no reader leaves the schema at a major release with **no** `configVersion` bump.
+  config-lint rejects it by name, and a `Dead-key removal` section in the current version's
+  migration doc tells the consumer to delete it.
 - `config-lint` fails older configs WITH the pointer to that doc (never a bare "invalid") —
   a consumer's upgrade PR reviews itself. Newer-than-understood configs point at
   `docs/releasing.md` (upgrade the marketplace pin).
@@ -31,7 +34,8 @@ Later `vN-to-vN+1.md` docs are configVersion-only; this collision is not expecte
 - [`v2-to-v3.md`](v2-to-v3.md) — the scheduler replaces the gates: `topology`, `gates`,
   `stageParams`, `grillWaivers`, `design.liveRender.tolerancePx`/`cwd` leave the schema,
   `webComponentGlobs` moves under `reviewers`; its part 2 lists the files to delete from your repo
-  (the merge-boundary CI job, the delta guard) and the retired `LANE_*` knobs.
+  (the merge-boundary CI job, the delta guard) and the retired `LANE_*` knobs. Its dead-key
+  removal section covers `reviewers.default`.
 
 ## Breaking changes that are not config changes
 
