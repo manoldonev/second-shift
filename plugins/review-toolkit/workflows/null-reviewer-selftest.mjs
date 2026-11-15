@@ -73,7 +73,7 @@ async function main() {
     // predicate is retired; the contract tokens below are its replacements. The reference
     // harness above still models the DARK-MARKER CONTRACT (result/error/retried/failed/
     // ceiling shapes), which is transport-independent and unchanged; the transport itself
-    // is guarded by the stall probe.
+    // is executed against the real ladder by runtime-shim-selftest.mjs.
     // parseReviewResult / REVIEW_RESULT are covered stronger by text-contract-selftest.sh, which
     // byte-locksteps AND executes the extracted production copies; the three-dot range token is
     // guarded by diff-range-selftest.sh Cases C-F (backtick-free token + a two-dot ABSENCE check

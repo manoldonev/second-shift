@@ -56,12 +56,6 @@ echo "diff-range-selftest: reviewer diff-range semantics (#130)"
 # this repo. The contract that matters is guarded below, against production.
 # ---------------------------------------------------------------------------
 # Drift-guard half — the production scripts must carry three-dot and NO two-dot.
-#
-# Scoped to exactly these four files. The eval probe (stall-probe.mjs)
-# intentionally KEEPS two-dot: its base defaults to `<sha>^` against `<sha>`,
-# where merge-base(X^,X) == X^ makes the two forms identical, and it is held
-# byte-stable for cross-run comparability. A repo-wide assertion would therefore
-# be wrong.
 # ---------------------------------------------------------------------------
 # NO surrounding backticks in these tokens. The range appears in two syntactic
 # shapes: a const assignment (`const range = `${base}...${head}``) and an inline

@@ -55,7 +55,7 @@ DEFAULT_CAP=15
 
 # Agents held to the deadline contract despite sitting at (or below) the default cap.
 # Space-separated basenames, matched WHOLE — never as substrings: `plan-reviewer` is a
-# substring of both `unit-test-plan-reviewer` and `figma-faithful-plan-reviewer`, and a
+# substring of `figma-faithful-plan-reviewer` and `design-faithful-plan-reviewer`, and a
 # substring match would silently conscript agents nobody enrolled.
 #
 # Add a name only on a DEMONSTRATED death — an agent observed hitting its cap without
