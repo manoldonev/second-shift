@@ -122,8 +122,8 @@ what the document **did not discover**.
   measured stand-in), or critic (a judgment)? An AC with no rung named is an AC nobody has
   decided how to check.
 - **Human-decided provenance share.** Where a Decision Ledger or receipt accompanies the spec: what
-  fraction of the rows that resolve *intent* carry `user-answered` / `user-delegated`? Rows
-  resolving intent under `codebase-derived` / `ticket-sourced` / `deferred` are the author's own
+  fraction of the rows that resolve *intent* carry `user-answered` / `user-delegated` /
+  `ticket-sourced`? Rows resolving intent under `codebase-derived` / `deferred` are the author's own
   calls wearing a label — **Warning**, one per row, naming the row.
 - **Are open regions declared, each with a disposition** (`pause-and-ask` or
   `reversible-default-and-flag`)? A region named without a disposition is an unowned gap.
