@@ -81,6 +81,13 @@ SHIPPED_TIERS_JSON=$(parse_tier_alphabet "$TIER_DOC" | cut -f1 | jq -R . | jq -s
 ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFound "$TIER_DOC_FOUND" \
   --arg noAlphabet "cannot read the tier alphabet (review-toolkit's model-tiering.md not found)" '
   def err(cond; msg): if cond then [msg] else [] end;
+  # A `+` operand that yields `empty` collapses every violation in the chain, and `.field?` on a
+  # scalar yields `empty`: descend into a group only once it is known to be an object.
+  def entry(p; f): if type == "object" then f else [p + ": must be object"] end;
+  def group(p; f): if . == null then [] else entry(p; f) end;
+  def strings(p): if type == "array" and any(.[]; type != "string") then [p + ": every entry must be a string"] else [] end;
+
+  if type != "object" then ["the config must be a JSON object"] else
 
   # ---- top level ----------------------------------------------------------
   # A retired key is rejected by NAME, with what to write instead and the migration pointer, and
@@ -93,9 +100,11 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
         "configVersion \(.configVersion) is newer than this plugin understands — upgrade the marketplace pin (docs/releasing.md)")
   + err(((.configVersion? | type) == "number") and .configVersion < 3;
         "configVersion \(.configVersion) predates this plugin (current: 3) — see docs/migrations/v2-to-v3.md for the upgrade path" + (if .configVersion < 2 then " (apply docs/migrations/v1-to-v2.md first)" else "" end))
+  + err(has("$schema") and ((."$schema" | type) != "string"); "$schema: must be string")
   + err((.tracker | type) != "object"; "tracker: required object")
   + err(has("baseBranch") and (((.baseBranch | type) != "string") or ((.baseBranch | test("^(origin/|refs/)|[\\s~^:?*\\[\\\\]|^$")))); "baseBranch: must be a bare branch name on origin (e.g. \"develop\"), not origin/<name> or refs/…")
   + err((.commands | type) != "object"; "commands: required object")
+  + err(((.commands | type) == "object") and ((.commands | length) == 0); "commands: at least one id required")
   + err(has("stageWorkflows"); "stageWorkflows was removed — a registered stage workflow had stopped running when the staged lane was deleted. Nothing replaced it: an additive check is commands.<id>.extraLanes, run by /dev-pipeline:run after every build. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.6)")
   + err(has("implementDelegates"); "implementDelegates was removed — a registered delegate had stopped being routed to when the staged lane was deleted. The pipeline is outcome-gated and silent on HOW the diff is produced, so a build session may still dispatch the same agent by choice; what has no home is the config-routed surface-to-agent mechanism. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.7)")
   + err(has("planGates"); "planGates was removed — a registered plan gate had stopped running when the staged lane was deleted. There is no plan gate on the pipeline for one to be additive to; the record is judged by /dev-pipeline:review. Delete the key from your config (docs/migrations/v1-to-v2.md; the shape is kept as a design record in docs/extending.md §3.8)")
@@ -109,11 +118,12 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
     )
 
   # ---- tracker -------------------------------------------------------------
-  + err((.tracker.type? // "") | IN("github","jira") | not; "tracker.type must be github|jira")
-  + err((.tracker | type == "object") and ((.tracker | keys) - ["type","writes","bot","keyPattern","branchPrefix","labels"]) != []; "tracker: unknown keys")
-  + err((.tracker.writes? != null) and ((.tracker.writes | type) != "boolean"); "tracker.writes: must be boolean")
-  + err((.tracker.branchPrefix? != null) and ((.tracker.branchPrefix | type) != "string"); "tracker.branchPrefix: must be string")
-  + err((.tracker.keyPattern? != null) and ((.tracker.keyPattern | type) != "string"); "tracker.keyPattern: must be string")
+  + err((.tracker | if type == "object" then .type else null end) | IN("github","jira") | not; "tracker.type must be github|jira")
+  + (if (.tracker | type) == "object" then (.tracker |
+      err(((keys) - ["type","writes","bot","keyPattern","branchPrefix","labels"]) != []; "tracker: unknown keys")
+      + err((.writes != null) and ((.writes | type) != "boolean"); "tracker.writes: must be boolean")
+      + err((.branchPrefix != null) and ((.branchPrefix | type) != "string"); "tracker.branchPrefix: must be string")
+      + err((.keyPattern != null) and ((.keyPattern | type) != "string"); "tracker.keyPattern: must be string")
   # `labels` is tracker-gated and `bot` deliberately is NOT (#440). A label vocabulary is queue
   # machinery, and a JIRA repo has no queue — so that one really is github-only. The bot is a
   # CODE-HOST capability that was modelled on the tracker axis by accident: every key the shape
@@ -123,20 +133,22 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
   # tracked one. Rejecting it left those consumers permanently operator-attributed and
   # permanently degraded at the identity arm of the merge boundary. Do not re-add this rule;
   # if the parent name is the complaint, the fix is a configVersion migration, not a refusal.
-  + err((.tracker.labels? != null) and (.tracker.type? == "jira"); "tracker.labels is github-only (a JIRA repo has no queue/claim/label vocabulary)")
-  + ((.tracker.labels // {}) |
-      err((type == "object") and ((keys) - ["queue","claimed","blockers"]) != []; "tracker.labels: unknown keys")
-      + err((.queue? != null) and ((.queue | type) != "string"); "tracker.labels.queue: must be string")
-      + err((.claimed? != null) and ((.claimed | type) != "string"); "tracker.labels.claimed: must be string")
-      + err((.blockers? != null) and ((.blockers | type) != "array"); "tracker.labels.blockers: must be array")
-    )
-  + ((.tracker.bot // {}) |
-      err((type == "object") and ((keys) - ["enabled","envVar","wrapperPath","app"]) != []; "tracker.bot: unknown keys")
-      + err((.enabled? != null) and ((.enabled | type) != "boolean"); "tracker.bot.enabled: must be boolean")
-      + err((.envVar? != null) and ((.envVar | type) != "string"); "tracker.bot.envVar: must be string")
-      + err((.wrapperPath? != null) and ((.wrapperPath | type) != "string"); "tracker.bot.wrapperPath: must be string")
-      + ((.app // {}) | err((type == "object") and ((keys) - ["clientId","appName","privateKeyFilename","installationId"]) != []; "tracker.bot.app: unknown keys"))
-    )
+      + err((.labels != null) and (.type == "jira"); "tracker.labels is github-only (a JIRA repo has no queue/claim/label vocabulary)")
+      + (.labels | group("tracker.labels";
+          err(((keys) - ["queue","claimed","blockers"]) != []; "tracker.labels: unknown keys")
+          + err((.queue != null) and ((.queue | type) != "string"); "tracker.labels.queue: must be string")
+          + err((.claimed != null) and ((.claimed | type) != "string"); "tracker.labels.claimed: must be string")
+          + err((.blockers != null) and ((.blockers | type) != "array"); "tracker.labels.blockers: must be array")
+          + (.blockers | strings("tracker.labels.blockers"))
+        ))
+      + (.bot | group("tracker.bot";
+          err(((keys) - ["enabled","envVar","wrapperPath","app"]) != []; "tracker.bot: unknown keys")
+          + err((.enabled != null) and ((.enabled | type) != "boolean"); "tracker.bot.enabled: must be boolean")
+          + err((.envVar != null) and ((.envVar | type) != "string"); "tracker.bot.envVar: must be string")
+          + err((.wrapperPath != null) and ((.wrapperPath | type) != "string"); "tracker.bot.wrapperPath: must be string")
+          + (.app | group("tracker.bot.app"; err(((keys) - ["clientId","appName","privateKeyFilename","installationId"]) != []; "tracker.bot.app: unknown keys")))
+        ))
+    ) else [] end)
 
   # ---- retired: topology -----------------------------------------------------
   + (if (.topology | type) == "object" then (.topology |
@@ -153,8 +165,8 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
   # ---- commands ------------------------------------------------------------
   # Keyed by an id, and not cross-checked against anything: /dev-pipeline:run uses the sole key,
   # else the key equal to the directory name of this checkout.
-  + ((.commands // {}) | to_entries | map(
-      (.key as $repo | .value |
+  + ((.commands | if type == "object" then . else {} end) | to_entries | map(
+      (.key as $repo | .value | entry("commands." + $repo;
         # unitTestScope/testFile: retired keys rejected by NAME, and kept in the unknown-keys
         # allowlist below so this message, not the generic one, is what a consumer sees.
         err(has("unitTestScope"); "commands." + $repo + ".unitTestScope was removed — the unit-test mutation engine that read it was retired, so the key armed nothing. For mutation coverage, add your own mutation tool as a commands.<id>.extraLanes check. Delete the key from your config (docs/migrations/v1-to-v2.md)")
@@ -180,11 +192,13 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
                 ["commands." + $repo + ".lanes[" + ($li|tostring) + "]: must be an object {name, cwd?, commands[]}"]
               else
               err(((keys) - ["name","cwd","commands"]) != []; "commands." + $repo + ".lanes[" + ($li|tostring) + "]: unknown keys")
-              + err((.name? // "") == ""; "commands." + $repo + ".lanes[" + ($li|tostring) + "].name: required")
-              + err((.cwd? != null) and ((.cwd | type) != "string"); "commands." + $repo + ".lanes[" + ($li|tostring) + "].cwd: must be string")
-              + err((.commands? == null); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: required")
-              + err((.commands? != null) and ((.commands | type) != "array"); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: must be array")
-              + err(((.commands? | type) == "array") and ((.commands | length) < 1); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: at least one required")
+              + err((.name // "") == ""; "commands." + $repo + ".lanes[" + ($li|tostring) + "].name: required")
+              + err((.name != null) and ((.name | type) != "string"); "commands." + $repo + ".lanes[" + ($li|tostring) + "].name: must be string")
+              + err((.cwd != null) and ((.cwd | type) != "string"); "commands." + $repo + ".lanes[" + ($li|tostring) + "].cwd: must be string")
+              + err((.commands == null); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: required")
+              + err((.commands != null) and ((.commands | type) != "array"); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: must be array")
+              + err(((.commands | type) == "array") and ((.commands | length) < 1); "commands." + $repo + ".lanes[" + ($li|tostring) + "].commands: at least one required")
+              + (.commands | strings("commands." + $repo + ".lanes[" + ($li|tostring) + "].commands"))
               end
             )
           ) | add // []) end)
@@ -197,10 +211,14 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
                 ["commands." + $repo + ".extraLanes[" + ($i|tostring) + "]: must be an object {name, when?, commands[], failureClass?}"]
               else
               err(((keys) - ["name","when","commands","failureClass"]) != []; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "]: unknown keys")
-              + err((.name? // "") == ""; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].name: required")
-              + err((.when? != null) and ((.when | type) != "array"); "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].when: must be array")
-              + err(((.commands // []) | length) < 1; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].commands: at least one required")
-              + err((.failureClass? // "") | IN("FORMAT","LINT_AUTOFIX","TYPE_ERROR","TEST_FAILURE","PLAN_CMD_FAILURE","INFRA") | not; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].failureClass: must be a closed failure-taxonomy value (FORMAT|LINT_AUTOFIX|TYPE_ERROR|TEST_FAILURE|PLAN_CMD_FAILURE|INFRA)")
+              + err((.name // "") == ""; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].name: required")
+              + err((.name != null) and ((.name | type) != "string"); "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].name: must be string")
+              + err((.when != null) and ((.when | type) != "array"); "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].when: must be array")
+              + (.when | strings("commands." + $repo + ".extraLanes[" + ($i|tostring) + "].when"))
+              + err((.commands != null) and ((.commands | type) != "array"); "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].commands: must be array")
+              + err((.commands | if type == "array" then length else 0 end) < 1; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].commands: at least one required")
+              + (.commands | strings("commands." + $repo + ".extraLanes[" + ($i|tostring) + "].commands"))
+              + err((.failureClass // "") | IN("FORMAT","LINT_AUTOFIX","TYPE_ERROR","TEST_FAILURE","PLAN_CMD_FAILURE","INFRA") | not; "commands." + $repo + ".extraLanes[" + ($i|tostring) + "].failureClass: must be a closed failure-taxonomy value (FORMAT|LINT_AUTOFIX|TYPE_ERROR|TEST_FAILURE|PLAN_CMD_FAILURE|INFRA)")
               end
             )
           ) | add // []) end)
@@ -244,12 +262,11 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
               end
             )
           ) | add // []) end)
-      )
+      ))
     ) | add // [])
 
   # ---- reviewers -----------------------------------------------------------
-  + err((.reviewers? != null) and ((.reviewers | type) != "object"); "reviewers: must be object")
-  + ((.reviewers // {}) |
+  + (.reviewers | group("reviewers";
       (["haiku","sonnet","opus","fable"]) as $models
       | ($shippedTiers + ((.tierMap // {}) | if type == "object" then keys else [] end)) as $tiers
       | err(((keys) - ["add","remove","default","modelOverrides","tierMap","webComponentGlobs"]) != []; "reviewers: unknown keys")
@@ -259,8 +276,14 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
       + err((.remove? != null) and ((.remove | type) != "array"); "reviewers.remove: must be array")
       + ((.remove // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["reviewers.remove: every entry must be a string"] else [] end) else [] end)
       + err(has("default"); "reviewers.default was removed — nothing read it: the review of the lane dispatches no reviewer panel, and review-lead ignored it. Delete the key " + $v3doc)
-      + ((.add // []) | to_entries | map(
-          err((.value.name? // "") == ""; "reviewers.add[" + (.key|tostring) + "].name: required")
+      + ((.add | if type == "array" then . else [] end) | to_entries | map(
+          ("reviewers.add[" + (.key|tostring) + "]") as $p | .value | entry($p;
+            err(((keys) - ["name","dimensions"]) != []; $p + ": unknown keys")
+            + err((.name // "") == ""; $p + ".name: required")
+            + err((.name != null) and ((.name | type) != "string"); $p + ".name: must be string")
+            + err((.dimensions != null) and ((.dimensions | type) != "array"); $p + ".dimensions: must be array")
+            + (.dimensions | strings($p + ".dimensions"))
+          )
         ) | add // [])
       # tierMap VALUES are raw dispatch models — that closed enum is the real one, and the
       # schema still declares it. Validated before modelOverrides because the effective
@@ -273,25 +296,24 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
       # tier alphabet — the shipped tiers merged with any this config declares. This is the
       # cross-field constraint JSON Schema cannot express, which is why the schema half
       # degrades to a bare string and the real check lives here.
-      + ((.modelOverrides // {}) | to_entries | map(
+      + (.modelOverrides | group("reviewers.modelOverrides"; to_entries | map(
           err((.value | IN(($models + $tiers)[])) | not;
               "reviewers.modelOverrides." + .key + ": " + (if $tierDocFound
                 then "must name a dispatch model (haiku, sonnet, opus, fable) or a tier in the effective tierMap"
                 else $noAlphabet end))
-        ) | add // [])
-    )
+        ) | add // []))
+    ))
 
   # ---- paths / run / design ------------------------------------------------
-  + ((.paths // {}) |
+  + (.paths | group("paths";
       err(((keys) - ["plansDir","pipelineStateDir","runtimeData"]) != []; "paths: unknown keys")
-      + err((.plansDir? != null) and ((.plansDir | type) != "string"); "paths.plansDir: must be string")
-      + err((.pipelineStateDir? != null) and ((.pipelineStateDir | type) != "string"); "paths.pipelineStateDir: must be string")
-      + err((.runtimeData? != null) and ((.runtimeData | type) != "array"); "paths.runtimeData: must be array")
+      + err((.plansDir != null) and ((.plansDir | type) != "string"); "paths.plansDir: must be string")
+      + err((.pipelineStateDir != null) and ((.pipelineStateDir | type) != "string"); "paths.pipelineStateDir: must be string")
+      + err((.runtimeData != null) and ((.runtimeData | type) != "array"); "paths.runtimeData: must be array")
       + ((.runtimeData // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["paths.runtimeData: every entry must be a string"] else [] end) else [] end)
-    )
-  + ((.run // {}) |
-      err((type) != "object"; "run: must be object")
-      + err(((keys) - ["maxRounds","checksRedMax","buildTimeoutSeconds","reviewTimeoutSeconds","laneTimeoutSeconds","costCeilingUsd","joinedReview"]) != []; "run: unknown keys")
+    ))
+  + (.run | group("run";
+      err(((keys) - ["maxRounds","checksRedMax","buildTimeoutSeconds","reviewTimeoutSeconds","laneTimeoutSeconds","costCeilingUsd","joinedReview"]) != []; "run: unknown keys")
       + err((.maxRounds? != null) and (((.maxRounds | type) != "number") or (.maxRounds != (.maxRounds | floor)) or (.maxRounds < 1)); "run.maxRounds: must be an integer >= 1")
       + err((.checksRedMax? != null) and (((.checksRedMax | type) != "number") or (.checksRedMax != (.checksRedMax | floor)) or (.checksRedMax < 1)); "run.checksRedMax: must be an integer >= 1")
       + err((.buildTimeoutSeconds? != null) and (((.buildTimeoutSeconds | type) != "number") or (.buildTimeoutSeconds != (.buildTimeoutSeconds | floor)) or (.buildTimeoutSeconds < 60)); "run.buildTimeoutSeconds: must be an integer >= 60")
@@ -299,22 +321,22 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
       + err((.laneTimeoutSeconds? != null) and (((.laneTimeoutSeconds | type) != "number") or (.laneTimeoutSeconds != (.laneTimeoutSeconds | floor)) or (.laneTimeoutSeconds < 60)); "run.laneTimeoutSeconds: must be an integer >= 60")
       + err((.costCeilingUsd? != null) and (((.costCeilingUsd | type) != "number") or (.costCeilingUsd <= 0)); "run.costCeilingUsd: must be a number > 0")
       + err((.joinedReview? != null) and ((.joinedReview | type) != "boolean"); "run.joinedReview: must be boolean")
-    )
-  + (if (.design != null) then (.design |
-      err((type) != "object"; "design: must be object")
-      + err(((keys) - ["provider","liveRender"]) != []; "design: unknown keys")
-      + err((.provider? // "") | IN("figma","claude-design") | not; "design.provider must be figma|claude-design")
-      + (if (.liveRender != null) then (.liveRender |
-          err((type) != "object"; "design.liveRender: must be object")
-          + err(has("tolerancePx"); "design.liveRender.tolerancePx was removed in configVersion 3 — the pixel-tolerance compare is replaced by the route smoke /dev-pipeline:run runs after every build; set design.liveRender.smokeCommand " + $v3doc)
+    ))
+  + (.design | group("design";
+      err(((keys) - ["provider","liveRender"]) != []; "design: unknown keys")
+      + err((.provider // "") | IN("figma","claude-design") | not; "design.provider must be figma|claude-design")
+      + (.liveRender | group("design.liveRender";
+          err(has("tolerancePx"); "design.liveRender.tolerancePx was removed in configVersion 3 — the pixel-tolerance compare is replaced by the route smoke /dev-pipeline:run runs after every build; set design.liveRender.smokeCommand " + $v3doc)
           + err(has("cwd"); "design.liveRender.cwd was removed in configVersion 3 — the render command runs in the ticket worktree; put any cd into the command itself; if it named another repo, move design into that repo config " + $v3doc)
           + err(((keys) - ["command","readyProbe","smokeCommand","tolerancePx","cwd"]) != []; "design.liveRender: unknown keys")
-          + err((.command? // "") == ""; "design.liveRender.command: required")
-          + err((.command? != null) and ((.command | type) != "string"); "design.liveRender.command: must be string")
-          + err((.smokeCommand? != null) and ((.smokeCommand | type) != "string"); "design.liveRender.smokeCommand: must be string")
-          + err((.readyProbe? != null) and ((.readyProbe | type) != "string"); "design.liveRender.readyProbe: must be string")
-        ) else [] end)
-    ) else [] end)
+          + err((.command // "") == ""; "design.liveRender.command: required")
+          + err((.command != null) and ((.command | type) != "string"); "design.liveRender.command: must be string")
+          + err(((.command | type) == "string") and (.command != "") and (.command | contains("{out}") | not); "design.liveRender.command: must take the screenshot path as {out}")
+          + err((.smokeCommand != null) and ((.smokeCommand | type) != "string"); "design.liveRender.smokeCommand: must be string")
+          + ([("{route}","{mustShow}") as $ph | select((.smokeCommand | type) == "string" and (.smokeCommand | contains($ph) | not)) | "design.liveRender.smokeCommand: must take " + $ph])
+          + err((.readyProbe != null) and ((.readyProbe | type) != "string"); "design.liveRender.readyProbe: must be string")
+        ))
+    ))
 
   # ---- retired: gates, stageParams ---------------------------------------------
   + (if (.gates | type) == "object" then (.gates |
@@ -332,6 +354,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
       + err(has("inertPattern"); "stageParams.inertPattern was removed in configVersion 3 — every configured check runs on every build, so there is no inert-diff classifier to override " + $v3doc)
     ) else [] end)
 
+  end
   | .[]
 ' "$CONFIG")
 

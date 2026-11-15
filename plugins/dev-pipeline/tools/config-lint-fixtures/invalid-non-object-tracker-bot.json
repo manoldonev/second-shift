@@ -1,0 +1,13 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github",
+    "bot": "x"
+  },
+  "commands": {
+    "app": {
+      "test": "yarn test"
+    }
+  },
+  "bogus": 1
+}

@@ -1,0 +1,18 @@
+{
+  "configVersion": 3,
+  "tracker": {
+    "type": "github"
+  },
+  "commands": {
+    "app": {
+      "test": "yarn test"
+    }
+  },
+  "design": {
+    "provider": "figma",
+    "liveRender": {
+      "command": "yarn render:verify --route {route}",
+      "smokeCommand": "true"
+    }
+  }
+}
