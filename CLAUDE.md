@@ -56,7 +56,7 @@ Bump level is derived from the conventional type — the verb is load-bearing, n
 
 | Commit | Bump |
 | --- | --- |
-| `BREAKING CHANGE:` footer, or `type!:` | major |
+| `BREAKING CHANGE:` footer, or `type!:` | major for each touched plugin the subject scope names; every touched plugin when it names none |
 | `feat:` | minor |
 | everything else (`fix:`, `docs:`, `test:`, `chore:`, `refactor:`) | patch |
 
@@ -68,6 +68,11 @@ patch.
 **The verb goes on the PR title.** Merges are squash-merges, so `derive-release.sh` reads the PR
 title as the commit subject: a verb that sits only on a branch commit is lost, and a verbless
 title derives a patch. A `BREAKING CHANGE:` line in the body still derives a major.
+
+**A breaking PR title scopes every plugin it breaks.** The scope is comma-split, and each name
+must equal a `plugins/` directory: `feat(dev-pipeline,review-toolkit)!:`. A touched plugin the
+scope does not name takes its type's level without the `!`. A breaking commit whose scope names
+no touched plugin majors every plugin it touches.
 
 ## A session-launch fix lands in the scheduler
 

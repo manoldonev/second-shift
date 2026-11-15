@@ -5,7 +5,8 @@ every release must make that PR easy to open and easy to trust.
 
 **Versions and the CHANGELOG are derived at release time, not written in feature PRs.**
 A feature PR never touches `plugins/*/.claude-plugin/plugin.json` `version`,
-`plugins/*/.claude-plugin/release` or `CHANGELOG.md` — CI rejects it (`scripts/check-frozen-files.sh`). All are computed by
+`plugins/*/.claude-plugin/release`, `.claude-plugin/marketplace.json` `metadata.version` or
+`CHANGELOG.md` — CI rejects it (`scripts/check-frozen-files.sh`). All are computed by
 [`scripts/derive-release.sh`](../scripts/derive-release.sh) from conventional commit types
 and changed paths, and land on an accumulating **release PR**. `release` holds the release version that last bumped its
 plugin; `/dev-pipeline:run` puts it on the PR body's `built-by:` line and the verdict's `reviewed-by:` line, `/dev-pipeline:review` on its verdict's `reviewed-by:` line, and a standalone review-lead on its report's `reviewed-by:` line.
@@ -15,8 +16,10 @@ plugin; `/dev-pipeline:run` puts it on the PR body's `built-by:` line and the ve
 1. **Feature PRs merge to `main` as squashes**, each carrying a `Changelog:` trailer in a
    commit body (or the explicit `Changelog: none` opt-out). CI enforces the trailer on any
    PR touching `plugins/**` (`scripts/check-changelog-trailer.sh`). The trailer is where
-   migration prose lives — it becomes the CHANGELOG bullet body and the Release "What
-   breaks" entry:
+   migration prose lives — it becomes the CHANGELOG bullet body, and a block with a real
+   `Migration:` becomes the Release "What breaks" entry. `Migration: none` (the text from the
+   label to the end of its block is `none`, any case, one trailing period allowed) is a no-op:
+   the bullet keeps it, What breaks drops it. `none` followed by more prose is a real migration:
 
    ```
    fix(dev-pipeline): a mis-shaped setup lane must be loud, not a false green
@@ -26,17 +29,27 @@ plugin; `/dev-pipeline:run` puts it on the PR body's `built-by:` line and the ve
      config-lint. Rewrite ["npm ci"] as [{"name":"install","commands":["npm ci"]}].
    ```
 
-   A `BREAKING CHANGE:` footer doubles as the major-bump signal and the migration prose.
+   A `BREAKING CHANGE:` footer doubles as the major-bump signal and the migration prose. A
+   breaking PR title scopes every plugin it breaks (`feat(dev-pipeline,review-toolkit)!:`):
+   the major goes to the touched plugins the scope names.
    Trailers are extracted **grep-anywhere**, not via `git interpret-trailers`: this repo's
    squash prefill is `COMMIT_MESSAGES` (bodies are concatenated), and git only recognizes
    trailers in the final paragraph — so a mid-body trailer must still count.
 
 2. **Every push to `main` re-derives the release PR** (`.github/workflows/release-pr.yml`).
    It computes which plugins changed (from paths under `plugins/<name>/`, never the commit
-   scope), each plugin's bump level (`BREAKING CHANGE:`/`!` → major, `feat` → minor, else
-   patch; max across that plugin's commits), the marketplace version (max level across all
+   scope), each plugin's bump level (max across that plugin's commits), the marketplace version (max level across all
    changed plugins applied to the previous release version), the CHANGELOG section, and the
-   pinned-ref doc example. `release:` commits are excluded from the derivation.
+   pinned-ref doc example. `release:` commits are excluded from the derivation. A commit's
+   level for a plugin it touches:
+
+   - `feat` → minor, else patch.
+   - A breaking commit (`BREAKING CHANGE:` footer or `type!:`) → major for each touched plugin
+     its subject scope names. The scope is comma-split, and each name must equal a `plugins/`
+     directory, so `intake` names nothing. Its `**BREAKING:**` line renders only under those
+     plugins; the other touched plugins take the type's level.
+   - A breaking commit whose scope names no touched plugin (no scope, a verbless footer-only
+     title, a scope like `ci`) → major for every plugin it touches.
 
 3. **Human judgment lands on the release PR** — see the checklist it renders into its own
    body (migration prose, section-catalog breaking-class review, plugin renames). **Land
@@ -73,16 +86,16 @@ bash plugins/second-shift/skills/onboard/tools/pin-resolve.sh manoldonev/second-
 #    /second-shift:local-dev-refresh
 ```
 
-**Never hand-edit versions or `CHANGELOG.md`.** On a feature branch CI rejects it
+**Never hand-edit versions (plugin or marketplace) or `CHANGELOG.md`.** On a feature branch CI rejects it
 (`check-frozen-files.sh`); on the release branch the next re-derive erases it.
 
 ## Gates
 
 | Gate | Where | What it enforces |
 | --- | --- | --- |
-| `check-frozen-files.sh` | every PR except `release/next` | **hard:** no `plugin.json` version, `release` stamp or `CHANGELOG.md` edits. **advisory (warn-only, never fails):** announces a `.github/workflows/**` edit — the enforcer there is meant to be a server-side ruleset, not this script, which runs inside the very workflow it would freeze ([`pipeline-manifesto.md`](pipeline-manifesto.md) T0 note) |
+| `check-frozen-files.sh` | every PR except `release/next` | **hard:** no `plugin.json` version, `release` stamp, marketplace `metadata.version` or `CHANGELOG.md` edits. **advisory (warn-only, never fails):** announces a `.github/workflows/**` edit — the enforcer there is meant to be a server-side ruleset, not this script, which runs inside the very workflow it would freeze ([`pipeline-manifesto.md`](pipeline-manifesto.md) T0 note) |
 | `check-changelog-trailer.sh` | every PR except `release/next` | a `plugins/**` PR carries `Changelog:` or `Changelog: none` |
-| `check-plugin-version-bumps.sh` | the release PR only | every content-changed plugin carries its derived bump (the version string is the update **cache key** — an unbumped plugin updates NOBODY) |
+| `check-plugin-version-bumps.sh` | the release PR only | every content-changed plugin's version string changed since the last tag (the version string is the update **cache key** — an unbumped plugin updates NOBODY); it does not check the bump level |
 | configVersion migration-doc gate | the release PR only | a `configVersion` change ships `docs/migrations/vN-to-vN+1.md` (the contract in [`migrations/README.md`](migrations/README.md)) |
 
 ## Things the derivation does NOT decide

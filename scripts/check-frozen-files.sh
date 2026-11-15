@@ -2,7 +2,9 @@
 # check-frozen-files.sh — the PR-time inverse of the old version-bump discipline (#119).
 #
 # Under release-time derivation, feature PRs must NOT write the release-owned files:
-# CHANGELOG.md and any plugins/*/.claude-plugin/plugin.json `version` field are computed
+# CHANGELOG.md, any plugins/*/.claude-plugin/plugin.json `version` field, the
+# plugins/*/.claude-plugin/release stamps and .claude-plugin/marketplace.json
+# `metadata.version` are computed
 # by scripts/derive-release.sh on the release PR (branch release/next). A feature PR that
 # touches them re-creates the every-PR-conflicts-with-every-PR problem this repo removed.
 #
@@ -12,7 +14,8 @@
 #
 # The script has TWO tiers, and the distinction is load-bearing:
 #
-#   HARD rows (CHANGELOG.md, plugin.json `version`) — exit 1. CI is the enforcer; a
+#   HARD rows (CHANGELOG.md, plugin.json `version`, `release` stamps, marketplace.json
+#   `metadata.version`) — exit 1. CI is the enforcer; a
 #   feature PR has no legitimate reason to write them.
 #
 #   ADVISORY rows (.github/workflows/**) — print and continue, never exit 1. The
@@ -60,6 +63,16 @@ for manifest in $(git diff --name-only "$MERGE_BASE"..HEAD -- 'plugins/*/.claude
     fails=$((fails + 1))
   fi
 done
+
+MARKETPLACE=".claude-plugin/marketplace.json"
+if ! git diff --quiet "$MERGE_BASE"..HEAD -- "$MARKETPLACE" 2>/dev/null; then
+  old_ver="$(git show "$MERGE_BASE:$MARKETPLACE" 2>/dev/null | jq -r '.metadata.version // empty' 2>/dev/null || true)"
+  new_ver="$(git show "HEAD:$MARKETPLACE" 2>/dev/null | jq -r '.metadata.version // empty' 2>/dev/null || true)"
+  if [[ "$old_ver" != "$new_ver" ]]; then
+    echo "[frozen-files] ✗ $MARKETPLACE: metadata.version $old_ver → $new_ver — the marketplace version is release-owned (derived on the release PR). Revert the bump." >&2
+    fails=$((fails + 1))
+  fi
+fi
 
 for stamp in $(git diff --name-only "$MERGE_BASE"..HEAD -- 'plugins/*/.claude-plugin/release' 2>/dev/null); do
   echo "[frozen-files] ✗ $stamp is release-owned — scripts/derive-release.sh stamps it on the release PR. Revert the edit." >&2

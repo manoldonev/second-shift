@@ -21,9 +21,15 @@
 #   - Commit list: <last-tag>..HEAD, excluding subjects matching '^release: ' (the release
 #     PR's own squash commits are never counted — explicit, not incidental to tag position).
 #   - Changed plugins per commit: from paths under plugins/<name>/, never the commit scope.
-#   - Bump level: '!' type suffix or a 'BREAKING CHANGE:' body line -> major; feat -> minor;
-#     else patch. Per-plugin level = max across its commits; release level = max across
-#     changed plugins, applied to the previous marketplace version.
+#   - Bump level: feat -> minor, else patch. A breaking commit ('!' type suffix or a
+#     'BREAKING CHANGE:' body line) majors the touched plugins its subject scope names
+#     (comma-split, each an exact plugins/ directory name); when it names none of them, every
+#     plugin it touches takes the major. Its BREAKING line renders only under those plugins.
+#     Per-plugin level = max across its commits; release level = max across changed plugins,
+#     applied to the previous marketplace version.
+#   - What breaks: a commit's BREAKING CHANGE prose, plus each Changelog block whose
+#     'Migration:' is real. A migration whose text to the end of its block is 'none'
+#     (case-insensitive, one trailing period allowed) is a no-op and never renders there.
 #   - Cutover/max rule: derived version = max(bump(version-at-tag, level), committed version)
 #     so a main that is already hand-bumped ahead never goes backwards.
 #   - Changelog: trailers are extracted GREP-ANYWHERE, never via git interpret-trailers: the
@@ -140,12 +146,19 @@ for sha in $(git log --reverse --format=%H "$LAST_TAG..HEAD"); do
   body="$(git log -1 --format=%b "$sha")"
 
   level=1
-  if grep -qE '^[a-z]+(\([^)]*\))?!:' <<<"$subject"; then
-    level=3
-  elif grep -qE '^BREAKING CHANGE:' <<<"$body"; then
-    level=3
-  elif grep -qE '^feat(\([^)]*\))?:' <<<"$subject"; then
-    level=2
+  grep -qE '^feat(\([^)]*\))?!?:' <<<"$subject" && level=2
+
+  : > "$SCRATCH/major-$sha"
+  if grep -qE '^[a-z]+(\([^)]*\))?!:' <<<"$subject" || grep -qE '^BREAKING CHANGE:' <<<"$body"; then
+    scope="$(sed -nE 's/^[a-z]+\(([^)]*)\)!?:.*/\1/p' <<<"$subject")"
+    scope="${scope//[[:space:]]/}"
+    if [[ -n "$scope" ]]; then
+      IFS=, read -r -a scope_tokens <<<"$scope"
+      for tok in "${scope_tokens[@]:-}"; do
+        case " $plugins " in *" $tok "*) printf '%s\n' "$tok" ;; esac
+      done | sort -u > "$SCRATCH/major-$sha"
+    fi
+    [[ -s "$SCRATCH/major-$sha" ]] || tr ' ' '\n' <<<"$plugins" > "$SCRATCH/major-$sha"
   fi
 
   pr="$(printf '%s' "$subject" | grep -oE '\(#[0-9]+\)[[:space:]]*$' | grep -oE '[0-9]+' || true)"
@@ -176,8 +189,10 @@ for p in $CHANGED_PLUGINS; do
   old_ver="$(git show "$LAST_TAG:$manifest" 2>/dev/null | jq -r '.version // empty')"
   cur_ver="$(jq -r '.version // empty' "$manifest" 2>/dev/null)"
   plevel=1
-  while IFS=$'\t' read -r _sha lvl _pr plugs _subj; do
-    case " $plugs " in *" $p "*) (( lvl > plevel )) && plevel=$lvl ;; esac
+  while IFS=$'\t' read -r sha lvl _pr plugs _subj; do
+    case " $plugs " in *" $p "*) ;; *) continue ;; esac
+    grep -qxF "$p" "$SCRATCH/major-$sha" && lvl=3
+    (( lvl > plevel )) && plevel=$lvl
   done < "$SCRATCH/commits.tsv"
   (( plevel > RELEASE_LEVEL )) && RELEASE_LEVEL=$plevel
 
@@ -212,10 +227,13 @@ if [[ "$MODE" == "manifest" ]]; then
     br="$(cat "$SCRATCH/breaking-$sha")"
     no_trailer=true
     [[ -s "$SCRATCH/trailer-$sha" ]] && no_trailer=false
+    [[ -s "$SCRATCH/major-$sha" ]] && lvl=3
+    major_json="$(jq -R -s 'split("\n") | map(select(. != ""))' < "$SCRATCH/major-$sha")"
     PRS_JSON="$(jq -n --argjson acc "$PRS_JSON" --arg sha "$sha" --arg subj "$subj" --arg pr "$pr" \
       --arg plugs "$plugs" --arg lvl "$(level_name "$lvl")" --argjson tr "$tr_json" --arg br "$br" --argjson nt "$no_trailer" \
+      --argjson major "$major_json" \
       '$acc + [{sha: $sha, subject: $subj, prNumber: (if $pr == "" then null else ($pr | tonumber) end),
-                plugins: ($plugs | split(" ")), level: $lvl, changelog: $tr,
+                plugins: ($plugs | split(" ")), level: $lvl, majorPlugins: $major, changelog: $tr,
                 breaking: (if $br == "" then null else $br end), noTrailer: $nt}]')"
   done < "$SCRATCH/commits.tsv"
 
@@ -227,10 +245,19 @@ fi
 
 # ---------- shared rendering helpers (apply + release-notes) ----------
 
-render_bullet() { # render_bullet <sha> <subject> <pr> -> markdown bullet with trailer prose
-  local sha="$1" subj="$2" pr="$3" suffix=""
-  [[ -n "$pr" ]] && suffix=" (#$pr)"
-  printf -- '- **%s**%s\n' "$subj" "$suffix"
+bare_subject() { # bare_subject <subject> <pr> -> the subject without its trailing (#pr)
+  if [[ -n "$2" ]]; then
+    sed -E "s/[[:space:]]*\(#$2\)[[:space:]]*\$//" <<<"$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+pr_suffix() { [[ -n "$1" ]] && printf ' (#%s)' "$1"; }
+
+render_bullet() { # render_bullet <sha> <subject> <pr> <plugin> -> markdown bullet with trailer prose
+  local sha="$1" subj="$2" pr="$3" plugin="$4"
+  printf -- '- **%s**%s\n' "$(bare_subject "$subj" "$pr")" "$(pr_suffix "$pr")"
   if [[ -s "$SCRATCH/trailer-$sha" ]]; then
     # Render every non-"none" block as indented bullet body. The no-op test normalizes
     # case, trailing whitespace and a trailing period first: contributors write
@@ -242,7 +269,7 @@ render_bullet() { # render_bullet <sha> <subject> <pr> -> markdown bullet with t
       tolower(t) != "none" { n = split($0, lines, "\n"); for (i = 1; i <= n; i++) print "  " lines[i] }' \
       "$SCRATCH/trailer-$sha"
   fi
-  if [[ -s "$SCRATCH/breaking-$sha" ]]; then
+  if [[ -s "$SCRATCH/breaking-$sha" ]] && grep -qxF "$plugin" "$SCRATCH/major-$sha"; then
     printf '  **BREAKING:** %s\n' "$(tr '\n' ' ' < "$SCRATCH/breaking-$sha" | sed 's/ $//')"
   fi
 }
@@ -305,7 +332,7 @@ SECTION="$SCRATCH/section.md"
     while IFS=$'\t' read -r sha _l pr plugs subj; do
       case " $plugs " in *" $name "*) ;; *) continue ;; esac
       pr_covered "$pr" && continue
-      render_bullet "$sha" "$subj" "$pr"
+      render_bullet "$sha" "$subj" "$pr" "$name"
     done < "$SCRATCH/commits.tsv"
   done < "$SCRATCH/plugver.tsv"
 } > "$SECTION"
@@ -316,23 +343,24 @@ WHAT_BREAKS="$SCRATCH/what-breaks.md"
 {
   found=0
   while IFS=$'\t' read -r sha _lvl pr _plugs subj; do
-    ref=""
-    [[ -n "$pr" ]] && ref=" (#$pr)"
-    has_breaking=0
-    has_migration=0
-    [[ -s "$SCRATCH/breaking-$sha" ]] && has_breaking=1
-    grep -q 'Migration:' "$SCRATCH/trailer-$sha" 2>/dev/null && has_migration=1
-    if [[ "$has_breaking" -eq 1 ]]; then
-      printf -- '- **%s**%s — %s\n' "$subj" "$ref" "$(tr '\n' ' ' < "$SCRATCH/breaking-$sha" | sed 's/ $//')"
+    ref="$(pr_suffix "$pr")"
+    shown="$(bare_subject "$subj" "$pr")"
+    migrations="$SCRATCH/migrations-$sha"
+    awk 'BEGIN { RS = "" }
+      {
+        i = index($0, "Migration:"); if (i == 0) next
+        t = tolower(substr($0, i + 10)); gsub(/^[[:space:]]+|[[:space:]]+$/, "", t); sub(/\.$/, "", t)
+        if (t == "none") next
+        n = split($0, lines, "\n"); for (j = 1; j <= n; j++) print "  " lines[j]
+      }' "$SCRATCH/trailer-$sha" > "$migrations"
+    if [[ -s "$SCRATCH/breaking-$sha" ]]; then
+      printf -- '- **%s**%s — %s\n' "$shown" "$ref" "$(tr '\n' ' ' < "$SCRATCH/breaking-$sha" | sed 's/ $//')"
       found=1
-    elif [[ "$has_migration" -eq 1 ]]; then
-      printf -- '- **%s**%s:\n' "$subj" "$ref"
+    elif [[ -s "$migrations" ]]; then
+      printf -- '- **%s**%s:\n' "$shown" "$ref"
       found=1
     fi
-    if [[ "$has_migration" -eq 1 ]]; then
-      awk 'BEGIN { RS = "" } /Migration:/ { n = split($0, lines, "\n"); for (i = 1; i <= n; i++) print "  " lines[i] }' \
-        "$SCRATCH/trailer-$sha"
-    fi
+    cat "$migrations"
   done < "$SCRATCH/commits.tsv"
   [[ "$found" -eq 0 ]] && echo "Nothing breaks."
 } > "$WHAT_BREAKS"
@@ -422,10 +450,8 @@ NO_TRAILER_LINES="$SCRATCH/no-trailer.md"
 : > "$NO_TRAILER_LINES"
 while IFS=$'\t' read -r sha _lvl pr _plugs subj; do
   if [[ ! -s "$SCRATCH/trailer-$sha" && ! -s "$SCRATCH/breaking-$sha" ]]; then
-    ref=""
-    [[ -n "$pr" ]] && ref=" (#$pr)"
     pr_covered "$pr" && continue
-    printf -- '- %s%s\n' "$subj" "$ref" >> "$NO_TRAILER_LINES"
+    printf -- '- %s%s\n' "$(bare_subject "$subj" "$pr")" "$(pr_suffix "$pr")" >> "$NO_TRAILER_LINES"
   fi
 done < "$SCRATCH/commits.tsv"
 if [[ -s "$NO_TRAILER_LINES" ]]; then

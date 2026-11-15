@@ -233,6 +233,117 @@ git commit -qm "fix(alpha): quiet fix (#16)" -m "Changelog: none"
 bash "$DERIVE" release-notes > "$NOTES" || bad "release-notes (clean range) exited nonzero"
 assert_contains "explicit Nothing breaks. (AC-8)" 'Nothing breaks.' "$NOTES"
 
+plugin_section() { # plugin_section <plugin> <out> -> that plugin's lines of the newest CHANGELOG section
+  awk -v h="### \`$1\`" 'index($0, h) == 1 { on = 1; print; next } on && /^##/ { exit } on { print }' CHANGELOG.md > "$2"
+}
+touch_plugins() { for p in "$@"; do echo "$RANDOM" >> "plugins/$p/touch.txt"; done; git add -A; }
+
+echo "== breaking commits major the plugins their scope names =="
+git checkout -qb named-scope v2.0.0
+touch_plugins alpha beta
+git commit -qm "feat(alpha, gamma)!: drop the old flag (#30)" -m "BREAKING CHANGE: the old alpha flag is gone.
+
+Changelog: the old alpha flag is removed.
+  Migration: drop --old from your scripts."
+bash "$DERIVE" manifest > "$MANIFEST" || bad "manifest (named scope) exited nonzero"
+check_jq '.plugins.alpha.level == "major" and .plugins.alpha.new == "2.0.0"' "a breaking commit majors the touched plugin its scope names"
+check_jq '.plugins.beta.level == "minor" and .plugins.beta.new == "3.1.0"' "a touched plugin the scope does not name takes its type's level without the !"
+check_jq '.plugins | has("gamma") | not' "a named plugin the commit does not touch is not added"
+check_jq '.prs[0].majorPlugins == ["alpha"]' "the manifest names the plugins that take the major"
+check_jq '.releaseVersion == "3.0.0"' "the release still takes the major"
+bash "$DERIVE" apply > /dev/null || bad "apply (named scope) exited nonzero"
+plugin_section alpha "$WORK/sec-alpha"
+plugin_section beta "$WORK/sec-beta"
+assert_contains "the BREAKING line renders under the majored plugin" '**BREAKING:** the old alpha flag is gone.' "$WORK/sec-alpha"
+assert_contains "the unnamed plugin keeps the commit's bullet" 'drop the old flag' "$WORK/sec-beta"
+assert_not_contains "the unnamed plugin's section has no BREAKING line" '**BREAKING:**' "$WORK/sec-beta"
+
+git checkout -q -f v2.0.0
+git checkout -qb footer-only
+touch_plugins alpha beta
+git commit -qm "Rework the shared surface (#31)" -m "Changelog: the shared surface moved.
+  Migration: rename shared.x to shared.y.
+
+BREAKING CHANGE: shared.x is gone."
+bash "$DERIVE" manifest > "$MANIFEST" || bad "manifest (footer only) exited nonzero"
+check_jq '.plugins.alpha.level == "major" and .plugins.beta.level == "major"' "a verbless footer-only breaking commit majors every plugin it touches"
+bash "$DERIVE" apply > /dev/null || bad "apply (footer only) exited nonzero"
+plugin_section alpha "$WORK/sec-alpha"
+plugin_section beta "$WORK/sec-beta"
+assert_contains "the fallback renders the BREAKING line under alpha" '**BREAKING:** shared.x is gone.' "$WORK/sec-alpha"
+assert_contains "the fallback renders the BREAKING line under beta" '**BREAKING:** shared.x is gone.' "$WORK/sec-beta"
+
+git checkout -q -f v2.0.0
+git checkout -qb untouched-scope
+touch_plugins alpha beta
+git commit -qm "fix(gamma,alph)!: rename the entry point (#32)" -m "Changelog: none."
+bash "$DERIVE" manifest > "$MANIFEST" || bad "manifest (untouched scope) exited nonzero"
+check_jq '.plugins.alpha.level == "major" and .plugins.beta.level == "major"' "a scope naming only untouched or near-miss plugins falls back to every touched plugin"
+check_jq '.plugins | has("gamma") | not' "the fallback never adds the untouched named plugin"
+
+echo "== Migration: none is a no-op under What breaks =="
+git checkout -q -f v2.0.0
+git checkout -qb migrations
+touch_plugins alpha
+git commit -qm "fix(alpha): bare none (#40)" -m "Changelog: dropped a dead flag.
+  Migration: none"
+touch_plugins alpha
+git commit -qm "fix(alpha): punctuated none (#41)" -m "Changelog: tidied a message.
+  Migration: None."
+touch_plugins alpha
+git commit -qm "fix(alpha): mid-line none (#42)" -m "Changelog: tidied the parser. Migration: none."
+touch_plugins alpha
+git commit -qm "fix(alpha): two none blocks (#43)" -m "Changelog: first quiet change.
+  Migration: none.
+
+Changelog: second quiet change.
+  Migration: none."
+touch_plugins alpha
+git commit -qm "fix(alpha): none with prose (#44)" -m "Changelog: renamed a knob.
+  Migration: none of the defaults moved, but rename KNOB_A to KNOB_B."
+touch_plugins alpha
+git commit -qm "fix(alpha): mixed blocks (#45)" -m "Changelog: the first mixed change.
+  Migration: none.
+
+Changelog: the second mixed change.
+  Migration: rerun setup."
+touch_plugins beta
+git commit -qm "fix(beta)!: move the beta api (#46)" -m "BREAKING CHANGE: the beta api moved.
+
+Changelog: moved the beta entry point.
+  Migration: none."
+touch_plugins alpha
+git commit -qm "fix(alpha): bare subject (#47)"
+bash "$DERIVE" release-notes > "$NOTES" || bad "release-notes (migrations) exited nonzero"
+assert_not_contains "a bare 'Migration: none' gives no What-breaks entry" 'bare none' "$NOTES"
+assert_not_contains "a punctuated 'Migration: None.' gives no What-breaks entry" 'punctuated none' "$NOTES"
+assert_not_contains "a mid-line 'Migration: none.' gives no What-breaks entry" 'mid-line none' "$NOTES"
+assert_not_contains "two no-op blocks give no What-breaks entry" 'two none blocks' "$NOTES"
+assert_contains "'none' followed by prose is a real migration" '- **fix(alpha): none with prose** (#44):' "$NOTES"
+assert_contains "the real migration's block renders whole" 'renamed a knob.' "$NOTES"
+assert_contains "the real migration's prose renders" 'rename KNOB_A to KNOB_B' "$NOTES"
+assert_contains "a commit with one real migration keeps its entry" 'mixed blocks' "$NOTES"
+assert_contains "its real block renders" 'Migration: rerun setup.' "$NOTES"
+assert_not_contains "its no-op block does not render" 'the first mixed change' "$NOTES"
+assert_contains "a breaking commit keeps its entry and BREAKING prose" '- **fix(beta)!: move the beta api** (#46) — the beta api moved.' "$NOTES"
+assert_not_contains "a breaking commit renders no no-op block" 'moved the beta entry point' "$NOTES"
+
+echo "== one PR number per generated line =="
+PR_BODY="$WORK/pr-body-migrations.md"
+bash "$DERIVE" apply > "$PR_BODY" || bad "apply (migrations) exited nonzero"
+assert_contains "the CHANGELOG bullet carries its PR number once" '- **fix(alpha): none with prose** (#44)' CHANGELOG.md
+if grep -qxF -- '- fix(alpha): bare subject (#47)' "$PR_BODY"; then ok "the subject-only line carries its PR number once"
+else bad "the subject-only line carries its PR number once — $(grep -F 'bare subject' "$PR_BODY")"; fi
+assert_contains "the What-breaks preview carries its PR number once" '- **fix(alpha): none with prose** (#44):' "$PR_BODY"
+for f in CHANGELOG.md "$PR_BODY" "$NOTES"; do
+  if grep -nE '\(#([0-9]+)\)\*{0,2} \(#\1\)' "$f" > "$WORK/doubled.txt"; then
+    bad "$(basename "$f") repeats a PR number: $(head -1 "$WORK/doubled.txt")"
+  else
+    ok "$(basename "$f") never repeats a PR number"
+  fi
+done
+git checkout -q -f v2.0.0
+
 echo "== PR gates =="
 # Branch simulating a feature PR that (wrongly) bumps a version + touches CHANGELOG.
 git checkout -qb bad-pr v2.0.0
@@ -265,6 +376,26 @@ echo 9.9.9 > plugins/beta/.claude-plugin/release
 git add -A
 git commit -qm "fix(beta): hand-written release stamp" -m "Changelog: none"
 if bash "$FROZEN" v2.0.0 > /dev/null 2>&1; then bad "frozen-files gate passed a hand-edited release stamp"; else ok "frozen-files gate rejects a hand-edited release stamp"; fi
+
+git checkout -q v2.0.0
+git checkout -qb marketplace-version-pr
+jq '.metadata.version = "9.0.0"' .claude-plugin/marketplace.json > "$WORK/marketplace.json"
+cat "$WORK/marketplace.json" > .claude-plugin/marketplace.json
+git add -A
+git commit -qm "chore: hand-bumped marketplace version" -m "Changelog: none"
+FROZEN_OUT="$WORK/frozen-marketplace.log"
+if bash "$FROZEN" v2.0.0 > "$FROZEN_OUT" 2>&1; then bad "frozen-files gate passed a marketplace metadata.version edit"
+else ok "frozen-files gate rejects a marketplace metadata.version edit"; fi
+assert_contains "the rejection names the marketplace version" 'metadata.version 2.0.0 → 9.0.0' "$FROZEN_OUT"
+
+git checkout -q v2.0.0
+git checkout -qb marketplace-description-pr
+jq '.description = "a fixture marketplace"' .claude-plugin/marketplace.json > "$WORK/marketplace.json"
+cat "$WORK/marketplace.json" > .claude-plugin/marketplace.json
+git add -A
+git commit -qm "docs: describe the marketplace" -m "Changelog: none"
+if bash "$FROZEN" v2.0.0 > /dev/null 2>&1; then ok "frozen-files gate passes a marketplace edit that keeps the version"
+else bad "frozen-files gate rejected a marketplace edit that keeps the version"; fi
 
 # Non-plugins PR: trailer not required.
 git checkout -q v2.0.0
