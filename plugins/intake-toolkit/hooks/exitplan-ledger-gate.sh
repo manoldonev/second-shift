@@ -13,13 +13,13 @@
 # it never over-matches and needs no self-gate on the command string).
 #
 # Plan-content resolution order:
-#   1. tool_input.plan in the hook payload (plan markdown inline)
-#   2. a plan-file path field in the payload (tool_input.plan_path /
-#      plan_file_path / file_path)
-#   3. fallback: files in the consumer repo's plans dir (git toplevel +
-#      config paths.plansDir, default .claude/plans; $HOME/.claude/plans when
-#      not in a git repo) with a timestamp newer than the session transcript's
-#      creation. Prefers birth time (`find -newermB`, BSD); GNU find has no
+#   1. tool_input.plan in the hook payload (Claude Code injects the plan
+#      markdown from the plan file before the hook runs)
+#   2. tool_input.planFilePath, the injected path of that plan file
+#   3. fallback: files in Claude Code's plans directory (the plansDirectory
+#      setting, relative to the project root; unset, or resolving outside the
+#      project root, ~/.claude/plans) with a timestamp newer than the session
+#      transcript's creation. Prefers birth time (`find -newermB`, BSD); GNU find has no
 #      -newermB, so the hook probes once and falls back to mtime (`-newer`) —
 #      a weaker signal, but a working tier instead of a permanently vacuous
 #      one (#228). Exactly one candidate → lint it; zero → warn-and-allow;
@@ -93,38 +93,43 @@ if [[ -n "$PLAN_INLINE" ]]; then
 fi
 
 # --- 2. plan-file path in payload ----------------------------------------------
-for field in '.tool_input.plan_path' '.tool_input.plan_file_path' '.tool_input.file_path'; do
-  P=$(jq -r "$field // empty" <<<"$PAYLOAD" 2>/dev/null || true)
-  if [[ -n "$P" && -f "$P" ]]; then
-    run_lint "$P" "payload $field"
-  fi
-done
+P=$(jq -r '.tool_input.planFilePath // empty' <<<"$PAYLOAD" 2>/dev/null || true)
+if [[ -n "$P" && -f "$P" ]]; then
+  run_lint "$P" "payload tool_input.planFilePath"
+fi
 
 # --- 3. fallback: session-fresh plan files -------------------------------------
 TRANSCRIPT=$(jq -r '.transcript_path // empty' <<<"$PAYLOAD" 2>/dev/null || true)
 
-# Anchor the plans dir on the CONSUMER repo (git toplevel via --git-common-dir,
-# worktree-safe), with config paths.plansDir (default .claude/plans). Falls back
-# to $HOME/.claude/plans when not in a git repo. Same main-checkout anchor as run.sh's
-# MAIN_ROOT.
+# Claude Code's plansDirectory setting, read the way Claude Code documents it:
+# the local project file beats the shared project file beats the user file, and
+# a path holding a backslash or resolving outside the project root falls back
+# to ~/.claude/plans. Managed settings are not read.
 resolve_plans_dir() {
-  local root="" common_dir cfg rel=".claude/plans"
-  if [[ -n "${SECOND_SHIFT_REPO_ROOT:-}" ]]; then
-    root="$SECOND_SHIFT_REPO_ROOT"
-  elif common_dir="$(git rev-parse --git-common-dir 2>/dev/null)"; then
-    common_dir="$(cd "$common_dir" && pwd)"
-    root="$(dirname "$common_dir")"
-  fi
-  if [[ -n "$root" ]]; then
-    cfg="${SECOND_SHIFT_CONFIG:-$root/.claude/second-shift.config.json}"
-    if [[ -f "$cfg" ]]; then
-      rel="$(jq -r '.paths.plansDir // ".claude/plans"' "$cfg" 2>/dev/null)" \
-        || rel=".claude/plans"
-    fi
-    printf '%s\n' "$root/$rel"
+  local root dflt="$HOME/.claude/plans" rel="" f cand real_root real_cand
+  root="${SECOND_SHIFT_REPO_ROOT:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+  for f in "$root/.claude/settings.local.json" "$root/.claude/settings.json" "$HOME/.claude/settings.json"; do
+    [[ -f "$f" ]] || continue
+    rel="$(jq -r '.plansDirectory // empty | strings' "$f" 2>/dev/null || true)"
+    [[ -n "$rel" ]] && break
+  done
+  if [[ -z "$rel" || "$rel" == *\\* ]]; then
+    printf '%s\n' "$dflt"
     return 0
   fi
-  printf '%s\n' "$HOME/.claude/plans"
+  if [[ "$rel" == /* ]]; then cand="$rel"; else cand="$root/$rel"; fi
+  if [[ -d "$cand" ]]; then
+    real_root="$(cd "$root" 2>/dev/null && pwd -P)"
+    real_cand="$(cd "$cand" && pwd -P)"
+    if [[ -z "$real_root" || ( "$real_cand" != "$real_root" && "$real_cand" != "$real_root"/* ) ]]; then
+      printf '%s\n' "$dflt"
+      return 0
+    fi
+  elif [[ "/$rel/" == */../* || ( "$rel" == /* && "$rel" != "$root"/* ) ]]; then
+    printf '%s\n' "$dflt"
+    return 0
+  fi
+  printf '%s\n' "$cand"
 }
 PLANS_DIR="$(resolve_plans_dir)"
 [[ -d "$PLANS_DIR" ]] || allow_warn "no plans dir at $PLANS_DIR"

@@ -41,8 +41,13 @@ command -v jq >/dev/null 2>&1 || { echo "exitplan-ledger-gate-selftest: FAIL —
 WORK="$(mktemp -d -t exitplan-ledger-gate-selftest.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 
+# The default plans directory is ~/.claude/plans, so HOME is a scratch dir: the operator's own plans
+# and settings must not leak into a case. CLAUDE_PROJECT_DIR is set when this suite runs inside a hook.
+export HOME="$WORK/home"
+unset CLAUDE_PROJECT_DIR
+PLANS="$HOME/.claude/plans"
 REPO="$WORK/repo"
-mkdir -p "$REPO/.claude/plans"
+mkdir -p "$REPO/.claude" "$PLANS"
 
 VALID_LEDGER='# Plan
 
@@ -64,8 +69,6 @@ INVALID_LEDGER='# Plan
 '
 
 # Run the hook with a payload on stdin. Extra args are env assignments.
-# SECOND_SHIFT_CONFIG is scrubbed: the operator's own environment exports it, and
-# an inherited value would silently retarget resolve_plans_dir mid-suite.
 RC=0; OUT=""
 run_hook() { # run_hook <payload> [VAR=val ...]
   local payload="$1"; shift
@@ -131,34 +134,47 @@ OUT="$(printf '%s' "$(payload_inline "$VALID_LEDGER")" \
 RC=$?
 assert_rc "(t1e) tier 1 inline with TMPDIR unset → allow via the /tmp fallback" 0 "payload tool_input.plan"
 
-# Tier 2 — a plan-file path in the payload. All three field names must resolve.
+# Tier 2 — the injected plan-file path, tool_input.planFilePath.
 printf '%s' "$VALID_LEDGER"   > "$WORK/good-plan.md"
 printf '%s' "$INVALID_LEDGER" > "$WORK/bad-plan.md"
 
-for field in plan_path plan_file_path file_path; do
-  run_hook "$(payload_field "$field" "$WORK/good-plan.md")"
-  assert_rc "(t2-$field) tier 2 .$field valid → allow" 0 "payload .tool_input.$field"
-done
+run_hook "$(payload_field planFilePath "$WORK/good-plan.md")"
+assert_rc "(t2a) tier 2 planFilePath valid → allow" 0 "payload tool_input.planFilePath"
 
-run_hook "$(payload_field plan_path "$WORK/bad-plan.md")"
+run_hook "$(payload_field planFilePath "$WORK/bad-plan.md")"
 assert_rc "(t2b) tier 2 invalid ledger at path → BLOCK" 2 "BLOCKED"
 
 # A path field naming a file that does not exist must fall THROUGH to tier 3, not
 # resolve to nothing and allow. Here tier 3 finds no plans dir content, so the
 # observable is the tier-3 warning rather than a tier-2 message.
-run_hook "$(payload_field plan_path "$WORK/does-not-exist.md")"
+run_hook "$(payload_field planFilePath "$WORK/does-not-exist.md")"
 assert_rc "(t2c) tier 2 missing file → falls through to tier 3" 0 ""
-if [[ "$OUT" != *"payload .tool_input.plan_path"* ]]; then
+if [[ "$OUT" != *"payload tool_input.planFilePath"* ]]; then
   ok "(t2d) tier 2 missing file did not claim to have linted it"
 else
   bad "(t2d) tier 2 missing file wrongly reported as linted: $OUT"
 fi
 
+# The shape Claude Code hands a PreToolUse hook for ExitPlanMode: the common hook fields, and a
+# tool_input carrying the injected plan and planFilePath (the key set of a recorded ExitPlanMode
+# call; the field names are in the hooks reference). The inline plan is what gets linted.
+real_input() { # real_input <plan markdown> <plan file>
+  jq -n --arg p "$1" --arg f "$2" --arg t "$WORK/real-transcript.jsonl" --arg c "$REPO" '{
+    session_id: "00000000-0000-4000-8000-000000000000", transcript_path: $t, cwd: $c,
+    permission_mode: "plan", hook_event_name: "PreToolUse", tool_name: "ExitPlanMode",
+    tool_input: {plan: $p, planFilePath: $f}, tool_use_id: "toolu_01AAAAAAAAAAAAAAAAAAAAAA"}'
+}
+run_hook "$(real_input "$INVALID_LEDGER" "$WORK/bad-plan.md")"
+assert_rc "(t2r) a real ExitPlanMode input with an invalid ledger → BLOCK" 2 "BLOCKED"
+run_hook "$(real_input "$VALID_LEDGER" "$WORK/good-plan.md")"
+assert_rc "(t2s) a real ExitPlanMode input with a valid ledger → allow" 0 "payload tool_input.plan"
+# With the injected plan empty, the plan file it names is linted rather than a tier-3 guess.
+run_hook "$(real_input "" "$WORK/bad-plan.md")"
+assert_rc "(t2p) a real ExitPlanMode input with an empty plan → lints planFilePath, BLOCK" 2 "BLOCKED"
+
 # Tier 1 wins over tier 2 when both are present.
-both="$(jq -n --arg p "$VALID_LEDGER" --arg f "$WORK/bad-plan.md" \
-  '{tool_input: {plan: $p, plan_path: $f}}')"
-run_hook "$both"
-assert_rc "(t2e) tier 1 precedence — inline wins over a path field" 0 "payload tool_input.plan"
+run_hook "$(real_input "$VALID_LEDGER" "$WORK/bad-plan.md")"
+assert_rc "(t2e) tier 1 precedence — inline wins over planFilePath" 0 "payload tool_input.plan"
 
 # ---------------------------------------------------------------------------
 # Tier 3 — session-fresh plan files under the consumer repo's plans dir.
@@ -179,17 +195,17 @@ payload_t3() { jq -n --arg t "$TRANSCRIPT" '{transcript_path: $t, tool_input: {}
 # it. Every (re)creation below therefore deletes first — otherwise the transcript
 # keeps its original birth and every plan file looks session-fresh forever.
 new_transcript() { rm -f "$TRANSCRIPT"; printf '{}\n' > "$TRANSCRIPT"; }
-reset_plans()    { rm -rf "$REPO/.claude/plans"; mkdir -p "$REPO/.claude/plans"; }
-new_plan()       { rm -f "$REPO/.claude/plans/$1"; printf '%s' "$2" > "$REPO/.claude/plans/$1"; }
+reset_plans()    { rm -rf "$PLANS"; mkdir -p "$PLANS"; }
+new_plan()       { rm -f "$PLANS/$1"; printf '%s' "$2" > "$PLANS/$1"; }
 
 reset_plans
 new_transcript
 
 # No plans dir at all → allow with the no-plans-dir warning (platform-independent).
-mv "$REPO/.claude/plans" "$REPO/.claude/plans-hidden"
+mv "$PLANS" "$PLANS-hidden"
 run_hook "$(payload_t3)"
 assert_rc "(t3a) no plans dir → allow with warning" 0 "no plans dir"
-mv "$REPO/.claude/plans-hidden" "$REPO/.claude/plans"
+mv "$PLANS-hidden" "$PLANS"
 
 # No transcript_path → allow (freshness cannot be anchored). Platform-independent.
 run_hook "$(jq -n '{tool_input: {}}')"
@@ -290,14 +306,46 @@ else
   ok "(t3j) scan-error message is distinct from the zero-candidates allow message"
 fi
 
-# resolve_plans_dir honors config paths.plansDir over the .claude/plans default.
-# Asserted via the absent-dir message, which is the only branch that echoes the
-# resolved path — so the assertion proves WHICH dir was resolved, not just that
-# some dir was scanned.
-printf '{"paths":{"plansDir":"custom-plans"}}\n' > "$REPO/.claude/second-shift.config.json"
+# resolve_plans_dir reads Claude Code's plansDirectory setting. Asserted via the
+# absent-dir message, the only branch that echoes the resolved path, so each
+# assertion proves WHICH dir was resolved, not just that some dir was scanned.
+mv "$PLANS" "$PLANS-hidden"
 run_hook "$(payload_t3)"
-assert_rc "(t3g) config paths.plansDir honored — resolves to the configured dir" 0 "custom-plans"
+assert_rc "(t3g) no plansDirectory → ~/.claude/plans" 0 "no plans dir at $PLANS"
+
+printf '{"paths":{"plansDir":"docs/plans"}}\n' > "$REPO/.claude/second-shift.config.json"
+run_hook "$(payload_t3)"
+assert_rc "(t3k) the second-shift paths.plansDir is not the plans directory" 0 "no plans dir at $PLANS"
 rm -f "$REPO/.claude/second-shift.config.json"
+
+printf '{"plansDirectory":"user-plans"}\n' > "$HOME/.claude/settings.json"
+run_hook "$(payload_t3)"
+assert_rc "(t3l) user settings plansDirectory, relative to the project root" 0 "no plans dir at $REPO/user-plans"
+
+printf '{"plansDirectory":"./shared-plans"}\n' > "$REPO/.claude/settings.json"
+run_hook "$(payload_t3)"
+assert_rc "(t3m) project settings beat user settings" 0 "no plans dir at $REPO/./shared-plans"
+
+printf '{"plansDirectory":"local-plans"}\n' > "$REPO/.claude/settings.local.json"
+run_hook "$(payload_t3)"
+assert_rc "(t3n) local project settings beat shared project settings" 0 "no plans dir at $REPO/local-plans"
+
+mkdir -p "$WORK/outside-plans"
+printf '{"plansDirectory":"../outside-plans"}\n' > "$REPO/.claude/settings.local.json"
+run_hook "$(payload_t3)"
+assert_rc "(t3o) a plansDirectory outside the project root falls back to ~/.claude/plans" 0 "no plans dir at $PLANS"
+rm -f "$REPO/.claude/settings.local.json" "$REPO/.claude/settings.json" "$HOME/.claude/settings.json"
+
+# A configured plansDirectory that exists is scanned: a session-fresh invalid plan there blocks.
+mkdir -p "$REPO/docs/plans"
+printf '{"plansDirectory":"docs/plans"}\n' > "$REPO/.claude/settings.json"
+new_transcript
+sleep 1
+printf '%s' "$INVALID_LEDGER" > "$REPO/docs/plans/fresh.md"
+run_hook "$(payload_t3)"
+assert_rc "(t3p) a session-fresh invalid plan in the configured plansDirectory → BLOCK" 2 "BLOCKED"
+rm -f "$REPO/.claude/settings.json"
+mv "$PLANS-hidden" "$PLANS"
 
 # ---------------------------------------------------------------------------
 # Escape hatch and fail-open branches.

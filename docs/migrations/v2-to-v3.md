@@ -153,6 +153,26 @@ included, and `/second-shift:doctor` reports it as a FAIL. Delete the key:
 To run a reviewer that routing does not select, name it when you invoke
 `/review-toolkit:review-lead`.
 
+### Dead-key removal — `paths.pipelineStateDir`
+
+Only `/dev-pipeline:run` read `paths.pipelineStateDir`. The intake receipt's writer, the intake
+stages and `/second-shift:doctor` always used `.claude/pipeline-state`, so a config that set the key
+to another directory had its receipt written where the run did not look, and the run ended
+`env-no-record`. A major release removed the key, and `configVersion` stays 3. The run now reads
+the receipt and keeps its logs in `.claude/pipeline-state`, relative to the main checkout.
+config-lint rejects a config that carries the key, whatever its value, and `/second-shift:doctor`
+reports it as a FAIL. Delete the key:
+
+```jsonc
+// before
+"paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" }
+// after
+"paths": { "plansDir": "docs/plans" }
+```
+
+If you had set it to another directory, move any run logs you want to keep into
+`.claude/pipeline-state`, and keep that directory in `.gitignore`.
+
 ## Part 2 — outside the config
 
 - **Delete the merge-boundary CI job.** It checked the committed verdict record, which the lane

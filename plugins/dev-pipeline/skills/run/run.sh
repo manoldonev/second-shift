@@ -235,7 +235,7 @@ TRACKER_WRITES="$(cfg_bool .tracker.writes)"                                    
 if [ "$TRACKER" = github ]; then TRACKER_WRITES="${TRACKER_WRITES:-true}"; else TRACKER_WRITES="${TRACKER_WRITES:-false}"; fi
 KEY_PATTERN="$(cfg .tracker.keyPattern)"                                                                 # C5
 PLANS_DIR="$(cfg .paths.plansDir)"; PLANS_DIR="${PLANS_DIR:-docs/plans}"                                 # C13
-STATE_DIR="$(cfg .paths.pipelineStateDir)"; STATE_DIR="${STATE_DIR:-.claude/pipeline-state}"             # C14
+STATE_DIR=".claude/pipeline-state"                                                                       # C14
 RUNTIME_DATA="$(cfg '.paths.runtimeData[]?')"   # one pathspec per line; unset = close-out checks no ignored paths
 BASE_CFG="$(cfg .baseBranch)"   # the branch the lane forks from and targets; unset = the remote default (resolved in preflight)
 RENDER_CMD="$(cfg .design.liveRender.command)"; SMOKE_CMD="$(cfg .design.liveRender.smokeCommand)"       # C24 C25
