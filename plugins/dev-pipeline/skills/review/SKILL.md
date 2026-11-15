@@ -181,12 +181,11 @@ review.
    bound the risk.
 7. **Design frames.** The `## Design frames` (or `## Design`) section of the record can have
    `| RS-n |` rows. Then do two things.
-   - Dispatch one design-fidelity reviewer with the Agent tool. A handoff URL in the section
-     picks it: a `figma.com` host picks `design-toolkit:figma-faithful-reviewer`, and a
-     `claude.ai` URL under `/design` picks `design-toolkit:design-faithful-reviewer`. With no
-     such URL, the config's `design.provider` picks it: `figma` picks `figma-faithful-reviewer`,
-     and any other value, or none, picks `design-faithful-reviewer`. Give it the diff and the
-     record. If you cannot dispatch it, or it returns no report, you cannot approve: post
+   - Dispatch one design-fidelity reviewer with the Agent tool. The config's `design.provider`
+     picks it, by the rule that picked the build's design sequence and its design grants:
+     `claude-design` picks `design-toolkit:design-faithful-reviewer`, and `figma` or no provider
+     picks `design-toolkit:figma-faithful-reviewer`. A handoff URL in the section does not change
+     the pick. Give it the diff and the record. If you cannot dispatch it, or it returns no report, you cannot approve: post
      `verdict: needs-work` with line 3 `reason: seat-unavailable`.
    - Render every screen at the head with the repo's render command
      (`design.liveRender.command`). Compare each screen with its frame. If you cannot render, you
