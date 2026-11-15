@@ -37,7 +37,15 @@ The library-conformance summary lines go in the `REVIEW_RESULT` block's `summary
 
 ---
 
-## Critical Rules (block merge if violated)
+## Fidelity rules (Warning)
+
+<!-- LOCKSTEP-BEGIN fidelity-shared-severity -->
+A physical style prop or utility where a logical one exists, a raw or arbitrary value that
+duplicates an existing token or scale step, and a hand-rolled primitive the component catalog
+already ships are each a **Warning**, on every surface and in both design-fidelity reviewers. The
+seat is design-blind: it informs the verdict and never blocks merge on these three; the human who
+reads the verdict decides.
+<!-- LOCKSTEP-END fidelity-shared-severity -->
 
 ### Logical (direction-aware) utilities over physical
 
@@ -88,10 +96,6 @@ re-implementing it from a styled element:
 
 Flag a hand-rolled `<div>`/`<span>` that re-creates a `Button`, `Card`, `Dialog`, `Input`, `Badge`,
 etc. that already exists in the component library.
-
----
-
-## Warning Rules
 
 ### Copy-drift vs the Copy Index (skip-if-absent)
 

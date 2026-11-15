@@ -51,16 +51,42 @@ invocation states: write that absolute path in place of `<skill base dir>` below
 variable does not work here: the Bash tool does not set the plugin path variables, and the
 single quotes block expansion.
 
+`extractContract` takes `files` in this shape, and ignores any other key:
+
+| Key | Type | From the bundle |
+| --- | --- | --- |
+| `css` | `{ path, text }[]` | every `*.css` file, e.g. `styles.css` |
+| `screens` | `{ path, text }[]` | every `screens/*.jsx` file |
+| `readme` | string (optional) | the text of `README.md` |
+| `screenshots` | string[] | the paths of `screenshots/*.png`, not their bytes |
+
+A key with the wrong type is read as empty, and the contract comes back empty with no
+diagnostic, so build `files` from disk rather than by hand. Write each fetched file under one
+directory at its bundle path (`<bundle dir>/styles.css`, `<bundle dir>/screens/<screen>.jsx`,
+`<bundle dir>/README.md`) and list the screenshot paths as empty files under
+`<bundle dir>/screenshots/`, then run, with both placeholders replaced:
+
 ```bash
 node --input-type=module -e '
-  import("<skill base dir>/../design-faithful/lib/extractor.mjs").then(async (m) => {
-    const contract = m.extractContract({ projectType: "PROJECT_TYPE_PROJECT", files })
-    console.log(JSON.stringify(contract, null, 2))
-  })'
+  const { readFileSync, readdirSync, existsSync } = await import("node:fs")
+  const { join } = await import("node:path")
+  const { extractContract } = await import("<skill base dir>/../design-faithful/lib/extractor.mjs")
+  const dir = "<bundle dir>"
+  const list = (sub, re) => existsSync(join(dir, sub))
+    ? readdirSync(join(dir, sub)).filter((f) => re.test(f)).map((f) => (sub === "." ? f : sub + "/" + f))
+    : []
+  const read = (path) => ({ path, text: readFileSync(join(dir, path), "utf8") })
+  const files = {
+    css: list(".", /\.css$/).map(read),
+    screens: list("screens", /\.jsx$/).map(read),
+    screenshots: list("screenshots", /\.png$/)
+  }
+  if (existsSync(join(dir, "README.md"))) files.readme = readFileSync(join(dir, "README.md"), "utf8")
+  console.log(JSON.stringify(extractContract({ projectType: "PROJECT_TYPE_PROJECT", files }), null, 2))'
 ```
 
-(or import the lib directly in a small script). The lib is pure — it operates on the bytes
-you already fetched + sanitized.
+An empty `screens` or `css` list means the bundle was written to a different layout: fix the
+paths before you read the contract. The lib is pure and sanitizes every byte it parses.
 
 ## Produce path (contract → filled template)
 

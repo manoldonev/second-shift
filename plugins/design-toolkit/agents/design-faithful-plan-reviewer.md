@@ -107,17 +107,19 @@ You are the only agent that sees the resolved-component list before code exists.
 handoff access, so you cannot confirm a component matches the node — what you CAN do is refuse a
 resolution the plan never justified, which is how a name match survives.
 
+<!-- LOCKSTEP-BEGIN plan-reviewer-suitability -->
 - **[Blocker]** a resolved component whose rendered affordances plainly **exceed** what the plan
   describes the node as being — a number field that renders increment/decrement steppers where the
   plan describes a plain numeric input, a combobox with a clear button, a select with a chevron the
   plan never mentions — with no note that the extra affordance is intended and no prop named that
   suppresses it. Ask for the affordance inventory, not a second opinion about the design.
 - **[Blocker]** a resolution stated **only as a name match** — an empty or restated
-  `why this component` cell (`"the handoff node is called Select"`, `"closest match"`). The cell
-  exists so that silence is visible; a cell that repeats the node name is silence with characters
+  `why this component` cell (`"the design node is called Select"`, `"closest match"`). The cell
+  exists so that silence is visible; a cell that repeats the node's name is silence with characters
   in it.
 - **[Warning]** a component resolved to a repo primitive where the plan's own description names a
   behavior that primitive does not have (a searchable list resolved to a plain `Select`).
+<!-- LOCKSTEP-END plan-reviewer-suitability -->
 - **[Warning]** a node resolved to a **hand-rolled** element where the primitives package
   inventory in the design-tokens reference lists a primitive that covers it.
 - **[Note]** an extra affordance the plan explicitly calls intended, with the reason. Take it.
@@ -152,12 +154,15 @@ resolution the plan never justified, which is how a name match survives.
 
 ### Placement
 
+<!-- LOCKSTEP-BEGIN plan-reviewer-placement -->
 - **[Warning]** a **placement decision that disagrees with the file list** — e.g. it states the
   node "renders as a sibling of the section" while the file list edits only the section component
   (which would nest it), with no parent/page-level mount. Stated hierarchy and planned structure
   must agree.
+<!-- LOCKSTEP-END plan-reviewer-placement -->
 - **[Note]** no placement decision on a single-block screen — fine, nothing to place.
 
+<!-- LOCKSTEP-BEGIN plan-reviewer-tail -->
 ### Analog suitability
 
 - **[Warning]** the chosen analog screen is a weak structural match for what the spec needs (e.g.
@@ -169,8 +174,10 @@ resolution the plan never justified, which is how a name match survives.
 ### State→code wiring (requires the spec)
 
 - **[Blocker]** a state/transition the spec declares with **no** planned mechanism in the plan —
-  on the lane, an `RS-n` row with no wiring; elsewhere, a spec'd affordance ("navigate-away →
-  exit dialog") the plan never mounts. A spec'd affordance with no plan ships dead.
+  on the lane, an `RS-n` row with no wiring; elsewhere, a spec'd affordance the plan never mounts:
+  the spec has "navigate-away → exit dialog" but the plan has no navigation-guard, or the spec has
+  "Save → in-flight → snackbar + navigate" but the plan wires no mutation/pending/invalidation. A
+  spec'd affordance with no plan ships dead.
 - **[Warning]** a secondary state (error/empty/disabled) enumerated in the spec but absent from
   the plan's wiring.
 
@@ -181,19 +188,20 @@ resolution the plan never justified, which is how a name match survives.
 
 ### Decision Ledger (contract: the `interviewing-baseline` protocol, via `intake-toolkit` where installed)
 
-<!-- mirror of interviewing-baseline provenance enum — keep verbatim -->
-
 - **[Blocker]** the plan's `## Decision Ledger` section is missing or malformed: no rows AND no
   explicit empty form (`No decisions to record. The code settles every choice.`, or the older
-  `No material decisions — all choices codebase-derived.`); or a row's
-  provenance is outside the closed enum
-  `user-answered | user-delegated | codebase-derived | deferred | ticket-sourced` (`assumed` is
-  never legal).
+  `No material decisions — all choices codebase-derived.`); or a row's provenance is outside the
+  closed enum below.
 - **[Blocker]** a spec Open Question or grilled resolution visibly consumed by the plan carries no
   ledger row — cite the plan step.
 - Exceptions: the explicit empty form always satisfies the section check; a plan file whose git
   authored date (or mtime, if untracked) predates the ledger convention's merge gets a
   **Warning** instead — never infer "predates the rule" from content alone.
+<!-- LOCKSTEP-END plan-reviewer-tail -->
+
+<!-- LOCKSTEP-BEGIN provenance-enum-mirror -->
+- the closed provenance enum is `user-answered | user-delegated | codebase-derived | deferred | ticket-sourced`; `assumed` is never legal.
+<!-- LOCKSTEP-END provenance-enum-mirror -->
 
 ## Severity calibration
 
@@ -247,6 +255,7 @@ a diff before merge:
 [One sentence. If `block`, list the rows that must be corrected before implementation.]
 ```
 
+<!-- LOCKSTEP-BEGIN plan-reviewer-verdict-rule -->
 **Trinary verdict rule:**
 
 | Verdict      | When                                        |
@@ -256,3 +265,4 @@ a diff before merge:
 | `pass`       | Zero Blockers, zero Warnings (Notes/empty). |
 
 Omit empty severity sections. If the input is not a translation plan, return `N/A` with one line explaining why.
+<!-- LOCKSTEP-END plan-reviewer-verdict-rule -->
