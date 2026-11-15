@@ -1,8 +1,0 @@
-{
-  "configVersion": 3,
-  "tracker": { "type": "github" },
-  "commands": { "app": {} },
-  "reviewers": {
-    "default": ["db-reviewer"]
-  }
-}

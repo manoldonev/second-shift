@@ -78,13 +78,6 @@ expect_violation invalid-unknown-repo-and-tier.json "reviewers.modelOverrides.se
 # typo must still fail, and tierMap values keep the real closed enum.
 expect_violation invalid-override-unknown-tier.json  "reviewers.modelOverrides.security-reviewer: must name a dispatch model"
 expect_violation invalid-bad-tiermap-value.json      "reviewers.tierMap.code: must be haiku|sonnet|opus|fable"
-
-# reviewers.default — deprecated and read by nothing, but still valid config until a major
-# release removes it, so it stays typed. The valid fixture is what fails when `default` is
-# missing from the reviewers key allowlist.
-expect_violation invalid-reviewers-default-type.json  "reviewers.default: must be array"
-expect_violation invalid-reviewers-default-entry.json "reviewers.default: every entry must be a string"
-expect_no_violation valid-reviewers-default.json      "reviewers: unknown keys"
 expect_violation invalid-tracker-unknown-key.json   "tracker: unknown keys"
 expect_violation invalid-bot-app-unknown-key.json   "tracker.bot.app: unknown keys"
 expect_violation invalid-bad-design-provider.json   "design.provider must be figma|claude-design"
@@ -198,6 +191,11 @@ expect_violation invalid-removed-lintautofixes.json "commands.app.lintAutofixes 
 expect_violation invalid-removed-lintautofixes.json "docs/migrations/v2-to-v3.md"
 expect_no_violation invalid-removed-lintautofixes.json "commands.app: unknown keys"
 expect_violation invalid-removed-lintautofixes-false.json "commands.app.lintAutofixes was removed in configVersion 3"
+expect_violation invalid-removed-reviewers-default.json "reviewers.default was removed"
+expect_violation invalid-removed-reviewers-default.json "Delete the key (docs/migrations/v2-to-v3.md)"
+expect_no_violation invalid-removed-reviewers-default.json "reviewers: unknown keys"
+expect_violation invalid-removed-reviewers-default-empty.json "reviewers.default was removed"
+expect_no_violation invalid-removed-reviewers-default-empty.json "reviewers: unknown keys"
 
 # --- the config-lint type-check gaps. One packed fixture, one assertion per mutant class it
 # must KILL.

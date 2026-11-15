@@ -130,8 +130,7 @@ design-fidelity reviewer, on a record with design frames, picked by the handoff 
 `design.provider`. The other reviewers run when you run `/review-toolkit:review-lead` yourself, on
 any PR. That ad hoc review reads `reviewers.add` (repo-local agents in `.claude/agents/`),
 `reviewers.remove`, `reviewers.webComponentGlobs` and the per-reviewer files under
-`review-context/`. `reviewers.default` is deprecated and read by nothing. Other files the reviewers
-read when present are listed in [`extension-points.md`](extension-points.md).
+`review-context/`. Other files the reviewers read when present are listed in [`extension-points.md`](extension-points.md).
 
 ### Your first `review-context.md`
 

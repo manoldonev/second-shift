@@ -228,15 +228,6 @@ if [[ -n "$DESIGN_PROVIDER" && -z "$DESIGN_LR" ]]; then
   fi
 fi
 
-# --- trigger 7: a deprecated key that is set ------------------------------------------------
-# reviewers.default has no reader: the lane's review dispatches no panel, and review-lead ignores
-# it. config-lint has no warning level, so the grill is where a set key is reported.
-if jq -e '(.reviewers | type) == "object" and (.reviewers | has("default"))' "$CONFIG" >/dev/null 2>&1; then
-  add_finding "T7.reviewers-default" "reviewers.default" \
-    "reviewers.default is set ($(jq -r '.reviewers.default | if type == "array" then join(", ") else tostring end' "$CONFIG" 2>/dev/null)) — the key is deprecated, and nothing reads it: the lane's review is one session that dispatches no reviewer panel, and /review-toolkit:review-lead ignores it." \
-    "Delete reviewers.default from the config. Setting it changes no review, and a later major release removes the key."
-fi
-
 # --- trigger 5: a declared command that contradicts repo reality (AC-5) --------------------
 # EVERY configured command is inspected: a command that never exits hangs the verify lane,
 # so the exposure is the same wherever it sits.

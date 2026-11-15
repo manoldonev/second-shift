@@ -136,6 +136,23 @@ but no longer changes behavior. A setup lane's `cwd` is a path under the worktre
 }
 ```
 
+### Dead-key removal — `reviewers.default`
+
+Nothing read `reviewers.default`. The lane's review dispatches no reviewer panel, and
+`/review-toolkit:review-lead` ignored the key. A major release removed it, and `configVersion`
+stays 3. config-lint now rejects a config that carries the key, whatever its value, `[]`
+included, and `/second-shift:doctor` reports it as a FAIL. Delete the key:
+
+```jsonc
+// before
+"reviewers": { "default": ["security-reviewer"], "remove": ["db-reviewer"] }
+// after
+"reviewers": { "remove": ["db-reviewer"] }
+```
+
+To run a reviewer the trimmed panel leaves out, the caller of `/review-toolkit:review-lead` names
+it in the invocation, with a reason.
+
 ## Part 2 — outside the config
 
 - **Delete the merge-boundary CI job.** It checked the committed verdict record, which the lane

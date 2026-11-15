@@ -117,11 +117,7 @@ A whole review dimension the shipped panel doesn't cover. Write the agent where 
 
 The ad hoc `/review-toolkit:review-lead` now dispatches it alongside the shipped reviewers under the same confidence protocol; `dimensions` is a dedup/routing hint. The lane's review does not: it is one session that reviews the diff itself and dispatches only a design-fidelity reviewer, on a record with design frames. To put a domain rule in front of the lane's review, write it into `review-context.md` (§3.4). `check-reviewer-references.sh` unions the plugin registry with your `reviewers.add`, so a registered agent with no file (or a file registered nowhere, or one shadowing a shipped reviewer name) fails the lint. Repo-local agents are referenced **bare**; that's how the two roots disambiguate ([`namespaces.md`](namespaces.md) rule 2). To *drop* a shipped reviewer instead (e.g. db-reviewer in a pure-FE repo), that's `reviewers.remove` — a subtraction, hence config, hence one auditable line.
 
-### 3.3b `reviewers.default` — deprecated
-
-The lane's review is one session. It reviews the diff itself against the ticket and the intake record, and it dispatches no reviewer panel for this key to add to. `reviewers.default` is deprecated, and nothing reads it. It stays valid config, so `config-lint` still passes a config that sets it, and `check-reviewer-references.sh` no longer checks its names. The config grill reports a set key as a warning in `/second-shift:doctor` and `/second-shift:onboard`. Delete it from your config. A later major release removes the key.
-
-The `review panel` Decision Ledger row is retired with it. Intake no longer asks for one, and the lane's review gives such a row no special handling.
+The `review panel` Decision Ledger row is retired. Intake no longer asks for one, and the lane's review gives such a row no special handling.
 
 ### 3.4 Extension file — domain knowledge for a shipped agent
 

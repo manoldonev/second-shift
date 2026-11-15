@@ -35,8 +35,6 @@
 #                      nowhere (not in the effective registry; not skip-tagged)
 #   (c) REMOVE-UNKNOWN — reviewers.remove names a reviewer the plugin registry never
 #                      shipped (a stale/typo delta)
-#   reviewers.default is deprecated and nothing reads it, so its names are not checked;
-#   config-grill.sh reports a set key instead.
 #   (d) SHADOW       — a consumer .claude/agents/<name>.md shadows a plugin-shipped
 #                      agent name (the drift tripwire; see docs/namespaces.md rule 5)
 #   (e) QUALIFY      — a panel entry backed by a PLUGIN agent file is not spelled with

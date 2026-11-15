@@ -258,8 +258,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
       + err((.add? != null) and ((.add | type) != "array"); "reviewers.add: must be array")
       + err((.remove? != null) and ((.remove | type) != "array"); "reviewers.remove: must be array")
       + ((.remove // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["reviewers.remove: every entry must be a string"] else [] end) else [] end)
-      + err((.default? != null) and ((.default | type) != "array"); "reviewers.default: must be array")
-      + ((.default // []) | if type == "array" then (map(select((type) != "string")) | if length > 0 then ["reviewers.default: every entry must be a string"] else [] end) else [] end)
+      + err(has("default"); "reviewers.default was removed — nothing read it: the review of the lane dispatches no reviewer panel, and review-lead ignored it. Delete the key " + $v3doc)
       + ((.add // []) | to_entries | map(
           err((.value.name? // "") == ""; "reviewers.add[" + (.key|tostring) + "].name: required")
         ) | add // [])
