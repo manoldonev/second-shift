@@ -226,7 +226,8 @@ case "$plan" in
     push; openpr ;;
   build-pause) # a build that stops the way its prompt says to: it writes the pause file the prompt names, and no PR
     f=$(sed -n "s/.*Then write the file \(.*\) with the Write tool\. Its first line is exactly 'paused: OR-n'.*/\1/p" "$S/prompt-$n.txt" | head -n 1)
-    [ -z "$f" ] || printf 'paused: %s\n\nOldest first,\nor newest first?\n' "${FAKE_PAUSE:-OR-1}" > "$f"; echo half >> work.txt ;;
+    if [ -z "$f" ]; then :; elif [ -n "${FAKE_PAUSE_RAW+set}" ]; then printf '%s' "$FAKE_PAUSE_RAW" > "$f"   # the file's bytes as given: a malformed or empty one
+    else printf 'paused: %s\n\nOldest first,\nor newest first?\n' "${FAKE_PAUSE:-OR-1}" > "$f"; fi; echo half >> work.txt ;;
   build-pr-decide-parked) # a build that decides the parked D-2 itself instead of stopping
     rec=$(git ls-files 'docs/plans/*-decisions.md'); sed 's/^| D-2 | .*/| D-2 | backfill order | oldest first. Changed in build: it reads best. | user-delegated | intent |/' "$rec" > r.tmp && mv r.tmp "$rec"; push; openpr ;;
   build-pr-operator-departure) # #1085: the operator restored a guard mid-build — the head's record carries the decision as a
