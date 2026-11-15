@@ -80,10 +80,6 @@ const ATLASSIAN_MCP_TOOLSEARCH =
 
 // Findings contract. Kept permissive (only severity/description/confidence required)
 // so reviewers don't burn retries on over-strict shapes; file/line/title are optional.
-// LOCKSTEP, canonical side: stall-probe.mjs declares its own copy because the Workflow
-// runtime gives it no `import`, and a probe with a drifted schema measures a different
-// contract. Edit both.
-// LOCKSTEP-BEGIN findings-schema
 const FINDINGS_SCHEMA = {
   type: 'object',
   additionalProperties: true,
@@ -112,7 +108,6 @@ const FINDINGS_SCHEMA = {
     suppressed: { type: 'array', items: { type: 'string' } },
   },
 }
-// LOCKSTEP-END findings-schema
 
 // args (assembled in-session by the caller, which has Bash to size the diff and route):
 //   worktree     — absolute path the reviewers run git against
@@ -173,14 +168,14 @@ const CLOSING_LINK = /^(close[sd]?|fix(e[sd])?|resolve[sd]?)$/i
 // commits as phantom deletions.
 const range = `${base}...${head}`
 const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
-// ROOT CAUSE: why reviewers die before they emit (measured by workflows/stall-probe.mjs on a
-// 1326-line low-signal diff, maintainability-reviewer): they exhaust their turn budget GROUNDING THE
+// ROOT CAUSE: why reviewers die before they emit (measured on a 1326-line low-signal diff,
+// maintainability-reviewer): they exhaust their turn budget GROUNDING THE
 // ABSENCE of findings, opening files across the whole diff to prove a clean verdict, because
 // reviewer-baseline gives "no findings" the same open-and-cite requirement as a real finding.
 //   - Size-driven: a TINY low-signal diff never stalls (0/8); a LARGE one does (~57% across runs).
 //   - Not the output shape: emitting the structured result first with no prose preamble
-//     (stall-probe.mjs's STRUCTURED_OUTPUT_FIRST) did NOT move the rate (2/8 -> 2/8), so it is not
-//     in production. Moving the grounding into schema fields did NOT move it either.
+//     did NOT move the rate (2/8 -> 2/8), so it is not in production. Moving the grounding into
+//     schema fields did NOT move it either.
 //   - More budget only half-helps at ~2x cost: opus dropped it to ~25% but still stalled.
 //   - BOUNDING THE EXPLORATION fixes it: BOUNDED_EXPLORATION took maintainability-reviewer from
 //     ~50% to 0/12 AND cut tokens ~45%. Placement is load-bearing: the identical instruction in
@@ -294,7 +289,7 @@ const BOUNDED_EXPLORATION =
 //     is ambiguous"), so its honest early skeleton is every item [unsatisfied], refined upward
 //     only as evidence lands. A cut-short result over-reports FAIL, never a false PASS.
 //   - unit-test-mutation-reviewer's unreached mutants are simply absent, and an absent mutant
-//     never blocks (execution-verified blocking is the propose-mode orchestrator's, not this fan-out's).
+//     never blocks (the reviewer is advisory only; nothing verifies a mutant by execution).
 // The dark path is unchanged: nothing transcribes partial text, and a missing sentinel is still dark.
 // LOCKSTEP, canonical side: intake-review.mjs declares its own copy for its exhaustive reviewer,
 // because the Workflow runtime gives it no `import`.
@@ -405,8 +400,8 @@ const dispatchReviewer = async (requested) => {
       (prContext ? ` Context: ${prContext}.` : '') +
       ` Propose mutants and predict survived/untested — LLM prediction ONLY; ` +
       `do NOT apply mutants or run tests (this fan-out has no executor). ` +
-      `Blocker-class mutants map to severity \`major\` (never \`blocker\` — only the propose-mode ` +
-      `execution-verified gate can block). No Stryker. ` +
+      `Blocker-class mutants map to severity \`major\` (never \`blocker\` — an unexecuted ` +
+      `prediction cannot block). No Stryker. ` +
       `Return verdict and findings (severity major/minor/nit, file, line, confidence 0-100).` +
       PROGRESSIVE_EMIT
   } else {

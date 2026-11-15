@@ -6,7 +6,7 @@
   "commands": {
     "axios": {
       "lint": "npm run lint",
-      "test": "npm run test:node"
+      "test": "npm run test:mocha"
     }
   }
 }

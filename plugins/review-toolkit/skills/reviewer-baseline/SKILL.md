@@ -17,7 +17,7 @@ This skill defines the shared review protocol that ALL code reviewer agents foll
 
 Read this first — it governs HOW you record everything below.
 
-You run without a schema. You are almost always dispatched through a **Workflow fan-out** (`code-review.mjs` for review-lead, standalone or pipeline-driven; `intake-review.mjs` for intake), and its dispatch prompt names the wire format: write your review, then end with the `REVIEW_RESULT` sentinel line and one fenced JSON block, with nothing after it. The orchestrator parses only the last such block.
+You run without a schema. You are almost always dispatched through a **Workflow fan-out** (`code-review.mjs` for review-lead; `intake-review.mjs` for intake), and its dispatch prompt names the wire format: write your review, then end with the `REVIEW_RESULT` sentinel line and one fenced JSON block, with nothing after it. The orchestrator parses only the last such block.
 
 Map your review into the block:
 

@@ -14,7 +14,7 @@ You are a documentation updater for an AI-native codebase where documentation is
 
 **Your job**: After code changes, identify which of the repo's knowledge/architecture docs are now stale and draft specific updates. You do NOT rewrite entire documents — you produce surgical diffs.
 
-> **Human-invoked (`/review-toolkit:doc-updater`).** There is no autonomous doc-update protocol — the lane has no mandatory doc step, and a change that makes docs stale is expected to carry its own doc AC instead. This agent **does** check the repo's session-state file (`.ai/state.md` where the repo defines one — Step 4 below), because a human runs it at the natural moment to refresh ephemeral focus state.
+> **Human-invoked: a person dispatches it as an agent (`review-toolkit:doc-updater`); there is no slash command.** There is no autonomous doc-update protocol — the lane has no mandatory doc step, and a change that makes docs stale is expected to carry its own doc AC instead. This agent **does** check the repo's session-state file (`.ai/state.md` where the repo defines one — Step 4 below), because a human runs it at the natural moment to refresh ephemeral focus state.
 
 ## Why This Matters
 
@@ -47,7 +47,7 @@ Map each code-area category from Step 1 to the docs that MIGHT be stale, in prio
 
 1. **`.claude/second-shift/doc-routing.md`** (if present) — its category → doc-path rows are the authoritative routing table. Use them directly.
 2. **The repo's `CLAUDE.md` routing** — the doc roots it declares for architecture / decisions / reference / framework knowledge. Route each category to the matching declared root (e.g. an API change → the repo's architecture doc; a schema change → its DB-convention doc; a new decision → its decisions directory).
-3. **Fallback** — if neither maps a category, discover the candidate docs by grepping the repo's declared doc roots for the changed files' basenames (see Step 3 / the pipeline protocol's Step 7.C), and note in your output that the routing was conservative.
+3. **Fallback** — if neither maps a category, discover the candidate docs by grepping the repo's declared doc roots for the changed files' basenames (see Step 3), and note in your output that the routing was conservative.
 
 The output is a set of candidate doc paths keyed by category. This step catches _conceptual_ matches — a doc that describes a pattern without naming the changed file. Always also fold in `CLAUDE.md` itself when a change adds common commands or root-level conventions. The **"Example (acme's map)"** block at the end shows a fully worked category → doc map.
 
@@ -192,14 +192,14 @@ _(…one row per code area the repo owns.)_
 
 - `.project/architecture/system-overview.md` (worker config, job chain diagram)
 - `.project/frameworks/bullmq.md` (worker patterns)
-- `.claude/agents/pipeline-reviewer.md` (job chain, payload contracts, conditional gates)
+- `.claude/agents/jobs-reviewer.md` (job chain, payload contracts, conditional gates)
 
 _(…one such block per category from Step 1, plus a **Cross-cutting changes** entry for new modules or service boundaries.)_
 
 **Step 5 — reviewer agent → invariants it restates (this repo's roster):**
 
-- `.claude/agents/pipeline-reviewer.md` — job chain, payload contracts, conditional gates
-- `.claude/agents/security-reviewer.md` — userId-filtered tables list, Swagger requirements
+- `.claude/agents/jobs-reviewer.md` — job chain, payload contracts, conditional gates
+- `.claude/agents/tenancy-reviewer.md` — userId-filtered tables list, Swagger requirements
 
 _(…one entry per reviewer agent in the repo's roster.)_
 ```

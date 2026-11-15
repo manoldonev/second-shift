@@ -45,7 +45,7 @@ trap 'rm -rf "$TMP"' EXIT
 # design-sync.mjs, figma.mjs and unit-tests.mjs left in #574 (retired with the
 # engine set). Each carried its own copy because the Workflow runtime gives these
 # scripts no import.
-PARSE_CARRIERS="code-review.mjs intake-review.mjs intake-fanout.mjs stall-probe.mjs"
+PARSE_CARRIERS="code-review.mjs intake-review.mjs intake-fanout.mjs"
 VALIDATE_CARRIERS="code-review.mjs intake-review.mjs"
 
 extract() { # extract <file> <fn-header> -> prints the function body to stdout
