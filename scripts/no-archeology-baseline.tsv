@@ -47,13 +47,10 @@ plugins/review-toolkit/scripts/check-model-tiers-selftest.sh	5	debt	selftest lab
 plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	48	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/review-toolkit/scripts/check-review-context-selftest.sh	1	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/review-toolkit/scripts/check-reviewer-references-selftest.sh	5	debt	selftest labels; fixture ids among them become data rows when swept
-plugins/review-toolkit/scripts/diff-range-selftest.sh	10	open-pr	selftest labels and fixture ids
-plugins/review-toolkit/scripts/intake-readroot-selftest.sh	6	open-pr	selftest labels and fixture ids
 plugins/review-toolkit/scripts/post-pending-review-selftest.sh	5	data	the fixture PR number in asserted output
 plugins/review-toolkit/scripts/text-contract-selftest.sh	5	open-pr	selftest labels and fixture ids
 plugins/review-toolkit/workflows/intake-fanout.mjs	8	open-pr	workflow comments
-plugins/review-toolkit/workflows/null-reviewer-selftest.mjs	15	open-pr	selftest labels and fixture ids
-plugins/review-toolkit/workflows/runtime-shim-selftest.mjs	29	open-pr	selftest labels and fixture ids
+plugins/review-toolkit/workflows/runtime-shim-selftest.mjs	28	open-pr	selftest labels and fixture ids
 plugins/review-toolkit/workflows/workflows-mjs-selftest.sh	2	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/second-shift/skills/doctor/tools/check-extensions-selftest.sh	5	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	1	debt	selftest labels; fixture ids among them become data rows when swept
