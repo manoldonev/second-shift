@@ -150,8 +150,8 @@ included, and `/second-shift:doctor` reports it as a FAIL. Delete the key:
 "reviewers": { "remove": ["db-reviewer"] }
 ```
 
-To run a reviewer the trimmed panel leaves out, the caller of `/review-toolkit:review-lead` names
-it in the invocation, with a reason.
+To run a reviewer that routing does not select, name it when you invoke
+`/review-toolkit:review-lead`.
 
 ## Part 2 — outside the config
 

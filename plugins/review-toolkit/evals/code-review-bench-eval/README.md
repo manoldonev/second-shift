@@ -54,7 +54,7 @@ One file per arm under `arms/`: a short header, `---`, then the prompt. Header k
 (`claude`), `allow` (the `--allowedTools` list), `bgwait` (set when the arm runs a Workflow, so
 `-p` waits for it), `plugin-dir` (a path relative to this directory, passed as `--plugin-dir`, so
 the arm runs **this checkout's** plugin rather than the installed copy; the row then says
-`src=checkout`), `requires-plugin`, `upstream`. The two review-lead arms carry `plugin-dir`, which
+`src=checkout`), `requires-plugin`, `upstream`. The review-lead arm carries `plugin-dir`, which
 is what lets a PR to review-lead measure itself before merge; `--installed` ignores it for the whole
 run, so the same arm measures the installed plugin — the before side of that comparison. The prompt may use `{rules}` (the shared
 blindness and output contract in `rules.md`), `{checkout}`, `{base}`, `{head}`, `{scratch}` and
@@ -64,8 +64,7 @@ Shipped arms: `plain` (a one-paragraph senior-engineer prompt), `lane-review` (t
 session as it runs: one session, no reviewer dispatched; its correctness instruction is a
 `LOCKSTEP-BEGIN review-correctness` block that `scripts/check-lockstep-pairs.sh` holds to
 `review_prompt()` in `run.sh`. The bench has no ticket or record, so it measures the correctness half
-only), `review-lead-standalone` (the skill with its full routing), `review-lead-lane` (the skill with
-the pipeline default panel declared, as the lane ran it before `lane-review`),
+only), `review-lead-standalone` (the skill with its full routing),
 `tob-differential-review` (Trail of Bits' skill; needs `differential-review@trailofbits` enabled,
 and the harness cannot verify the installed version against the commit the arm file names).
 
