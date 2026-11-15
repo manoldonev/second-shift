@@ -148,12 +148,21 @@ mkdir -p "$INSTALL/predates/review-toolkit/2.0.2/workflows"
 scenario rt-no-fanout     plugin-list-rt-predates.json settings-green.json marketplace-list-pinned.json 1 "intake-toolkit reads workflows/intake-fanout.mjs"
 if grep -qF "dev-pipeline reads" <<< "$LAST_OUT"; then check "rt-no-fanout blames only the reader whose file is missing" 1
 else check "rt-no-fanout blames only the reader whose file is missing" 0; fi
-scenario missing-plugin   plugin-list-missing.json settings-green.json     marketplace-list-pinned.json  1 "claude plugin install dev-pipeline@second-shift"
+scenario missing-plugin   plugin-list-missing.json settings-green.json     marketplace-list-pinned.json  1 "claude plugin install dev-pipeline@second-shift --scope project"
+# A project-scope install writes the committed enabledPlugins, so a plugin those settings do not
+# list is never given a project-scope remedy.
+scenario missing-unlisted plugin-list-missing.json settings-unlisted.json  marketplace-list-pinned.json  1 "claude plugin install dev-pipeline@second-shift --scope user"
+if grep -qF "dev-pipeline@second-shift --scope project" <<< "$LAST_OUT"; then check "missing-unlisted prints no project-scope remedy" 1
+else check "missing-unlisted prints no project-scope remedy" 0; fi
 # The two drift branches under a PROJECT-scope record. Both greps name the arm's own string
 # rather than the "marketplace update" / "ahead of the lockfile" prefixes both arms share —
-# those matched the user-scope arm too, so a swapped branch read as green.
-scenario version-behind   plugin-list-behind.json  settings-green.json     marketplace-list-pinned.json  1 "claude plugin install dev-pipeline@second-shift --scope project"
-scenario version-ahead    plugin-list-ahead.json   settings-green.json     marketplace-list-pinned.json  1 "settings pin v9.9.0 resolves the older catalog"
+# those matched the user-scope arm too, so a swapped branch read as green. `install` no-ops on
+# an installed plugin, so the record is moved by uninstall then install.
+scenario version-behind   plugin-list-behind.json  settings-green.json     marketplace-list-pinned.json  1 "claude plugin uninstall dev-pipeline@second-shift --scope project && claude plugin install dev-pipeline@second-shift --scope project"
+scenario version-behind-unlisted plugin-list-behind.json settings-unlisted.json marketplace-list-pinned.json 1 "claude plugin uninstall dev-pipeline@second-shift --scope project && claude plugin install dev-pipeline@second-shift --scope user"
+if grep -qF "claude plugin install dev-pipeline@second-shift --scope project" <<< "$LAST_OUT"; then check "version-behind-unlisted prints no project-scope install" 1
+else check "version-behind-unlisted prints no project-scope install" 0; fi
+scenario version-ahead    plugin-list-ahead.json   settings-green.json     marketplace-list-pinned.json  1 "settings pin v9.9.0 resolves the older catalog) && claude plugin uninstall dev-pipeline@second-shift --scope project && claude plugin install dev-pipeline@second-shift --scope project"
 # ...and the same two branches under a USER-scope record, where the project-scope string is not
 # a weaker fix but a NO-OP: `install` no-ops as "already installed" on the behind branch, and on
 # the ahead branch there is no project pin behind the record for a reinstall to resolve against.

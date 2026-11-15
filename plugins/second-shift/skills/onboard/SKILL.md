@@ -113,7 +113,7 @@ Build the draft config from detection — the configVersion 3 shape, and only th
   say so plainly on the review screen rather than presenting the empty table as done:
   a run with no configured check (and no `## Checks` in its intake record) ends red on its
   checks. Offer the two honest exits — fill in the repo's real commands now, or set
-  `allowUnverified: true` to declare the zero-check opt-out deliberately.
+  `commands.<key>.allowUnverified: true` to declare the zero-check opt-out deliberately.
 Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection settled):
   1. tracker (only if ambiguous — show evidence per option)
   2. branch prefix, two-part. **(a)** the team's `tracker.branchPrefix`, committed (recommended:
@@ -171,8 +171,9 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
         `needs-plan-review`, `needs-intake-review`, `opus`, `sonnet` (skip ones that already
         exist). The first six are the defaults of `tracker.labels.queue`,
         `tracker.labels.claimed` and `tracker.labels.blockers`; a repo that sets those keys
-        creates its own names instead. `opus` and `sonnet` are the sizing labels the scheduler
-        reads for the build model: a ticket carrying neither stops before its first round.
+        creates its own names instead. `opus` and `sonnet` are the sizing labels intake applies
+        and the scheduler reads for the build model: launched with neither and no
+        `--build-model`, the scheduler stops before its first round.
   6. **`review-context.md` scaffold (accept-or-edit, never mandatory; default "later").**
      Offer to scaffold a starter `.claude/second-shift/review-context.md` so reviewers key on
      named sections instead of inferring from the diff. **What it buys: the lane's review
@@ -326,9 +327,8 @@ you had local content), then restart the session."
 so this settings block is what protects teammates; it is load-bearing, not convenience.)
 
 ## Step 7 — Emit `.claude/second-shift.lock.json`
-Exactly the lockfile schema v1 (the contract /second-shift:doctor and the SessionStart presence check read):
-    { "lockfileVersion": 1,
-      "marketplace": { "name": "second-shift", "repo": "manoldonev/second-shift", "ref": "<ref>" },
+Exactly this shape (the contract /second-shift:doctor and the SessionStart presence check read):
+    { "marketplace": { "name": "second-shift", "repo": "manoldonev/second-shift", "ref": "<ref>" },
       "plugins": { "<name>": "<version>", ... },
       "generatedBy": "second-shift:onboard@<this plugin's version>" }
 `plugins` = the pin-resolve `plugins` map verbatim — exact plugin.json versions AT the
@@ -418,10 +418,12 @@ review screen for deletion: they read a verdict record the lane no longer writes
       so its sessions read the plugin settings from there.
    2. `/intake-toolkit:intake <ticket>` on a small ticket with no external-infrastructure ACs —
       it puts the open decisions to the human and writes the intake record the lane commits as
-      the branch's first commit. It applies no label to a ticket the human filed.
+      the branch's first commit. On the github tracker it also sizes the ticket with `opus` or
+      `sonnet`, the label the scheduler reads for the build model; it does not queue a ticket it
+      did not split.
    3. On the github tracker, the human queues it: `gh issue edit <ticket> --add-label
-      ready-for-dev` (without it the scheduler exits 3, `not-queued`), plus `sonnet` or `opus`
-      to pick the build model (optional: without one the run sizes it and records that it did).
+      ready-for-dev` (without it the scheduler exits 3, `not-queued`). Under jira there is no
+      label: `/dev-pipeline:run` sizes the ticket at launch and records that it did.
    4. `/dev-pipeline:run <ticket>` — it checks the config, the record, the lane's commands and
       the design declaration before it claims anything.
 
