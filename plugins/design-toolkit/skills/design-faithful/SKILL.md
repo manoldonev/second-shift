@@ -57,9 +57,11 @@ Two tables in it carry the contract:
   `node` is the plan's own name for the node; `RS` is the render state of the record's
   `## Design frames` row it is measured in; `px` is `<w>×<h>` with an integer or `-` per axis,
   `-` being a node with no fixed size on that axis.
+
   <!-- LOCKSTEP-END plan-table-columns -->
-  `dimensions` stays **prose** — per-axis
-  fixed/hug/fill, wrap behavior, overflow/truncation — which is what `320×604` cannot carry.
+
+  `dimensions` stays **prose** — per-axis fixed/hug/fill, wrap behavior, overflow/truncation —
+  which is what `320×604` cannot carry.
 
 <!-- LOCKSTEP-BEGIN plan-table-rule -->
 Every cell of both tables must be filled, and a row may not declare fewer cells than its header.

@@ -205,9 +205,10 @@ Two tables in it carry the contract:
   `node` is the plan's own name for the node; `RS` is the render state of the record's
   `## Design frames` row it is measured in; `px` is `<w>×<h>` with an integer or `-` per axis,
   `-` being a node with no fixed size on that axis.
+
   <!-- LOCKSTEP-END plan-table-columns -->
-  `dimensions` stays **prose** and keeps the
-  step-3b reading — per-axis fixed/hug/fill, wrap behavior, overflow/truncation — which is what
+
+  `dimensions` stays **prose** and keeps the step-3b reading — per-axis fixed/hug/fill, wrap behavior, overflow/truncation — which is what
   step 9 self-verifies against and what `320×604` cannot carry.
 
 <!-- LOCKSTEP-BEGIN plan-table-rule -->
