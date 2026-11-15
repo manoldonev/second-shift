@@ -259,6 +259,13 @@ fixture pa5; park_d2; printf 'build-pause\n' > "$FAKE_CLAUDE_PLAN"; FAKE_PAUSE_R
 grep -qF "names no pause-and-ask region of the record ('I could not decide OR-1'). What it wrote: so I stopped —" <<<"$OUT" && [ "$RC" -eq 1 ] && ok "[pause] ...and the detail quotes its first line instead of naming a region" || bad "[pause] rc=$RC detail: $(grep 'terminal: ' <<<"$OUT" | head -n 1)"
 fixture pa6; park_d2; printf 'build-pause\n' > "$FAKE_CLAUDE_PLAN"; FAKE_PAUSE_RAW='' run_case "$d"; expect build-paused "[pause] an empty pause file still stops"
 grep -qF "names no pause-and-ask region of the record (''). What it wrote: (nothing) —" <<<"$OUT" && [ "$RC" -eq 1 ] && ok "[pause] ...and the detail says nothing was written" || bad "[pause] rc=$RC detail: $(grep 'terminal: ' <<<"$OUT" | head -n 1)"
+fixture pa7; park_d2; printf 'build-pr\nreview-approve-d2\n' > "$FAKE_CLAUDE_PLAN"; mkdir -p "$T/awkdead"
+cat > "$T/awkdead/awk" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *'"pause-and-ask"'*) exit 2 ;; esac; exec "$(command -v awk)" "\$@"
+EOF
+chmod +x "$T/awkdead/awk"; OUT="$( cd "$d/main" && PATH="$T/awkdead:$PATH" bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect env-worktree "[pause] regions that cannot be read refuse the build"; [ "$RC" -eq 2 ] && [ ! -f "$FAKE_GH/calls" ] && ok "[pause] ...exit 2, and no session is spawned" || bad "[pause] rc=$RC calls=$(cat "$FAKE_GH/calls" 2>/dev/null)"
 fixture pa4; park_d2; printf 'build-pr-decide-parked\nreview-approve-d2\nreview-approve-d2\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "[pause] an approve that scores the build's own decision of the parked row honored never binds"
 grep -qF "user-delegated row under a pause-and-ask region not scored violated: D-2 honored" <<<"$OUT" && [ ! -s "$FAKE_GH/statuses" ] && ok "[pause] ...the miss names the rule, and no status is posted" || bad "[pause] miss: $(grep 'verdict grammar' <<<"$OUT" | head -n 1)"
 

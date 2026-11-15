@@ -489,7 +489,7 @@ PAUSE_FILE="pause-and-ask.md"
 pause_detail() { # pause_detail <the build's pause file> -> the terminal's detail: the region and the build's question
   local or region ask
   or="$(sed -n '1s/^paused: \(OR-[0-9][0-9]*\)[[:space:]]*$/\1/p' "$1" 2>/dev/null)"
-  region="$(pause_regions | awk -v or="$or" 'or != "" && index($0, or " — ") == 1 { print; exit }')"
+  region=""; [ -z "$or" ] || region="$(pause_regions | grep -m 1 -- "^$or — ")"
   ask="$(sed '1d' "$1" 2>/dev/null | tr '\n' ' ' | sed 's/^ *//; s/  */ /g; s/ *$//' | cut -c1-400)"
   if [ -n "$region" ]; then
     echo "the build stopped on $region. The record marks that region pause-and-ask, so only the requester decides it. The build's question: ${ask:-(none written)} — write the answer into the row that cites $or in $RECORD_REL on $BRANCH, with provenance user-answered, push, and --resume. Worktree and claim left in place"
@@ -2010,6 +2010,7 @@ while :; do
       watch_once   # guarded: a later attempt or round makes the worktree ready again, and the launch is watched once
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
       record_at_first >/dev/null || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL — a build must not be handed an empty record as binding"
+      pause_regions >/dev/null || terminal env-worktree "cannot read the Open Regions of the record at $FIRST:$RECORD_REL — a region that cannot be read must not reach the build as no pause-and-ask region"
       setup_before_build "$A"
       build_prompt "$ROUND" "$FINDINGS" "$RED_LOG" > "$STATE/build-$A.prompt"; SETUP_RED=""
       if [ "$HANDOFF" -eq 1 ]; then # the calling session builds; nothing after this is the scheduler's
