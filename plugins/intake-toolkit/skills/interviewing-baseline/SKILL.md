@@ -48,7 +48,7 @@ The ledger records every decision an interview makes, and who made it. It is a m
 - `user-delegated` — the engineer said "your call"; the grounded recommendation is recorded as the resolution.
 - `codebase-derived` — grounded in code, an ADR, the repo's CLAUDE.md, the Product-Essence Brief, or the consumer's knowledge source; the Resolution cites the source. In a receipt it states its evidence in one of three forms: ``run: `<command>` → <decisive output>`` for a fact you checked, `cited (convention|adr): <path:line>` for one no command can check, or `cited (kb): <kb-page>` for one adopted from the knowledge source's answer (see "Evidence" under "The intake receipt"). A row that records a choice rather than a fact is not `codebase-derived`: ask it.
 - `deferred` — explicitly parked, with owner and when it must be resolved in the Resolution cell.
-- `ticket-sourced` — the operator resolved it **in a ticket comment** and the run adopted that resolution. The Resolution cell MUST cite the comment by URL (`https://…`) — an uncited row is an assumption wearing a label, and the lint rejects it. This is the one user-provenance value an autonomous run may originate, precisely because the citation is independently verifiable without a local pre-flight artifact.
+- `ticket-sourced` — the operator resolved it **in a ticket comment** and the run adopted that resolution. The Resolution cell MUST cite the comment by URL (`https://…`) — an uncited row is an assumption wearing a label, and the lint rejects it.
 
 `assumed` is **not** a legal value. An assumption either gets asked, grounded, or deferred explicitly — the ledger makes a silent assumption a lint error instead of a style problem.
 
@@ -85,7 +85,7 @@ Receipt rows therefore carry a fifth `Kind` cell:
 
 | Kind | Legal provenance | Meaning |
 | --- | --- | --- |
-| `intent` | `user-answered`, `user-delegated` | the human resolved it |
+| `intent` | `user-answered`, `user-delegated`, `ticket-sourced` | the human resolved it, in the session or in a cited ticket comment |
 | `fact` | `codebase-derived`, `ticket-sourced` | derived from code or a cited comment |
 | `open` | `deferred` | parked, and mapped to a declared open region |
 
@@ -93,7 +93,7 @@ The provenance enum is unchanged — this adds an axis, it does not fork the voc
 cell is receipt-only: an in-plan Decision Ledger stays four columns, and the lint enforces the
 arity of whichever artifact it was pointed at.
 
-**The bar:** an `intent` row backed by `codebase-derived`, `ticket-sourced`, or `deferred` names
+**The bar:** an `intent` row backed by `codebase-derived` or `deferred` names
 no human decision, and the lint rejects it. That is how comprehension debt becomes countable rather
 than sensed.
 

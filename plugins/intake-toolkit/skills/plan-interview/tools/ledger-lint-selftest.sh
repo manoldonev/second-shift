@@ -206,10 +206,10 @@ grep -q "2 open region(s)" <<< "$out" && grep -q "3 surface(s)" <<< "$out" \
 
 # (ll-q) THE BAR. An intent-resolving row backed by a derived or parked
 # provenance is the exact comprehension debt receipt mode exists to count, so
-# all three illegal backings are driven, not just one — a bar that rejected
+# both illegal backings are driven, not just one — a bar that rejected
 # `deferred` while accepting `codebase-derived` would pass a single-case test
 # and let the commonest evasion straight through.
-for prov in codebase-derived ticket-sourced deferred; do
+for prov in codebase-derived deferred; do
   printf '%s\n' "| D-1 | Rate limit for the import endpoint | 100/min | $prov | intent |" > "$TMP/row.md"
   receipt_with "$TMP/row.md" "$OPEN_EMPTY" > "$TMP/unratified-$prov.md"
   rc=$(lint_rc --receipt "$TMP/unratified-$prov.md")
@@ -227,6 +227,22 @@ rc=$(lint_rc --receipt "$TMP/ratified.md")
 [[ "$rc" -eq 0 ]] \
   && pass "(ll-r) same row, user-answered → 0" \
   || fail "(ll-r) user-answered intent row — got rc=$rc"
+
+# (ll-rt) an answer the operator gave in a ticket comment is a human decision too: the
+# cited row backs intent, and without its URL it is still refused.
+printf '%s\n' '| D-1 | Rate limit for the import endpoint | 100/min, per https://example.invalid/tracker/PROJ-9999#comment-7 | ticket-sourced | intent |' > "$TMP/row-ticket.md"
+receipt_with "$TMP/row-ticket.md" "$OPEN_EMPTY" > "$TMP/ticket-intent.md"
+rc=$(lint_rc --receipt "$TMP/ticket-intent.md")
+[[ "$rc" -eq 0 ]] \
+  && pass "(ll-rt) intent row backed by a cited 'ticket-sourced' → 0" \
+  || fail "(ll-rt) cited ticket-sourced intent row — got rc=$rc"
+printf '%s\n' '| D-1 | Rate limit for the import endpoint | 100/min | ticket-sourced | intent |' > "$TMP/row-ticket.md"
+receipt_with "$TMP/row-ticket.md" "$OPEN_EMPTY" > "$TMP/ticket-intent-uncited.md"
+rc=$(lint_rc --receipt "$TMP/ticket-intent-uncited.md")
+err=$(bash "$LINT" --receipt "$TMP/ticket-intent-uncited.md" 2>&1 >/dev/null || true)
+[[ "$rc" -eq 1 ]] && grep -q "cite the source comment by URL" <<< "$err" && ! grep -q "kind 'intent' requires provenance" <<< "$err" \
+  && pass "(ll-rt) uncited 'ticket-sourced' intent row → 1, for the missing URL alone" \
+  || fail "(ll-rt) uncited ticket-sourced intent row — rc=$rc err=$err"
 
 # (ll-pf) the older empty forms, which committed records carry, still pass beside the plain ones the cases above use; any third wording fails
 sed 's/^No material decisions — all choices codebase-derived\.$/No decisions to record. The code settles every choice./' "$FIX/empty-form-ledger.md" > "$TMP/plain-empty.md"

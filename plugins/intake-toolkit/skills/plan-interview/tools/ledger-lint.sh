@@ -30,7 +30,8 @@
 # `codebase-derived` label, so any rule keyed on provenance is circular. Receipt
 # rows therefore carry a fifth `Kind` cell over a closed three-value enum:
 #
-#   intent  the human resolved it        provenance: user-answered, user-delegated
+#   intent  the human resolved it        provenance: user-answered, user-delegated,
+#                                        ticket-sourced
 #   fact    derived from code or ticket  provenance: codebase-derived, ticket-sourced
 #   open    parked                       provenance: deferred, and the Resolution
 #                                        must cite an OR-n declared in the receipt's
@@ -179,7 +180,7 @@ EMPTY_FORM_OLD='No material decisions — all choices codebase-derived.'   # old
 # Receipt-mode vocabulary. Single-sited on purpose: nothing else copies these, so
 # they need no lockstep row.
 KIND_ENUM='intent|fact|open'
-INTENT_PROVENANCE='user-answered|user-delegated'
+INTENT_PROVENANCE='user-answered|user-delegated|ticket-sourced'
 FACT_PROVENANCE='codebase-derived|ticket-sourced'
 DISPOSITION_ENUM='pause-and-ask|reversible-default-and-flag'
 OPEN_EMPTY_FORM='No open regions. Every decision in scope is settled.'
@@ -370,7 +371,7 @@ while IFS= read -r line; do
 
   # ---- Receipt check A: the provenance bar ---------------------------------
   # The whole point of the Kind axis. An `intent` row asserts a human resolved
-  # it, so only the two human-attributed provenance values may back that claim;
+  # it, so only the human-attributed provenance values may back that claim;
   # everything else is a derived fact or a parked decision wearing an intent
   # label, which is the comprehension debt this bar exists to count.
   if (( RECEIPT == 1 )); then
