@@ -54,7 +54,7 @@ The panel named throughout this skill is the **plugin-shipped generic registry**
 
 - `reviewers.add[]` — repo-local reviewer agents living in the repo's `.claude/agents/` (referenced **bare**, e.g. `orders-reviewer`). Each entry declares `dimensions[]` (a routing/dedup hint — treat those dimensions as the reviewer's domain when deciding whether to spawn it and when merging its findings). Register these alongside the plugin panel; spawn them per their declared domain the same way the conditional reviewers below are spawned.
 - `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; omit its Verdicts row.
-- `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). The `code-review.mjs` fan-out reads these; pass the overridden tier, not the agent-frontmatter default.
+- `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). Pass the `reviewers` group as `config.reviewers` (see Pre-flight); the `code-review.mjs` fan-out resolves each reviewer's tier from `modelOverrides` and `tierMap`, else from its shipped table.
 
 If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced **bare**, and plugin-shipped reviewers **qualified** (`docs/namespaces.md` rule 2) — that asymmetry is the disambiguation between roots, and it is what the panel above is spelled to satisfy. The names in the panel are dispatch names: they reach `agent({ agentType })` through `code-review.mjs`, so a bare plugin name there is not a stylistic choice but an agent type that does not resolve. `check-reviewer-references.sh` enforces both halves.
 
@@ -308,7 +308,7 @@ found in-session. Label them by dimension in the report exactly as a spawned rev
 
 ## Spawning Reviewers
 
-One dispatch substrate — the `code-review.mjs` Workflow. This session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one schema-free `agent({ agentType, model })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings. This session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
+One dispatch substrate — the `code-review.mjs` Workflow. This session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one schema-free `agent({ agentType, model })` per selected reviewer, via `parallel()`, each at the tier it resolves from the passed `config.reviewers` (`modelOverrides` and `tierMap`), else from its shipped table, and returns structured findings. This session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
 
 - **Git diff scope**: `git diff [BASE]...[HEAD] -- <relevant paths>` (three-dot, matching what the script renders) or full diff if no range provided
 - Which files changed (from `git diff --stat`)
