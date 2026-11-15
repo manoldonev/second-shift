@@ -1,7 +1,6 @@
 # Files scripts/check-no-archeology.sh lets carry an issue number, AC id or decision id.
 # path<TAB>allowed hits<TAB>class<TAB>why. Classes: data (stays), debt (to sweep), open-pr (to sweep;
 # an open pull request was changing the file when the row was written). A count only goes down.
-.github/workflows/ci.yml	5	open-pr	comments and runtime messages
 docs/review-panel-yield.md	72	data	row keys: the pull requests the yield table measures
 docs/testing.md	2	open-pr	doc prose
 plugins/audit-toolkit/scripts/audit-selftest.sh	5	debt	selftest labels; fixture ids among them become data rows when swept
@@ -20,7 +19,7 @@ plugins/dev-pipeline/skills/run/run-rows-selftest.sh	25	open-pr	selftest labels 
 plugins/dev-pipeline/skills/run/run-selftest-lib.sh	39	open-pr	selftest labels and fixture ids
 plugins/dev-pipeline/skills/run/run-selftest.sh	27	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-verdict-selftest.sh	26	debt	selftest labels; fixture ids among them become data rows when swept
-plugins/dev-pipeline/skills/run/run.sh	3	open-pr	comments and runtime messages
+plugins/dev-pipeline/skills/run/run.sh	1	data	the AC tag syntax the build prompt states
 plugins/dev-pipeline/tools/bot-commit-selftest.sh	47	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/tools/branch-prefix-selftest.sh	6	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/tools/claim-selftest.sh	12	debt	selftest labels; fixture ids among them become data rows when swept

@@ -24,7 +24,7 @@
 # The private key is downloaded from the App settings page
 # (https://github.com/settings/apps/acme-dev-pipeline → "Generate a private key";
 # keys are additive — a new key does not invalidate keys on other machines).
-# The source key file is MOVED into ~/.config/acme/ (chmod 600), so nothing
+# The source key file is MOVED beside the wrapper (gh-bot.sh --path; chmod 600), so nothing
 # secret is left behind in e.g. ~/Downloads.
 
 set -euo pipefail

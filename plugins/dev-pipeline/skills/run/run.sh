@@ -106,7 +106,7 @@ while [ $# -gt 0 ]; do
     --review-model)         REVIEW_MODEL="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --review-model-basis)   REVIEW_MODEL_BASIS="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --max-rounds)           MAX_ROUNDS="${2-}"; MAX_ROUNDS_SET=1; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
-    --max-continuations)    usage_refusal usage-max-continuations "--max-continuations was removed in #718 along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
+    --max-continuations)    usage_refusal usage-max-continuations "--max-continuations was removed along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
     --dry-run)              usage_refusal usage-dry-run "--dry-run was removed: the real run makes the same preflight checks before it claims anything, and stops on the first one that fails." ;;
     --resume)               RESUME=1; KEEP_ARGS+=("$1"); shift ;;
     --detach)               DETACH=1; shift ;;
@@ -999,7 +999,7 @@ route_smoke() { # route_smoke <attempt> -> 0 ok, 1 red (log at $STATE/smoke-<att
     [ -z "$dup" ] || smoke_red "render states $dup and $rs hash identically — the harness rendered the same view for two declared states"
     seen="$seen$sha $rs
 "
-    [ -n "$must" ] || { smoke_red "$rs declares no must-show value — the record must name one per screen (D-4)"; continue; }
+    [ -n "$must" ] || { smoke_red "$rs declares no must-show value — the record must name one per screen"; continue; }
     if [ "$scales" = 1 ]; then
       c="$(subst "$SMOKE_CMD" '{route}' "$(shquote "$route")")"; c="$(subst "$c" '{mustShow}' "$(shquote "$must")")"
       if lane "$c" >> "$log" 2>&1 </dev/null; then echo "ok: $rs shows '$must'" >> "$log"; say "smoke: $rs rendered to $png and shows '$must'"; else smoke_red "$rs must-show '$must' not satisfied"; fi

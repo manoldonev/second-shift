@@ -30,8 +30,8 @@
 #   - What breaks: a commit's BREAKING CHANGE prose, plus each Changelog block whose
 #     'Migration:' is real. A migration whose text to the end of its block is 'none'
 #     (case-insensitive, one trailing period allowed) is a no-op and never renders there.
-#   - Cutover/max rule: derived version = max(bump(version-at-tag, level), committed version)
-#     so a main that is already hand-bumped ahead never goes backwards.
+#   - Max rule: derived version = max(bump(version-at-tag, level), committed version), so a
+#     committed version ahead of the derived one never goes backwards.
 #   - Changelog: trailers are extracted GREP-ANYWHERE, never via git interpret-trailers: the
 #     squash body is a COMMIT_MESSAGES concatenation, and git recognizes trailers only in the
 #     final paragraph, so a mid-body 'Changelog:' line must still count. Every '^Changelog:'
@@ -202,7 +202,7 @@ for p in $CHANGED_PLUGINS; do
     old_ver="(new)"
   else
     new_ver="$(bump_ver "$old_ver" "$plevel")"
-    # Max rule: never go backwards vs a hand-bumped committed version (cutover).
+    # Max rule: never go backwards vs the committed version.
     [[ -n "$cur_ver" ]] && new_ver="$(ver_max "$new_ver" "$cur_ver")"
   fi
   printf '%s\t%s\t%s\t%s\n' "$p" "$old_ver" "$new_ver" "$plevel" >> "$SCRATCH/plugver.tsv"
