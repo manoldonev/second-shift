@@ -169,7 +169,18 @@ fi
 
 # ---- discovery -----------------------------------------------------------------------
 # Sorted so the worklist — and therefore the replayed log — is deterministic across lanes.
-ALL="$(cd "$ROOT" && find . -name '*-selftest.sh' -type f | sed 's|^\./||' | LC_ALL=C sort)"
+# Inside a git work tree only tracked and untracked-unignored files count: a gitignored in-tree
+# worktree holds stale copies of every suite from other branches. A non-git --root keeps `find`.
+# A tracked suite deleted from disk is dropped, or its worker would red on a missing file.
+discover_suites() {
+  if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    (cd "$ROOT" && git ls-files -z -co --exclude-standard -- '*-selftest.sh' \
+      | while IFS= read -r -d '' rel; do [[ -f "$rel" ]] && printf '%s\n' "$rel"; done)
+  else
+    (cd "$ROOT" && find . -name '*-selftest.sh' -type f | sed 's|^\./||')
+  fi
+}
+ALL="$(discover_suites | LC_ALL=C sort -u)"
 DISCOVERED=0
 [[ -n "$ALL" ]] && DISCOVERED="$(printf '%s\n' "$ALL" | wc -l | tr -d ' ')"
 [[ "$DISCOVERED" -gt 0 ]] || die "discovered 0 suites under $ROOT — a sweep that runs nothing is never green"
