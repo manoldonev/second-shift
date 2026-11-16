@@ -59,6 +59,14 @@ See `review-toolkit:reviewer-baseline` for the full protocol (loaded automatical
 
 ## Shared rules — all surfaces (Warning)
 
+<!-- LOCKSTEP-BEGIN fidelity-shared-severity -->
+A physical style prop or utility where a logical one exists, a raw or arbitrary value that
+duplicates an existing token or scale step, and a hand-rolled primitive the component catalog
+already ships are each a **Warning**, on every surface and in both design-fidelity reviewers. The
+seat is design-blind: it informs the verdict and never blocks merge on these three; the human who
+reads the verdict decides.
+<!-- LOCKSTEP-END fidelity-shared-severity -->
+
 ### Physical / shorthand style props
 
 Flag physical (`paddingLeft`, `marginTop`, `left`) or shorthand-alias style props where the convention is logical, full-name props (`paddingInlineStart`, `paddingBlockEnd`, `marginBlockStart`, `insetInlineStart`). On a surface that renders RTL this is a correctness issue, not just style — physical props break RTL rendering.

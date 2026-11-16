@@ -74,7 +74,7 @@ review.
 3. **Pass 1: review the diff from the ticket and the code alone.** Until step 4, do not open the
    decision record, the plan, the PR description, a PR comment or an earlier verdict. The diff is
    `origin/<base>...HEAD`, where `<base>` is the PR's base branch. Read it without the plans
-   directory: `git diff origin/<base>...HEAD -- . ':(exclude)<plansDir>'`. Review it yourself, in
+   directory: `git --no-replace-objects diff origin/<base>...HEAD -- . ':(exclude)<plansDir>'`. Review it yourself, in
    this session, against the ticket. Read `.claude/second-shift/review-context.md` at the head
    when it exists. It is the repo's context for this review.
 
@@ -96,9 +96,11 @@ review.
 
    Dispatch no reviewer, except the one design-fidelity reviewer of step 7.
 4. **Pass 2: read the record at its first commit and at the head.** The first commit is the commit that
-   added the record: `FIRST=$(git log --format=%H --diff-filter=A -- <record> | tail -n 1)`. Read
-   `git show $FIRST:<record>`. It shows what was decided before the build started. Then read the
-   file at the head.
+   added the record: `FIRST=$(git --no-replace-objects log --format=%H --diff-filter=A -- <record> | tail -n 1)`. Read
+   `git --no-replace-objects show $FIRST:<record>`. It shows what was decided before the build started. Then read the
+   file at the head. Write `git --no-replace-objects` in every command that reads `FIRST`, as
+   the commands below do. A replace ref in the checkout changes what a commit's sha returns, and
+   the review reads the commit that the remote shows.
    - A row edited since `FIRST` is a departure. The edit must name who decided.
    - A row added since `FIRST` is a decision made during the build. Score it too. It must also
      name who decided.
@@ -109,7 +111,7 @@ review.
    Check every row of the record against the diff. The record's test intent can exempt an
    acceptance criterion from a test. Then the pass-1 finding that the criterion has no test becomes
    a `[note]` that quotes the exemption.
-5. **Look at what the scheduler would have given you.** Read `git diff $FIRST..HEAD` and check
+5. **Look at what the scheduler would have given you.** Read `git --no-replace-objects diff $FIRST..HEAD` and check
    each item below. Each item is a question that the diff must answer, whatever the stack.
    - Deleted or renamed test files. A top-level `tests/`, `__tests__/`, `test_*.py`,
      `conftest.py`, `_spec.` and `*-selftest.*` count too.
@@ -123,14 +125,18 @@ review.
    - Every `when`-scoped `extraLanes` entry that no changed file matched. That is a configured
      lane that did not run on this diff.
    - Every added, edited, deleted or renamed review-policy file. List them with
-     `git diff --name-status $FIRST..HEAD`, and check both sides of a rename. The review-policy
-     files are `.claude/second-shift.config.json` and anything under `.claude/second-shift/`.
+     `git --no-replace-objects diff --name-status $FIRST..HEAD`, and check both sides of a rename. The review-policy
+     files are `.claude/second-shift.config.json`, anything under `.claude/second-shift/`, and
+     what your own session loads from the working tree: `.claude/settings.json`,
+     `.claude/settings.local.json`, `.mcp.json`, a `CLAUDE.md` or `CLAUDE.local.md` in any
+     directory, and anything under `.claude/rules/`, `.claude/agents/`, `.claude/skills/`,
+     `.claude/commands/`, `.claude/output-styles/` or `.claude/hooks/`.
      You load these files from the head, so the PR is reviewed against the policy it edits.
      Trace each one to an acceptance criterion or a record row. An untraced one is a `[blocker]`
      that requires the citation. The edit itself is never the blocker.
 
    Then run the AC coverage check of the plan, as the scheduler does after its checks. Write the
-   record at `FIRST` to a file (`git show $FIRST:<record> > <file>`). Then run
+   record at `FIRST` to a file (`git --no-replace-objects show $FIRST:<record> > <file>`). Then run
    `bash <this skill's base directory>/../../tools/plan-coverage.sh --head <record at the head> <record at FIRST> <plan at the head>`.
    The plan is `<plansDir>/<repo>-<key>-plan.md`, beside the record
    ([the script](../../tools/plan-coverage.sh)). The record at the head is read for one thing: an
@@ -159,6 +165,10 @@ review.
    provenance. For an undeterminable row, say what you could not read. A violated or
    undeterminable row is a blocker. Do not approve when a row has either score.
 
+   <!-- LOCKSTEP-BEGIN review-pause-and-ask -->
+   A row can cite a region that the record's `## Open Regions` table marks `pause-and-ask` at its first commit. Only the requester decides that row. If its provenance was `deferred` at the first commit and is `user-delegated` at the head, score it `violated`, never `departed`. The build decided a question that it had to stop on. The row is no longer `violated` for this reason once the head restores it to `deferred` or carries the requester's answer as `user-answered`.
+   <!-- LOCKSTEP-END review-pause-and-ask -->
+
    <!-- LOCKSTEP-BEGIN review-row-reach -->
    A row can say where or to what a rule applies. Score that row against every caller of the unit that holds the rule, in the repository at the head. The row is `honored` only when the review names each caller and shows that each one gets the rule. A caller that only passes an opt-in along is followed up to the callers that decide it. A caller that the row or the ticket itself names as outside the rule does not count. External and dynamic callers do not count. Any other caller left outside the rule scores the row `violated`. The review then files a `[blocker]` at that caller's file:line, with a concrete input that the caller prints or handles differently from the rule.
    <!-- LOCKSTEP-END review-row-reach -->
@@ -173,12 +183,11 @@ review.
    bound the risk.
 7. **Design frames.** The `## Design frames` (or `## Design`) section of the record can have
    `| RS-n |` rows. Then do two things.
-   - Dispatch one design-fidelity reviewer with the Agent tool. A handoff URL in the section
-     picks it: a `figma.com` host picks `design-toolkit:figma-faithful-reviewer`, and a
-     `claude.ai` URL under `/design` picks `design-toolkit:design-faithful-reviewer`. With no
-     such URL, the config's `design.provider` picks it: `figma` picks `figma-faithful-reviewer`,
-     and any other value, or none, picks `design-faithful-reviewer`. Give it the diff and the
-     record. If you cannot dispatch it, or it returns no report, you cannot approve: post
+   - Dispatch one design-fidelity reviewer with the Agent tool. The config's `design.provider`
+     picks it, by the rule that picked the build's design sequence and its design grants:
+     `claude-design` picks `design-toolkit:design-faithful-reviewer`, and `figma` or no provider
+     picks `design-toolkit:figma-faithful-reviewer`. A handoff URL in the section does not change
+     the pick. Give it the diff and the record. If you cannot dispatch it, or it returns no report, you cannot approve: post
      `verdict: needs-work` with line 3 `reason: seat-unavailable`.
    - Render every screen at the head with the repo's render command
      (`design.liveRender.command`). Compare each screen with its frame. If you cannot render, you
@@ -275,7 +284,7 @@ review.
    step and post your own draft.
 
    **Check the draft before you post it.** Write the body to a file. Write the record at `FIRST` to
-   another file (`git show $FIRST:<record> > <file>`). Then run
+   another file (`git --no-replace-objects show $FIRST:<record> > <file>`). Then run
    `bash <this skill's base directory>/../../tools/verdict-check.sh <draft> <record at the head> <record at FIRST>`
    ([the checker](../../tools/verdict-check.sh)). It prints every rule that the draft breaks. Fix
    the draft until the checker exits 0. Exit 2 means that it could not read a file. Fix the path.

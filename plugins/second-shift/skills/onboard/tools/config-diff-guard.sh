@@ -33,7 +33,8 @@
 # caller to buy anything.
 #
 # A configVersion 2 config carries keys version 3 removed (`topology`, `gates`, `stageParams`,
-# `grillWaivers`, `design.liveRender.tolerancePx`, `design.liveRender.cwd`). The draft cannot
+# `grillWaivers`, `commands.<id>.lintAutofixes`, `reviewers.default`, `paths.pipelineStateDir`,
+# `design.liveRender.tolerancePx`, `design.liveRender.cwd`). The draft cannot
 # keep them — config-lint rejects each — so their leaves are listed in `retired[]` instead of
 # `deltas[]`: shown to the human, never blocking, nothing to ack. The one key that MOVED rather
 # than left, `stageParams.webComponentGlobs`, is compared against the draft's
@@ -142,6 +143,9 @@ OUT="$(jq -n \
   def retired($p):
     ($p != ["stageParams","webComponentGlobs"])
     and (($p[0] | IN("topology","gates","stageParams","grillWaivers"))
+         or ($p[0] == "commands" and ($p | length) >= 3 and $p[2] == "lintAutofixes")
+         or $p[0:2] == ["reviewers","default"]
+         or $p[0:2] == ["paths","pipelineStateDir"]
          or $p[0:3] == ["design","liveRender","tolerancePx"]
          or $p[0:3] == ["design","liveRender","cwd"]);
 

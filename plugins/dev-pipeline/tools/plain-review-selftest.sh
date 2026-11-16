@@ -130,5 +130,11 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$PID" 2>/dev/null || break; sleep 1; 
 if kill -0 "$PID" 2>/dev/null; then kill -KILL "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; bad "(p16) a trailing flag with no value still runs after 10 s"
 else wait "$PID"; RC=$?; [ "$RC" -eq 2 ] && ok "(p16) a trailing flag with no value is usage: exit 2, not a hang" || bad "(p16) rc=$RC"; fi
 
+git -C "$R" replace "$HEAD_SHA" "$(git -C "$R" commit-tree 'main^{tree}' -p main -m forged)"
+FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o8" --plans-dir docs/plans >/dev/null 2>&1; RC=$?
+git -C "$R" replace -d "$HEAD_SHA" >/dev/null
+[ "$RC" -eq 0 ] && grep -qx '+two' "$T/prompt" && grep -qx two "$T/o8/tree/src/a.txt" \
+  && ok "(p23) a replace ref on the head changes neither the diff nor the tree: both are the head as committed" || bad "(p23) rc=$RC why=$(cat "$T/o8/why" 2>/dev/null) tree=$(tr '\n' ' ' < "$T/o8/tree/src/a.txt" 2>/dev/null)"
+
 echo "plain-review-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

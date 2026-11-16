@@ -57,7 +57,7 @@ mkcase() { # mkcase <id> <fix branch>
 }
 mkcase abc123 tested
 mkcase def456 untested
-leaks() { grep -Eiw 'plant|plants|planted|planting|ground.truth|answer.key|corpus|seeded|injected' "$@"; grep -iF "$DESC" "$@"; grep -F "$R" "$@"; }
+leaks() { local hit=1; grep -Eiw 'plant|plants|planted|planting|ground.truth|answer.key|corpus|seeded|injected' "$@" && hit=0; grep -iF "$DESC" "$@" && hit=0; grep -F "$R" "$@" && hit=0; return "$hit"; }
 
 if [ -n "$HAVE_LANE" ]; then
 echo "== the lane arm =="
@@ -89,6 +89,9 @@ policy="$(awk '/^### Review policy edited/{getline; print; exit}' "$P")"
 grep -qF 'Bash(gh issue view*)' "$T/lane/state/review.allow" && ok "the allowlist is review_allowlist()'s" || bad "allow: $(cat "$T/lane/state/review.allow")"
 cmp -s "$T/lane/scratch/record-at-first.md" "$R/cases/abc123/record.md" && ok "the record at its first commit is in the scratch dir" || bad "record-at-first.md differs"
 git -C "$CO" log -p > "$T/lane-log.txt"
+grep -qxE "Your \`reviewed-by:\` line is exactly 'reviewed-by: second-shift run [0-9]{8}T[0-9]{6}Z-[0-9]+'\." "$P" && ok "the reviewed-by line names a run id in run.sh's form" || bad "reviewed-by line: $(grep -F 'reviewed-by:' "$P" | head -n 1)"
+py verify --case abc123 --dest "$T/verify-lane" --clones "$T/clones" > "$T/verify-lane.out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ! grep -q 'carries a marker' "$T/verify-lane.out" && ok "verify's marker scan passes both rendered prompts of a case that goes to review" || bad "verify abc123: rc=$rc $(grep 'carries a marker' "$T/verify-lane.out" | tr '\n' '|')"
 if leaks "$P" "$T/lane-log.txt" "$T/lane/gh/issue.json" "$T/lane/gh/pr.json" > "$T/lane-leaks.txt"; then bad "a marker in the lane arm: $(head -n 3 "$T/lane-leaks.txt")"; else ok "no marker in the lane's prompt, commits, diff, ticket or PR"; fi
 
 echo "== the joined arm =="
@@ -105,6 +108,8 @@ grep -q '^You are acting as a reviewer' "$PJ" && grep -qxF '# Sum subtracts' "$P
   && grep -qF "saved to \`$T/joined/plain/scratch/verdict.md\`" "$PJ" && ok "the plain prompt is run.sh's plain-review.md: the ticket, the diff without the record, and its draft path" || bad "plain prompt: $(head -c 400 "$PJ")"
 grep -qx 'Read,Grep,Glob' "$J/plain.args" && grep -qx -- --strict-mcp-config "$J/plain.args" && grep -q ',Agent,Bash,' "$J/plain.args" \
   && ok "the plain session's flags are run.sh's plain_args" || bad "plain args: $(tr '\n' ' ' < "$J/plain.args")"
+
+if leaks "$J/review.prompt" "$PJ" > "$T/joined-leaks.txt"; then bad "a marker in the joined arm: $(head -n 3 "$T/joined-leaks.txt")"; else ok "no marker in the joined arm's lane prompt or its plain prompt"; fi
 
 echo "== the local gh =="
 lgh() { (cd "$CO" && env PATH="$T/lane/bin:$PATH" GH_LOCAL_DIR="$T/lane/gh" gh "$@"); }

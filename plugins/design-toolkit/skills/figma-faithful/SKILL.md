@@ -46,7 +46,9 @@ This skill has **no hard dependency** on a spec.
 - **Standalone mode (no approved spec):** self-resolve copy and components inline via steps
   1–5. Step 2 captures verbatim copy directly from the Figma instances. This is the default.
 - **Spec-fed mode (an approved spec / Copy Index exists):** trust the approved Copy Index +
-  component list, skip re-derivation, go straight to token translation (step 4) and implement.
+  component list. They replace step 2 (copy capture) and step 5 (component resolution), and
+  nothing else. Steps 1, 3, 3b, 4, 6 and 7 always run, then 8 and 9: the spec carries no token
+  table and no parent-frame gaps, and the step-7 plan gate and its reviewer read both.
 
 ## Reference docs (load these)
 
@@ -188,6 +190,7 @@ node mounts under, and at what level), the **per-node dimensions** from step 3b,
 (step 6), and the file list you will create/edit. This is the cheapest place to catch a wrong
 token row — one line to fix here vs. the same value spread across call-sites after the build.
 
+<!-- LOCKSTEP-BEGIN plan-table-columns -->
 Two tables in it carry the contract:
 
 - a table declaring a **`why this component`** column, one row per resolved component;
@@ -201,16 +204,21 @@ Two tables in it carry the contract:
 
   `node` is the plan's own name for the node; `RS` is the render state of the record's
   `## Design frames` row it is measured in; `px` is `<w>×<h>` with an integer or `-` per axis,
-  `-` being a node with no fixed size on that axis. `dimensions` stays **prose** and keeps the
-  step-3b reading — per-axis fixed/hug/fill, wrap behavior, overflow/truncation — which is what
+  `-` being a node with no fixed size on that axis.
+
+  <!-- LOCKSTEP-END plan-table-columns -->
+
+  `dimensions` stays **prose** and keeps the step-3b reading — per-axis fixed/hug/fill, wrap behavior, overflow/truncation — which is what
   step 9 self-verifies against and what `320×604` cannot carry.
 
+<!-- LOCKSTEP-BEGIN plan-table-rule -->
 Every cell of both tables must be filled, and a row may not declare fewer cells than its header.
 That is deliberate: an omission has to read as an **empty cell**, not as an absent thought. A
 resolved component with no stated reason is the name-match resolution that ships the wrong
 control; a node with no recorded dimensions is the eyeballed size that ships at 3× the design.
 Whether a recorded value is the *design's* is the REVIEW session's call, which renders every
 screen at the head and compares it with its frame.
+<!-- LOCKSTEP-END plan-table-rule -->
 
 **Dispatch
 [`design-toolkit:figma-faithful-plan-reviewer`](../../agents/figma-faithful-plan-reviewer.md) on

@@ -122,6 +122,10 @@ the next run. The runner, the exclusion, concurrency and the scrub recipe:
 Every checked-in script is **exercised by some selftest**; CI discovers suites by glob, so a new
 selftest needs no registration. CI is model-free by design (no API-billed calls).
 
+Every shipped agent is **named by a dispatcher** (a skill, workflow or hook) and every schema config key
+**read outside the lints, tests and docs**; `scripts/check-dispatchers-and-readers.sh` enforces it and
+holds its exceptions, each with a reason.
+
 The rule is coverage, not naming. Several scripts are covered under a differently-named suite —
 `claim-issue.sh` by `claim-selftest.sh`, `check-frozen-files.sh` and `check-configversion-migration-doc.sh` by
 `derive-release-selftest.sh`. Do not "fix" those by adding a same-named suite.

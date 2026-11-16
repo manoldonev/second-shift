@@ -45,7 +45,7 @@ trap 'rm -rf "$TMP"' EXIT
 # design-sync.mjs, figma.mjs and unit-tests.mjs left in #574 (retired with the
 # engine set). Each carried its own copy because the Workflow runtime gives these
 # scripts no import.
-PARSE_CARRIERS="code-review.mjs intake-review.mjs"
+PARSE_CARRIERS="code-review.mjs intake-review.mjs intake-fanout.mjs"
 VALIDATE_CARRIERS="code-review.mjs intake-review.mjs"
 
 extract() { # extract <file> <fn-header> -> prints the function body to stdout
@@ -67,7 +67,7 @@ for f in $PARSE_CARRIERS; do
     drift=$((drift + 1))
   fi
 done
-[ "$drift" -eq 0 ] && ok "A1 parseReviewResult byte-identical across both carriers"
+[ "$drift" -eq 0 ] && ok "A1 parseReviewResult byte-identical across every carrier ($PARSE_CARRIERS)"
 
 ref_validate="$(extract code-review.mjs validateShape 'obj, schema')"
 [ -n "$ref_validate" ] || bad "A0 could not extract validateShape from code-review.mjs"
@@ -82,7 +82,7 @@ for f in $VALIDATE_CARRIERS; do
     drift=$((drift + 1))
   fi
 done
-[ "$drift" -eq 0 ] && ok "A2 validateShape byte-identical across both carriers"
+[ "$drift" -eq 0 ] && ok "A2 validateShape byte-identical across every carrier ($VALIDATE_CARRIERS)"
 
 # ---------- (B) behavior — the PRODUCTION source, extracted, not a reference copy ----------
 

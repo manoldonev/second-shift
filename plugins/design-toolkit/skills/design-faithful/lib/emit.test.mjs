@@ -5,6 +5,11 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { dsCardMarker, emitCard, escAttr } from './emit-card.mjs'
 import { tokenRootCss, emitTokenCards, TOKEN_RAMPS } from './emit-tokens.mjs'
@@ -192,4 +197,34 @@ test('planSync: a changed body is the only write; a stale remote component is de
   )
   assert.ok(plan.deletes.includes('components/removed-old/index.html'), 'stale card deleted')
   assert.ok(!plan.deletes.includes('_ds_manifest.json'), 'non-components artifact never deleted')
+})
+
+test('build-ds-files writes the card set, deletes a stale card, and re-runs as a no-op', () => {
+  const driver = join(dirname(fileURLToPath(import.meta.url)), '..', 'tools', 'build-ds-files.mjs')
+  const tmp = mkdtempSync(join(tmpdir(), 'build-ds-files-'))
+  try {
+    const css = join(tmp, 'globals.css')
+    const out = join(tmp, 'out')
+    writeFileSync(css, GLOBALS_FIXTURE)
+    mkdirSync(join(out, 'components', 'removed-old'), { recursive: true })
+    writeFileSync(join(out, 'components', 'removed-old', 'index.html'), '<!-- @dsCard name="Old" -->\n')
+    const run = () => spawnSync(process.execPath, [driver, css, out], { encoding: 'utf8' })
+    const expected = buildDesignSystem({ globalsCss: GLOBALS_FIXTURE })
+
+    const cold = run()
+    assert.equal(cold.status, 0, cold.stderr)
+    assert.match(cold.stdout, new RegExp(`plan   : ${expected.length} write, 1 delete, 0 unchanged`))
+    for (const f of expected) assert.ok(existsSync(join(out, f.path)), `${f.path} written`)
+    assert.ok(!existsSync(join(out, 'components', 'removed-old', 'index.html')), 'stale card deleted')
+
+    const warm = run()
+    assert.equal(warm.status, 0, warm.stderr)
+    assert.match(warm.stdout, new RegExp(`plan   : 0 write, 0 delete, ${expected.length} unchanged`))
+
+    const noArgs = spawnSync(process.execPath, [driver], { encoding: 'utf8' })
+    assert.equal(noArgs.status, 1)
+    assert.match(noArgs.stderr, /usage: node build-ds-files\.mjs/)
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
 })

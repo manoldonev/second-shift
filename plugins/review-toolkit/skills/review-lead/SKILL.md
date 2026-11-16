@@ -15,8 +15,11 @@ The reviewer fan-out runs as `agent()` calls inside `workflows/code-review.mjs` 
 
 ```
 Workflow({ scriptPath: "<staged>/code-review.mjs",
-           args: { worktree, base, head, issue?, spec?, reviewers, changedFiles, prContext } })
+           args: { worktree, base, head, issue?, spec?, reviewers, changedFiles, prContext,
+                   config: { reviewers, tracker } } })
 ```
+
+`config` carries two groups of the consumer config, each as parsed from the file read at the start of Routing (see "Consumer config: reviewer registry" below): its `reviewers` group and its `tracker` group. Inside `config`, `reviewers` is that config group, not the selected `agentType[]` passed as `args.reviewers`. Leave out a group the file does not have, and pass `config: {}` when there is no config file. The script picks each dispatch's model from `reviewers.modelOverrides` and `reviewers.tierMap`, and words the scope-completeness fetch for the tracker named by `tracker.type`; without them every reviewer runs at its shipped tier and a JIRA key is fetched as a GitHub issue. Pass these two groups and never the whole config: the script reads nothing else from it.
 
 **Stage the script first — neither a bare filename nor the cache path dispatches.** The `Workflow` tool accepts only a path it returned itself, or one under the working directory or an added directory. The plugin cache is neither on a default install, so `scriptPath: "code-review.mjs"` comes back as "Workflow script file not found" and the cache's own absolute path as "must be a script path this tool returned". Resolve it from this skill's own base directory (which the invocation states) and copy it into the session scratchpad, then dispatch that copy:
 
@@ -51,7 +54,7 @@ The panel named throughout this skill is the **plugin-shipped generic registry**
 
 - `reviewers.add[]` — repo-local reviewer agents living in the repo's `.claude/agents/` (referenced **bare**, e.g. `orders-reviewer`). Each entry declares `dimensions[]` (a routing/dedup hint — treat those dimensions as the reviewer's domain when deciding whether to spawn it and when merging its findings). Register these alongside the plugin panel; spawn them per their declared domain the same way the conditional reviewers below are spawned.
 - `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; omit its Verdicts row.
-- `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). The `code-review.mjs` fan-out reads these; pass the overridden tier, not the agent-frontmatter default.
+- `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). Pass the `reviewers` group as `config.reviewers` (see Pre-flight); the `code-review.mjs` fan-out resolves each reviewer's tier from `modelOverrides` and `tierMap`, else from its shipped table.
 
 If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced **bare**, and plugin-shipped reviewers **qualified** (`docs/namespaces.md` rule 2) — that asymmetry is the disambiguation between roots, and it is what the panel above is spelled to satisfy. The names in the panel are dispatch names: they reach `agent({ agentType })` through `code-review.mjs`, so a bare plugin name there is not a stylistic choice but an agent type that does not resolve. `check-reviewer-references.sh` enforces both halves.
 
@@ -230,7 +233,7 @@ rules).
 | **unit-test-mutation-reviewer** | A production file within the repo's mutation-review target surface changed AND a co-located spec is in the diff. Advisory only (LLM-predicted, no execution, never a blocker).    |
 | **scope-completeness-reviewer** | Invocation references a tracker issue number (e.g., `Closes #758`, `Part of #758`, an explicit `--issue 758` flag, or PR body contains `#<number>`). Spawn unconditionally — depth routing does not apply. If no issue is referenced, do not spawn. Pass the PR body's link verb (see "Special handling").|
 | **a11y-reviewer**               | Diff touches the repo's web-component surface — `$WEB_COMPONENT_GLOBS` (config `reviewers.webComponentGlobs`, default `**/*.{tsx,jsx,vue,svelte,css,scss,less}`). WCAG/ARIA/keyboard/contrast/reduced-motion, primitives-library-aware.                                                    |
-| **design-fidelity dimension**   | **ALWAYS on an armed decision record** — a `## Design frames` (or `## Design`) section carrying `RS-n` render-state rows — where the reviewer is fixed by the handoff host and the diff does not enter into it. On an unarmed diff, the same `$WEB_COMPONENT_GLOBS` trigger as `a11y-reviewer`, spawned alongside it, selecting exactly one of **design-faithful-reviewer** / **figma-faithful-reviewer** by config `design.provider` — see "Design-fidelity dimension" below. |
+| **design-fidelity dimension**   | **ALWAYS on an armed decision record** — a `## Design frames` (or `## Design`) section carrying `RS-n` render-state rows — where the diff does not enter into it. On an unarmed diff, the same `$WEB_COMPONENT_GLOBS` trigger as `a11y-reviewer`, spawned alongside it, selecting exactly one of **design-faithful-reviewer** / **figma-faithful-reviewer** by config `design.provider` — see "Design-fidelity dimension" below. |
 | **repo-local domain reviewers** | Registered via config `reviewers.add`; spawn per the `dimensions[]` each declares (e.g. an `orders-reviewer` on orders-domain paths). Never suppressed by depth routing.                                                                                                     |
 
 When in doubt about whether a domain reviewer is relevant, spawn it — a "no issues found" response is cheap.
@@ -239,7 +242,7 @@ When in doubt about whether a domain reviewer is relevant, spawn it — a "no is
 
 **Armed spec: always-spawn.** When Process step 4's plan/spec awareness turns up a committed decision record whose `## Design frames` (or `## Design`) section is **armed** — at least one `| RS-n | route | state | frame | must-show |` row, with no `Design: none — <reason>` disarm — the design-fidelity dimension is selected **unconditionally**. Not glob-gated, not depth-suppressed, and not a judgment call about whether the diff looks visual: an armed ticket is one whose spec declares render states a design-sighted round will be scored against, and a round that skipped the dimension cannot certify it. This holds for **every** armed round, a trailer-only round included; armed rounds are rare and the cost is accepted.
 
-WHICH reviewer: when the section carries a handoff URL, its host decides — `figma.com` (or a subdomain of it) → **figma-faithful-reviewer**; `claude.ai` under `/design` → **design-faithful-reviewer**. With no recognized URL, the provider map below decides, as it does for an unarmed diff.
+WHICH reviewer: the provider map below decides, as it does for an unarmed diff and as the pipeline's REVIEW session does. A handoff URL in the section does not change the pick, whatever its host.
 
 **Trigger (unarmed diffs).** The same web-component surface that routes `a11y-reviewer`: the globs resolved into `$WEB_COMPONENT_GLOBS` from config `reviewers.webComponentGlobs` (default `**/*.{tsx,jsx,vue,svelte,css,scss,less}`, repo-wide), **never a hardcoded path** — a consumer that never set the key still gets this reviewer class on its UI files; a consumer that set the key to `[]` declared no web-component surface, and on an unarmed diff the dimension is not routed. Never depth-suppressed.
 
@@ -249,15 +252,15 @@ WHICH reviewer: when the section carries a handoff URL, its host decides — `fi
 
 | `design.provider` | Reviewer |
 | --- | --- |
-| `figma` | **figma-faithful-reviewer** |
 | `claude-design` | **design-faithful-reviewer** |
-| _key absent_ | **design-faithful-reviewer** — the generic web-component fidelity reviewer |
+| `figma` | **figma-faithful-reviewer** |
+| _key absent_ | **figma-faithful-reviewer** — no provider means the figma family |
 
-The no-provider row is a **default, not a fallback to nothing**: a repo with no design axis configured still gets design-system-discipline review on its web components.
+The no-provider row is a **default, not a fallback to nothing**: a repo with no design axis configured still gets design-system-discipline review on its web components, from the figma family because that is the family the lane builds with when no provider is set.
 
 **What this dimension asserts.** Both reviewers are design-blind by contract — they verify *the abstraction is right*, not that it matches an unseen design. This dimension covers design-token discipline, logical-vs-physical style props, real-component reuse over hand-rolled primitives, copy drift against a discoverable spec, and library conformance: each override, wrapper prop and justification comment checked against the installed UI library's source, with the installed line cited, every conformance finding a Warning. **It is not a pixel check** — the pixel loop belongs to the implementing session's self-verify artifact, to the pipeline's REVIEW session on a design-armed run (which renders every screen at the head and compares it with its frame, and cannot approve without that render), and to the human reviewer.
 
-**Toolkit-absent on an ARMED spec is a VOID, not a note.** The always-spawn row above is not a preference that degrades — the reviewer cannot be dispatched, so the round cannot be certified. Do not select a substitute, do not proceed with the rest of the panel, and do not answer "Ready to merge?". Emit the Step 4b-void "review did not run" report instead, naming the reviewer the handoff host required and stating that `design-toolkit` is not installed in this session. The pipeline's REVIEW session cannot approve on this shape. **Toolkit-absent is the pre-dispatch way in, not the only one**: a fidelity reviewer that IS dispatched on an armed spec and is still dark after Step 4b's re-dispatch voids the round on the same ground — see Step 4b-void case 2.
+**Toolkit-absent on an ARMED spec is a VOID, not a note.** The always-spawn row above is not a preference that degrades — the reviewer cannot be dispatched, so the round cannot be certified. Do not select a substitute, do not proceed with the rest of the panel, and do not answer "Ready to merge?". Emit the Step 4b-void "review did not run" report instead, naming the reviewer the provider map required and stating that `design-toolkit` is not installed in this session. The pipeline's REVIEW session cannot approve on this shape. **Toolkit-absent is the pre-dispatch way in, not the only one**: a fidelity reviewer that IS dispatched on an armed spec and is still dark after Step 4b's re-dispatch voids the round on the same ground — see Step 4b-void case 2.
 
 **Toolkit-absent degrade (unarmed diffs only).** These two agents ship in the `design-toolkit` plugin, not review-toolkit. The condition is that **the dimension was selected** — by *any* row of the map above, the no-provider default included — and the design-toolkit agent type is not available to dispatch in this session. When it holds, **do not select it**; detection is in-session and pre-dispatch, here at Routing. Note it once in the round summary (see "Not-selected ≠ dark" under the Synthesis Rules). Because nothing was ever dispatched, this never reaches `code-review.mjs` and cannot be confused with a dark reviewer.
 
@@ -304,7 +307,7 @@ found in-session. Label them by dimension in the report exactly as a spawned rev
 
 ## Spawning Reviewers
 
-One dispatch substrate — the `code-review.mjs` Workflow. This session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one schema-free `agent({ agentType, model })` per selected reviewer, via `parallel()`, each at the model tier declared in its agent frontmatter, and returns structured findings. This session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
+One dispatch substrate — the `code-review.mjs` Workflow. This session invokes `workflows/code-review.mjs` via the `Workflow` tool, passing the selected `reviewers` plus `worktree`/`base`/`head`/`changedFiles`/`prContext` (see Pre-flight). The script issues one schema-free `agent({ agentType, model })` per selected reviewer, via `parallel()`, each at the tier it resolves from the passed `config.reviewers` (`modelOverrides` and `tierMap`), else from its shipped table, and returns structured findings. This session runs the Synthesis Rules over them. The args the script forwards to each reviewer:
 
 - **Git diff scope**: `git diff [BASE]...[HEAD] -- <relevant paths>` (three-dot, matching what the script renders) or full diff if no range provided
 - Which files changed (from `git diff --stat`)

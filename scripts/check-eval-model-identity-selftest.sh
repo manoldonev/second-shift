@@ -172,6 +172,20 @@ expect_report_contains "scanned 0 files" "the empty-scan refusal says why"
 # 13) A root that does not exist refuses too.
 expect_rc 2 "a nonexistent root refuses" "$TMP/no-such-dir"
 
+# 14) In a git work tree a gitignored in-tree worktree copy is not scanned, while an untracked
+#     file that is not ignored still is.
+GITROOT="$TMP/git-root"
+mkdir -p "$GITROOT/plugins/demo-toolkit/evals/demo-eval" \
+         "$GITROOT/.claude/worktrees/stale/plugins/demo-toolkit/evals/demo-eval"
+git -C "$GITROOT" init -q
+echo '.claude/worktrees/' > "$GITROOT/.gitignore"
+cp "$SURFACE/run.sh" "$GITROOT/plugins/demo-toolkit/evals/demo-eval/run.sh"
+echo "MODEL_DEFAULT=\"$PIN\"" > "$GITROOT/.claude/worktrees/stale/plugins/demo-toolkit/evals/demo-eval/run.sh"
+expect_rc 0 "a gitignored worktree copy under a git root is not scanned" "$GITROOT"
+echo "MODEL_DEFAULT=\"$PIN\"" > "$GITROOT/plugins/demo-toolkit/evals/demo-eval/new.sh"
+expect_rc 1 "an untracked, unignored eval file under a git root is still scanned" "$GITROOT"
+expect_report_contains "plugins/demo-toolkit/evals/demo-eval/new.sh" "the git-root report names the unignored file"
+
 if [ "$fail" -ne 0 ]; then
     echo "check-eval-model-identity-selftest: FAILED" >&2
     exit 1

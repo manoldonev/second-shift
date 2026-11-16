@@ -547,6 +547,29 @@ run_runner "$RSH" --exclude x-selftest.sh --shard 6/6
 [[ "$RC" -eq 2 ]] && ok "--shard: a malformed or empty shard is a usage error" \
                  || { fail "--shard 6/6 over five suites exited $RC"; sed 's/^/    | /' "$OUT"; }
 
+# ---------------------------------------------------------------------------------------
+# Discovery in a git work tree: a gitignored in-tree worktree's copy of a suite is not run, an
+# untracked unignored suite is, and a tracked suite deleted from disk is not dispatched.
+# ---------------------------------------------------------------------------------------
+RG="$BASE/gitroot"; mkdir -p "$RG"
+git -C "$RG" init -q
+echo '.claude/worktrees/' > "$RG/.gitignore"
+make_suite "$RG" "tracked-selftest.sh" 0 'echo tracked-ok'
+make_suite "$RG" "gone-selftest.sh" 0 'echo gone-ok'
+git -C "$RG" add .gitignore tracked-selftest.sh gone-selftest.sh
+git -C "$RG" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
+  -c core.hooksPath=/dev/null commit -q -m fixture
+rm "$RG/gone-selftest.sh"
+make_suite "$RG" "sub/untracked-selftest.sh" 0 'echo untracked-ok'
+make_suite "$RG" ".claude/worktrees/stale/tracked-selftest.sh" 1 'echo stale-copy-ran'
+run_runner "$RG"
+[[ "$RC" -eq 0 ]] \
+  && grep -q '2 discovered, 0 excluded, 2 to run' "$OUT" \
+  && grep -q 'tracked-ok' "$OUT" && grep -q 'untracked-ok' "$OUT" \
+  && ! grep -q 'stale-copy-ran' "$OUT" && ! grep -q 'gone-selftest' "$OUT" \
+  && ok "git root: ignored copies and deleted tracked suites are not discovered; untracked suites are" \
+  || { fail "git root: discovery did not honor the work tree (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+
 echo
 if [[ "$FAILS" -eq 0 ]]; then
   echo "run-selftests-selftest: PASS"

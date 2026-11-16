@@ -30,14 +30,8 @@
 # Usage (executed):
 #   branch-prefix.sh [--configured <prefix>] [--tracker github|jira]
 #                    [--key-pattern <ere>] [--repo <dir>]
-# Usage (sourced): defines resolve_branch_prefix(), plus the two helpers a caller needs to ask
-#   the INVERSE question — "is this branch in the namespace?" — without re-deriving the parse:
-#   resolve_branch_prefix <configured> <tracker-type> <key-pattern> [<repo-dir>]
-#   bp_key_re <tracker-type> <key-pattern>
-#   bp_is_work_branch <ref> <prefix> <tracker-type> <key-pattern>
-#   bp_branch_key <ref> <prefix> <tracker-type> <key-pattern>
 #
-# Exit / return: 0 = resolved (printed on stdout); 2 = unresolvable (diagnostic on stderr).
+# Exit: 0 = resolved (printed on stdout); 2 = unresolvable (diagnostic on stderr).
 #
 # macOS ships /bin/bash 3.2; this file stays 3.2-compatible (no associative arrays).
 
@@ -66,41 +60,11 @@ _bp_candidate() { # _bp_candidate <ref> <tracker> <key-pattern>   -> prints the 
   printf '%s\n' "$ident${rest%"$key"}"
 }
 
-# The per-tracker key ERE. ONE definition, two consumers — the vote scan below and
-# bp_is_work_branch — because a caller that inlined its own copy would answer the membership
-# question by a different rule than the one that chose the namespace in the first place.
 bp_key_re() { # bp_key_re <tracker> <configured-key-pattern>
   case "${1:-github}" in
     jira) printf '%s\n' "${2:-[A-Za-z]+-[0-9]+}" ;;
     *)    printf '%s\n' '[0-9]+' ;;
   esac
-}
-
-# The INVERSE of the resolver: given a prefix already resolved, does <ref> belong to it?
-# Deliberately built on the same _bp_candidate parse rather than a `case "$ref" in "$prefix"*)`
-# string test — a prefix match alone accepts `claude/second-shift-notes` and every
-# `dependabot/...` path under a matching identifier, so the caller's blast radius would be
-# "anything whose name starts the same way" rather than "a work branch of this tracker".
-bp_is_work_branch() { # bp_is_work_branch <ref> <prefix> <tracker> <key-pattern>
-  local got
-  got="$(_bp_candidate "$1" "${3:-github}" "$(bp_key_re "${3:-github}" "${4:-}")")" || return 1
-  [ "$got" = "$2" ]
-}
-
-# The other half of the same answer: once a ref is known to belong to the namespace, WHICH
-# ticket is it? Built on bp_is_work_branch rather than on a bare `${ref#$prefix}` so the
-# membership question and the extraction question can never disagree — a caller that stripped the
-# prefix itself would happily report `notes` as the key of `claude/second-shift-notes`, which is
-# precisely the branch bp_is_work_branch exists to reject. After that test the strip is exact: the
-# candidate parse defines the prefix as everything BEFORE the key, under both trackers.
-#
-# The key is returned AS THE BRANCH SPELLS IT — lowercased under jira, because that is the
-# transform the branch name already applied. A caller comparing it against a ticket argument
-# normalizes that argument the same way rather than expecting this to un-lowercase a key it
-# cannot reconstruct.
-bp_branch_key() { # bp_branch_key <ref> <prefix> <tracker> <key-pattern>  -> prints the key
-  bp_is_work_branch "$1" "$2" "${3:-github}" "${4:-}" || return 1
-  printf '%s\n' "${1#"$2"}"
 }
 
 resolve_branch_prefix() { # resolve_branch_prefix <configured> <tracker> <key-pattern> [<repo>]
@@ -147,20 +111,16 @@ resolve_branch_prefix() { # resolve_branch_prefix <configured> <tracker> <key-pa
   printf '%s\n' "$winners"
 }
 
-# Sourced ⇒ definitions only. Executed ⇒ the CLI the selftest and any operator drives.
-if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-  set -uo pipefail
-  _cfgd=""; _tracker="github"; _keypat=""; _repo="."
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --configured)  _cfgd="${2:-}"; shift 2 ;;
-      --tracker)     _tracker="${2:-}"; shift 2 ;;
-      --key-pattern) _keypat="${2:-}"; shift 2 ;;
-      --repo)        _repo="${2:-}"; shift 2 ;;
-      -h|--help)     sed -n '2,43p' "$0"; exit 0 ;;
-      *) echo "branch-prefix.sh: unknown argument '$1'" >&2; exit 2 ;;
-    esac
-  done
-  resolve_branch_prefix "$_cfgd" "$_tracker" "$_keypat" "$_repo"
-  exit $?
-fi
+set -uo pipefail
+_cfgd=""; _tracker="github"; _keypat=""; _repo="."
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --configured)  _cfgd="${2:-}"; shift 2 ;;
+    --tracker)     _tracker="${2:-}"; shift 2 ;;
+    --key-pattern) _keypat="${2:-}"; shift 2 ;;
+    --repo)        _repo="${2:-}"; shift 2 ;;
+    -h|--help)     sed -n '2,36p' "$0"; exit 0 ;;
+    *) echo "branch-prefix.sh: unknown argument '$1'" >&2; exit 2 ;;
+  esac
+done
+resolve_branch_prefix "$_cfgd" "$_tracker" "$_keypat" "$_repo"

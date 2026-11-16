@@ -24,6 +24,8 @@
 #     has ended), and <out>/why on a failure. Exit 0 a draft · 1 no draft (<out>/why says why) · 2 usage.
 # Env: PLAIN_CLAUDE (default claude) is the session binary for `run`.
 set -uo pipefail
+# the tree and the diff are the objects as pushed, whatever replace ref the checkout carries
+export GIT_NO_REPLACE_OBJECTS=1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMPT_FILE_DEFAULT="$HERE/../skills/run/plain-review.md"
 JIRA_READ="mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue"

@@ -49,7 +49,7 @@ trap 'case_lines; rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@x GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@x
 # a BUILD session running this suite carries the spawn env run.sh gives it, and an operator's shell may carry RUN_* caps:
 # the F-env cases read what run.sh sets from its defaults, not what this shell inherited
-unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS BASH_DEFAULT_TIMEOUT_MS BASH_MAX_TIMEOUT_MS CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS RUN_BUILD_TIMEOUT RUN_REVIEW_TIMEOUT
+unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS BASH_DEFAULT_TIMEOUT_MS BASH_MAX_TIMEOUT_MS CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS RUN_BUILD_TIMEOUT RUN_REVIEW_TIMEOUT GIT_NO_REPLACE_OBJECTS
 # ...and an operator's shell may be a herdr pane with a watch configured (#939): the cases set these themselves
 for _v in $(compgen -e HERDR_) RUN_WATCH_CMD RUN_WATCH_EDITOR RUN_DETACHED_LOG; do unset "$_v"; done
 # every slice but run-joined-selftest.sh drives the switched-off review, the lane review alone; that suite unsets this
@@ -220,6 +220,16 @@ case "$plan" in
                    git add -f .claude/second-shift .claude/second-shift.config.json .claude/agents; push; openpr ;;   # forced: the fixture gitignores .claude/
   build-pr-add-row) printf '| D-2 | added by the build | x | user-delegated |\n' >> "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: a row only the head carries
   build-pr-rm-record) git rm -q "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: no record at the head to check a verdict against
+  build-edit-session-files) # every kind of file the review session loads from the head, and three it does not
+    for f in .claude/agents/a.md .claude/commands/c.md .claude/hooks/h.sh .claude/output-styles/o.md .claude/rules/r.md .claude/settings.json .claude/settings.local.json .claude/skills/s/SKILL.md .mcp.json CLAUDE.md src/CLAUDE.local.md \
+             .claude/plans/p.md docs/NOT-CLAUDE.md src/settings.json; do mkdir -p "$(dirname "$f")"; echo x > "$f"; git add -f "$f"; done
+    push; openpr ;;
+  build-pause) # a build that stops the way its prompt says to: it writes the pause file the prompt names, and no PR
+    f=$(sed -n "s/.*Then write the file \(.*\) with the Write tool\. Its first line is exactly 'paused: OR-n'.*/\1/p" "$S/prompt-$n.txt" | head -n 1)
+    if [ -z "$f" ]; then :; elif [ -n "${FAKE_PAUSE_RAW+set}" ]; then printf '%s' "$FAKE_PAUSE_RAW" > "$f"   # the file's bytes as given: a malformed or empty one
+    else printf 'paused: %s\n\nOldest first,\nor newest first?\n' "${FAKE_PAUSE:-OR-1}" > "$f"; fi; echo half >> work.txt ;;
+  build-pr-decide-parked) # a build that decides the parked D-2 itself instead of stopping
+    rec=$(git ls-files 'docs/plans/*-decisions.md'); sed 's/^| D-2 | .*/| D-2 | backfill order | oldest first. Changed in build: it reads best. | user-delegated | intent |/' "$rec" > r.tmp && mv r.tmp "$rec"; push; openpr ;;
   build-pr-operator-departure) # #1085: the operator restored a guard mid-build — the head's record carries the decision as a
                    # user-answered D-2 row and its AC-9 under Test intent; the record at FIRST is untouched, and the plan tags AC-9
                    awk '$0 == "| D-1 | a | b | user-answered | intent |" { print; print "| D-2 | the guard | restored by the operator | user-answered | intent |"; next }
@@ -234,7 +244,17 @@ case "$plan" in
                    sed 's/^AC-8: .*/AC-8: exempt — the build says so/' "$rec" > r.tmp && mv r.tmp "$rec"
                    mkdir -p plugins/dev-pipeline/tools; printf '#!/usr/bin/env bash\necho "plan-coverage: pass"\n' > plugins/dev-pipeline/tools/plan-coverage.sh
                    push; openpr ;;
+  build-pr-replace-record) # a build that forges its record: it deletes a test, then points the record commit, by a replace
+    # ref, at a parentless commit whose tree is the head's with another D-1 — the sha stays, what it returns does not
+    git rm -q src/a.spec.ts; push; openpr
+    first=$(git log --format=%H --diff-filter=A -- "$rec" | tail -n 1)
+    blob=$(git show "$first:$rec" | sed 's/^| D-1 | a | b |/| D-1 | a | forged |/' | git hash-object -w --stdin)
+    export GIT_INDEX_FILE="$S/forge.index"; git read-tree HEAD && git update-index --cacheinfo "100644,$blob,$rec"; tree=$(git write-tree); unset GIT_INDEX_FILE
+    git replace "$first" "$(git commit-tree "$tree" -m forged)" ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
+  review-approve-read-first) # runs the read of the record at its first commit that the prompt names, as a review does
+    $(sed -n 's/.*First read it as it stood at commit [0-9a-f]* (\(git show [^)]*\)).*/\1/p' "$S/prompt-$n.txt" | head -n 1) > "$S/review-read-first-$n.txt" 2>&1
+    post "$(vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge|review-needs-work-notes-reason|review-needs-work-move-base|review-approve-fetched|review-push-approve-new)
     case "$plan" in   # a real review reads the PR's head as it is now, not the worktree's last fetch
       review-approve-fetched) git fetch -q origin ;;

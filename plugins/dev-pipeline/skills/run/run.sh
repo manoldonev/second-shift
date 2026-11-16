@@ -40,7 +40,7 @@
 #   3 preflight  (read-only, fixed order: record, lanes, design, receipt lint, ticket open, model)
 #   4 claim      (the first write: the label swap and the claim marker, or a re-entry)
 #   5 baseline   (worktree on the branch; the record is the branch's first commit, pushed)
-#   6 rounds     (premise; worktree at the pushed head; BUILD; in-flight check; one PR;
+#   6 rounds     (premise; worktree at the pushed head; BUILD; its stop on a pause-and-ask region; in-flight check; one PR;
 #                 conventions; checks from the first commit; the plan's AC coverage
 #                 (tools/plan-coverage.sh: the record at the first commit, the plan at the head, and
 #                 the record at the head for an AC added under a recorded departure);
@@ -72,7 +72,8 @@
 #   - a regex or record form is stated exactly, never paraphrased.
 #
 # exit: 0 approved · build-handoff
-#       1 stopped for a human: build-no-pr, build-inflight(-unreadable), build-blocked, pr-ambiguous,
+#       1 stopped for a human: build-no-pr, build-inflight(-unreadable), build-blocked, build-paused (the build
+#         stopped on a pause-and-ask region of the record, which only the requester decides), pr-ambiguous,
 #         closeout-inflight(-unreadable), staleness-unreadable, verdict-uncheckable (the bound verdict's
 #         body could not be checked against the record), plan-coverage-uncheckable (the record's Test intent
 #         at its first commit could not be read as an AC set), baseline-unwritten (a clean rebase was pushed but
@@ -139,6 +140,9 @@ exit_code_for() { # the taxonomy a wrapper branches on
     *) echo 1 ;;
   esac
 }
+# A replace ref in the checkout changes what a sha returns without changing the sha. Every git call below, each tool's
+# and each session's ignores replace refs. Nothing else is claimed: a shallow file or info/grafts still rewrites parents.
+export GIT_NO_REPLACE_OBJECTS=1
 # Run state the terminal reports on. Set as the run advances; empty until then.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; PR_DRAFT=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
@@ -426,8 +430,9 @@ DISALLOWED="AskUserQuestion,EnterWorktree,ExitWorktree"
 ATLASSIAN_WRITES="$(bash "$TOOLS/plain-review.sh" atlassian-writes)" || terminal env-session-flags "cannot read the Atlassian write tools from $TOOLS/plain-review.sh"
 [ "$TRACKER_WRITES" = true ] || DISALLOWED="$DISALLOWED$ATLASSIAN_WRITES"
 MCP_ALLOW=""; [ "$TRACKER" = jira ] && MCP_ALLOW=",mcp__atlassian,mcp__plugin_atlassian_atlassian,mcp__claude_ai_Atlassian_Rovo"
-# No session is granted the config's directory: by default it is the main checkout's .claude/, which holds the config,
-# this run's $STATE and every other ticket's receipt. A session reads the config from a copy in its scratch dir (spawn).
+# No session gets a directory grant for the config's directory: by default it is the main checkout's .claude/, which
+# holds the config, this run's $STATE and every other ticket's receipt. No directory grant is all that is: it does not
+# make those files unreachable to a session. A session reads the config from a copy in its scratch dir (spawn).
 SPAWN_COMMON=(--permission-mode acceptEdits --permission-prompts none --disallowedTools "$DISALLOWED" --setting-sources "user,project,local" --add-dir "$WT" --output-format json)
 read_denials() { # read_denials <result-json> <out> — the file is written only when the JSON was read: a missing file is
   # "unread" (the run block's "?"), never "none"; a session killed at its bound leaves no JSON to read
@@ -478,6 +483,23 @@ section_of() { awk -v h="$1" 'on && /^#+[[:space:]]/ {on=0; done=1} !done && tol
 design_section_of() { section_of "design( frames)?"; }
 # shellcheck disable=SC2016  # markdown backticks
 record_checks() { record_text | section_of "checks" | sed -n 's/^- *`\{0,1\}\([^`]*\)`\{0,1\} *$/\1/p'; }
+pause_regions() { # each region the record's Open Regions table marks pause-and-ask, one 'OR-n — <region>' per line
+  record_text | awk '{ s = $0; gsub(/\\\|/, "\001", s) }
+    s ~ /^\|[ \t]*OR-[0-9]+[ \t]*\|/ { split(s, c, "|"); for (i = 2; i <= 4; i++) gsub(/^[ \t]+|[ \t]+$/, "", c[i])
+      if (c[4] == "pause-and-ask") { gsub(/\001/, "|", c[3]); print c[2] " — " c[3] } }'
+}
+PAUSE_FILE="pause-and-ask.md"
+pause_detail() { # pause_detail <the build's pause file> -> the terminal's detail: the region and the build's question
+  local or region ask
+  or="$(sed -n '1s/^paused: \(OR-[0-9][0-9]*\)[[:space:]]*$/\1/p' "$1" 2>/dev/null)"
+  region=""; [ -z "$or" ] || region="$(pause_regions | grep -m 1 -- "^$or — ")"
+  ask="$(sed '1d' "$1" 2>/dev/null | tr '\n' ' ' | sed 's/^ *//; s/  */ /g; s/ *$//' | cut -c1-400)"
+  if [ -n "$region" ]; then
+    echo "the build stopped on $region. The record marks that region pause-and-ask, so only the requester decides it. The build's question: ${ask:-(none written)} — write the answer into the row that cites $or in $RECORD_REL on $BRANCH, with provenance user-answered, push, and --resume. Worktree and claim left in place"
+  else
+    echo "the build stopped and wrote $PAUSE_FILE, but its first line names no pause-and-ask region of the record ('$(head -n 1 "$1" 2>/dev/null | cut -c1-80)'). What it wrote: ${ask:-(nothing)} — a human decides what happens next. Worktree and claim left in place"
+  fi
+}
 frames_rows() { record_text | design_section_of | grep -E '^\| *RS-[0-9]+ *\|' | sed 's/^| *//; s/ *| */|/g; s/ *|$//'; }
 design_declared() { # 0 armed or disarmed with a reason; 1 neither (its forms byte for byte); reads record_text
   [ -n "$DESIGN_PROVIDER" ] || return 0
@@ -1033,8 +1055,13 @@ expectations_changed() { # expectations_changed <name-status> -> each modified e
   [ "$listed" -eq 1 ] || echo "(none)"
 }
 policy_edited() { # policy_edited <name-status> -> each row that adds, edits, deletes or renames a review-policy file, either side of a rename
-  # the review session loads these from the head, so a PR is reviewed against policy it can edit
-  awk -F'\t' 'function policy(f) { return f == ".claude/second-shift.config.json" || index(f, ".claude/second-shift/") == 1 }
+  # the review session loads these from the head, so a PR is reviewed against policy it can edit: the config, the
+  # extension files, and what the session itself loads from its working tree under --setting-sources project,local
+  # (settings, memory files, rules, agents, skills, commands, output styles, the hooks dir and the MCP servers)
+  awk -F'\t' 'function policy(f) {
+      return f == ".claude/second-shift.config.json" || f == ".mcp.json" \
+        || f ~ /^\.claude\/(second-shift|rules|agents|skills|commands|output-styles|hooks)\// \
+        || f ~ /^\.claude\/settings(\.local)?\.json$/ || f ~ /(^|\/)CLAUDE(\.local)?\.md$/ }
     policy($2) || ($3 != "" && policy($3)) { print; k++ } END { if (!k) print "(none)" }' <<<"$1"
 }
 review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt>.md; 1 when a diff cannot be read (the caller refuses)
@@ -1052,7 +1079,7 @@ review_input() { # review_input <attempt> -> writes $STATE/review-input-<attempt
     grep -nE '^\+.*(\.skip\(|\.only\(|\|\| *true|xit\(|xdescribe\(|(^|[^[:alnum:]_.])fit\(|test\.todo\(|@pytest\.mark\.(skip|skipif|xfail)|t\.Skipf?\(|@Disabled|#\[ignore)' <<<"$full" || echo "(none)"; echo
     echo "### CI or check configuration edited"
     grep -E '^\.github/|^\.gitlab|\.ya?ml$|(^|/)package\.json$|vitest\.config|jest\.config|\.eslintrc|eslint\.config\.|tsconfig|(^|/)(pyproject\.toml|pytest\.ini|setup\.cfg|\.coveragerc|Makefile)$' <<<"$names" || echo "(none)"; echo
-    echo "### Review policy edited (the config and review context the review loads from this head)"
+    echo "### Review policy edited (the config, the review context and the session files the review loads from this head)"
     policy_edited "$ns"; echo
     echo "### Configured lanes not run on this diff (when-scoped; no changed file matched their globs)"
     lanes="$(skipped_lanes)"; [ -n "$lanes" ] && printf '%s\n' "$lanes" || echo "(none)"; echo
@@ -1099,6 +1126,16 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     echo "10. A blank line, the line '<!-- pipeline-cost-block -->', the line '<!-- /pipeline-cost-block -->', a blank line, and the line '</details>' that closes the fold. Write nothing between the two marker lines. The scheduler writes its run report there and its outcome into the fold's summary."
   else echo "Address the review below: fix each [blocker] finding, or rebut it in a PR comment. Fix each record row the review scored violated or undeterminable, or edit that row as the record rules below allow. A [note] finding requires nothing: fix one only if you choose to, and never rebut or reply to one. Then commit and push $BRANCH. If you added or edited a record row, add it to the '## Decisions made for you' table inside the PR body's second-shift fold. Keep every other line of the body, the marker lines and the scheduler's lines between them included. Edit the body with 'gh pr edit <pr> --body-file <a file you wrote with Write>'."; fi
   echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record's '## Knowledge source' and '## Fan-out' sections are context, not binding. They hold evidence that intake read, not decisions. Only the D-n rows bind. The record is committed at $RECORD_REL; edit rows there. If you must change the decision of a row, edit that row in place. Write the new resolution and set the provenance to user-delegated. End the cell with one sentence that starts 'Changed in build:' and gives the reason. A material decision that no row covers gets a new row with provenance user-delegated. End its cell with one sentence that starts 'Added in build:' and gives the reason. Commit each edit with the code. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
+  local asks; asks="$(pause_regions)"
+  if [ -n "$asks" ]; then
+    echo; echo "The record's '## Open Regions' table marks these regions pause-and-ask:"; echo "- ${asks//$'\n'/$'\n'- }"
+    echo "Only the requester decides a row that cites one of them. Such a row is open while its provenance in $RECORD_REL is not user-answered. Never decide an open row. Do not edit it. Do not set user-delegated on it. Do not add a row that decides its question, and do not decide it in the code. Build everything that does not depend on it. If you cannot finish the ticket without that decision, stop."
+    if [ -n "$SCRATCH" ]; then
+      echo "To stop, commit and push the work that does not depend on the decision. Then write the file $SCRATCH/$PAUSE_FILE with the Write tool. Its first line is exactly 'paused: OR-n', the region that stopped you. Under it, write the question the requester must answer and the options you see. Then end your turn. The scheduler stops the run on that file and reports the region. Nobody answers inside this session."
+    else
+      echo "To stop, tell the operator which region stopped you and the question to answer. Go on only after the operator answers. Then write the answer into the row with provenance user-answered."
+    fi
+  fi
   echo; record_at_first
   if record_has_test_intent; then # the plan is a coverage map the scheduler checks, never a tick list
     echo; echo "For each acceptance criterion (AC), the record's '## Test intent' section names the observable behavior that its test must prove. For an exempt AC, it names the exemption and its reason."
@@ -1114,7 +1151,7 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     [ -z "$(test_runners)" ] || echo "Then the scheduler puts the worktree on the record commit $FIRST. It applies the head's tagged test files on top, with the changed files that commands.$(commands_key).testSupport names, and runs the tagged tests through their configured test runner (commands.$(commands_key).testRunners). Without your change, every one must fail there. A runner with format exit judges the whole file by its exit code. A runner with format cases, vitest-json or jest-json judges each named test by the result that it reports for that test, and a vitest-json or jest-json runner runs all of its files in one call. A named test whose file does not load there, or that a failing vitest beforeAll skips there, must pass at the head instead. A cases runner that takes {cases} runs only the named cases, and each of them that fails there must also pass at the head. There are two exceptions. The scheduler does not run the files of an AC that the section marks 'holds'. That AC is existing behavior, and the checks at the head prove it. It notes the files of an AC that the section marks 'unchecked', but does not run them. A tagged test is red if it passes there, if it is skipped there, if its runner does not run it, if two tests match its name, if its runner cannot judge the form that you named it in, if no runner matches its file, or if the head does not carry its file. Each red test comes back to you as findings, and a red check spends one checks-red attempt. A test that passes without the change does not test the change. Each file must also finish there within its runner's time bound ($(test_runners | jq -r --argjson d "$FWC_TIMEOUT_DEFAULT" '"\(.when | join(", ")): \(.timeoutSeconds // $d)s\(if (.format // "exit") != "exit" then ", " + .format else "" end)"' | paste -sd ';' - | sed 's/;/; /g')), or it is red too. For a vitest-json or jest-json runner, the bound covers the one call over all of its files. Tag a test file that contains the cases of this change, not a whole slow suite."
   fi
   if [ -n "$(frames_rows)" ]; then
-    if [ "$DESIGN_PROVIDER" = claude-design ]; then
+    if [ "$(design_family)" = claude-design ]; then
       echo; echo "This ticket has design frames. Follow the design-faithful sequence:"
       echo "1. Read the handoff screen behind every frame id in the '## Design frames' section first, with the DesignSync tool."
       echo "2. Write the translation plan: each component with the reason you chose it, and the dimensions of each sized node."
@@ -1168,6 +1205,12 @@ REVIEW
   echo "Read the decision record at $RECORD_REL twice. First read it as it stood at commit $FIRST (git show $FIRST:$RECORD_REL). Then read it as it stands at the head."
   echo "Check every row of the record against the diff. The record's test intent can exempt an acceptance criterion from a test. Then the pass-1 finding that the criterion has no test becomes a [note] that quotes the exemption."
   echo "Score EVERY row of the record against the code. The scores are: honored, violated, departed, or undeterminable. A departed row was edited: name who decided, per its provenance. For an undeterminable row, say what you could not read. A violated or undeterminable row is a blocker. Do not approve when a row has either score."
+  # stated once here and once in review/SKILL.md step 6; tools/verdict-check.sh enforces it
+  grep -v 'LOCKSTEP-' <<'PAUSED'
+# LOCKSTEP-BEGIN review-pause-and-ask
+A row can cite a region that the record's `## Open Regions` table marks `pause-and-ask` at its first commit. Only the requester decides that row. If its provenance was `deferred` at the first commit and is `user-delegated` at the head, score it `violated`, never `departed`. The build decided a question that it had to stop on. The row is no longer `violated` for this reason once the head restores it to `deferred` or carries the requester's answer as `user-answered`.
+# LOCKSTEP-END review-pause-and-ask
+PAUSED
   # stated once here and once in review/SKILL.md step 6
   grep -v 'LOCKSTEP-' <<'REACH'
 # LOCKSTEP-BEGIN review-row-reach
@@ -1176,7 +1219,7 @@ A row can say where or to what a rule applies. Score that row against every call
 REACH
   echo "A row can name a deferred, unmeasured or inherited cost, load or performance risk. Still score that row on whether the code matches it. The row is the operator's decision. A score never overrides it. Its risk is also required performance work: the review states the worst-case bound as a finding. A bound that breaks an existing caller or existing data is a [blocker] under the severity rule of pass 1. Any other bound is a [blocker] when it breaks what the row decided, and a [note] otherwise. The row permits the out-of-diff reads that check the bound. The row can name a file that the diff does not touch. That fact scores the row. It does not bound the risk."
   if [ -n "$(frames_rows)" ]; then
-    echo "The record has RS-n rows, so dispatch one design-fidelity reviewer with the Agent tool. A handoff URL in the record's design section picks it: a figma.com host picks design-toolkit:figma-faithful-reviewer, and a claude.ai URL under /design picks design-toolkit:design-faithful-reviewer. With no such URL, the config's design.provider picks it. It is '${DESIGN_PROVIDER:-not set}' here: figma picks figma-faithful-reviewer, and any other value picks design-faithful-reviewer. Give it the diff and the record. If you cannot dispatch it, or it returns no report, you cannot approve: post 'verdict: needs-work' with line 3 'reason: seat-unavailable'."
+    echo "The record has RS-n rows, so dispatch one design-fidelity reviewer with the Agent tool: design-toolkit:$(design_reviewer). The config's design.provider picks it, by the rule that picked the build's design sequence and both sessions' design grants: claude-design picks design-faithful-reviewer, and figma or no provider picks figma-faithful-reviewer. It is '${DESIGN_PROVIDER:-not set}' here. A handoff URL in the record does not change the pick. Give it the diff and the record. If you cannot dispatch it, or it returns no report, you cannot approve: post 'verdict: needs-work' with line 3 'reason: seat-unavailable'."
   fi
   echo "Dispatch no other reviewer."
   echo "For every file under 'Existing test or snapshot expectations changed' in the scheduler input below, trace its removed expectation to an acceptance criterion of the ticket or a row of the decision record. An entry you cannot trace is a [blocker]. Name the file and the expectation. Require the build to cite the criterion or row that authorized the change."
@@ -1260,7 +1303,10 @@ STYLE
   fi
   echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, review-policy edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
-design_grants() { [ "$DESIGN_PROVIDER" = claude-design ] && printf ',DesignSync' || printf ',mcp__figma,mcp__plugin_figma_figma'; }
+# one rule for the build's sequence, both allowlists and the review's design-fidelity reviewer: the config alone, unset is figma
+design_family() { [ "$DESIGN_PROVIDER" = claude-design ] && printf claude-design || printf figma; }
+design_grants() { [ "$(design_family)" = claude-design ] && printf ',DesignSync' || printf ',mcp__figma,mcp__plugin_figma_figma'; }
+design_reviewer() { [ "$(design_family)" = claude-design ] && printf design-faithful-reviewer || printf figma-faithful-reviewer; }
 build_allowlist() { # row F3: derived from what the record and config name
   # bash $WT/*: a build runs the scripts it writes in its worktree, which the checks already execute.
   # Grep and Glob are its lookups, never a Bash grep, ls, wc or head; a later round may edit the PR body
@@ -1925,7 +1971,8 @@ watch_once() {
 }
 spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> rc (124 past the bound); the result JSON is $STATE/<role>-<id>.json
   local secs="$REVIEW_TO" extra=(); [ "$1" = build ] && secs="$BUILD_TO"
-  # both sessions get the run's scratch dir for their drafts and probes; neither gets $STATE, which the scheduler alone writes
+  # both sessions get the run's scratch dir for their drafts and probes; neither gets a directory grant for $STATE, where
+  # the scheduler writes. No directory grant is all that is: it does not make $STATE unreachable to a session
   [ -n "$SCRATCH" ] && extra=(--add-dir "$SCRATCH")
   # F-env: under -p a turn that ends waiting on a background task ends the process, and a background shell dies with it.
   # Both sessions run every command in the foreground, inside their own bound. Passed as --settings env, which sits above
@@ -1938,7 +1985,8 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
     sets="$(jq -cn --arg ms "$BUILD_BASH_MS" --arg hook "bash $(shquote "$TOOLS/lane-permission-hook.sh") $(shquote "$WT") $(shquote "$SCRATCH") $(shquote "$WT/$RECORD_REL") $(shquote "$WT/$PLAN_REL")" \
       '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms},hooks:{PermissionRequest:[{hooks:[{type:"command",command:$hook}]}]}}')" \
       || terminal env-session-settings "cannot write the build session's --settings JSON"
-  else sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms}}')" \
+  # the review loads the head's own settings.json, whose env could name the variable again: --settings sits above it
+  else sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms,GIT_NO_REPLACE_OBJECTS:"1"}}')" \
       || terminal env-session-settings "cannot write the review session's --settings JSON"; fi
   # the session reads a copy of the config, written afresh from the launch-time read before every spawn: the sessions
   # share the scratch dir, so a build's edit to its copy must not reach the review that follows it. After every -u:
@@ -1969,6 +2017,7 @@ while :; do
       watch_once   # guarded: a later attempt or round makes the worktree ready again, and the launch is watched once
       ATTEMPT=$((ATTEMPT+1)); A="$ROUND.$ATTEMPT"
       record_at_first >/dev/null || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL — a build must not be handed an empty record as binding"
+      pause_regions >/dev/null || terminal env-worktree "cannot read the Open Regions of the record at $FIRST:$RECORD_REL — a region that cannot be read must not reach the build as no pause-and-ask region"
       setup_before_build "$A"
       build_prompt "$ROUND" "$FINDINGS" "$RED_LOG" > "$STATE/build-$A.prompt"; SETUP_RED=""
       if [ "$HANDOFF" -eq 1 ]; then # the calling session builds; nothing after this is the scheduler's
@@ -1982,6 +2031,8 @@ while :; do
       sub="$(jq -r '.subtype // "unreadable"' "$STATE/build-$A.json" 2>/dev/null)"
       [ "$sub" = success ] || terminal build-blocked "build session ended $sub (rc=$brc); worktree and claim left in place"
       over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
+      # before the in-flight check: a paused build may leave work in the tree, and the pause is why it stopped
+      [ ! -e "$SCRATCH/$PAUSE_FILE" ] || terminal build-paused "$(pause_detail "$SCRATCH/$PAUSE_FILE")"
       worktree_inflight "$A"; ifrc=$?
       case "$ifrc" in
         0) : ;;

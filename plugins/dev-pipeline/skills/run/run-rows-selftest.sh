@@ -67,7 +67,7 @@ printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect
 grep -q 'mcp__figma' "$FAKE_GH/args-1.txt" && grep -q 'mcp__figma' "$FAKE_GH/args-2.txt" && ok "[F7] Figma servers allowed in both sessions on a frames ticket" || bad "[F7] Figma servers missing"
 grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && grep -q 'three rounds per screen' "$FAKE_GH/prompt-1.txt" && ok "[F18] the build prompt carries the figma-faithful sequence" || bad "[F18] sequence missing"
 grep -q 'render-unavailable' "$FAKE_GH/prompt-2.txt" && ok "[H13] the review prompt carries the render-unavailable rule" || bad "[H13] rule missing"
-grep -qF "The record has RS-n rows, so dispatch one design-fidelity reviewer with the Agent tool." "$FAKE_GH/prompt-2.txt" && grep -qF "It is 'figma' here: figma picks figma-faithful-reviewer" "$FAKE_GH/prompt-2.txt" \
+grep -qF "The record has RS-n rows, so dispatch one design-fidelity reviewer with the Agent tool: design-toolkit:figma-faithful-reviewer." "$FAKE_GH/prompt-2.txt" && grep -qF "It is 'figma' here." "$FAKE_GH/prompt-2.txt" \
   && grep -qF "post 'verdict: needs-work' with line 3 'reason: seat-unavailable'." "$FAKE_GH/prompt-2.txt" && grep -qx 'Dispatch no other reviewer.' "$FAKE_GH/prompt-2.txt" \
   && ok "[F7] a frames record has the review dispatch its one design-fidelity reviewer by design.provider, and stop on seat-unavailable" || bad "[F7] the design-fidelity dispatch is missing from the frames review prompt"
 grep -qx 'This ticket has design frames. Follow the figma-faithful sequence:' "$FAKE_GH/prompt-1.txt" && grep -qx '2. Write the token and component plan.' "$FAKE_GH/prompt-1.txt" && ! grep -q 'design-faithful' "$FAKE_GH/prompt-1.txt" \
@@ -84,6 +84,21 @@ fixture rkn "- true" $'\n## Design frames\n\n| RS | route | state | frame | must
 printf 'build-pr\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-smoke-unconfigured "no provider: frames ticket"
 grep -qx 'This ticket has design frames. Follow the figma-faithful sequence:' "$FAKE_GH/prompt-1.txt" && grep -q ',mcp__figma,mcp__plugin_figma_figma' "$FAKE_GH/args-1.txt" && ! grep -q 'DesignSync' "$FAKE_GH/args-1.txt" \
   && ok "no provider: a frames record builds on the figma sequence and grants" || bad "no provider: $(grep -n 'faithful' "$FAKE_GH/prompt-1.txt" | cut -c1-160 | tr '\n' '|')"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture rku "- true" $'\n## Design frames\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "no provider: frames ticket reviewed"
+grep -qx 'This ticket has design frames. Follow the figma-faithful sequence:' "$FAKE_GH/prompt-1.txt" && grep -qF 'with the Agent tool: design-toolkit:figma-faithful-reviewer.' "$FAKE_GH/prompt-2.txt" \
+  && grep -q ',mcp__figma,mcp__plugin_figma_figma' "$FAKE_GH/args-1.txt" && grep -q ',mcp__figma,mcp__plugin_figma_figma' "$FAKE_GH/args-2.txt" && ! grep -q 'DesignSync' "$FAKE_GH/args-1.txt" "$FAKE_GH/args-2.txt" \
+  && ok "no provider: the review dispatches figma-faithful-reviewer, the family the build and both grants follow" || bad "no provider: build and review disagree: $(grep -ho 'Follow the [a-z-]* sequence\|Agent tool: design-toolkit:[a-z-]*' "$FAKE_GH/prompt-1.txt" "$FAKE_GH/prompt-2.txt" | tr '\n' '|')"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"figma\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture rkf "- true" $'\n## Design frames\n\nHandoff: https://claude.ai/design/p/abc123\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | 1:2 | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "provider figma, claude.ai/design handoff URL"
+grep -qx 'This ticket has design frames. Follow the figma-faithful sequence:' "$FAKE_GH/prompt-1.txt" && grep -qF 'with the Agent tool: design-toolkit:figma-faithful-reviewer.' "$FAKE_GH/prompt-2.txt" \
+  && grep -q ',mcp__figma,mcp__plugin_figma_figma' "$FAKE_GH/args-2.txt" && ! grep -q 'DesignSync' "$FAKE_GH/args-1.txt" "$FAKE_GH/args-2.txt" \
+  && ok "provider figma with a claude.ai/design URL: build, grants and review all stay figma" || bad "provider figma, claude.ai URL: $(grep -ho 'Follow the [a-z-]* sequence\|Agent tool: design-toolkit:[a-z-]*' "$FAKE_GH/prompt-1.txt" "$FAKE_GH/prompt-2.txt" | tr '\n' '|')"
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"design\":{\"provider\":\"claude-design\",\"liveRender\":{\"command\":\"cp $T/px.png {out}\",\"smokeCommand\":\"true\"}}}" fixture rkg "- true" $'\n## Design frames\n\nHandoff: https://www.figma.com/design/abc123/screen?node-id=1-2\n\n| RS | route | state | frame | must-show |\n| --- | --- | --- | --- | --- |\n| RS-1 | a | default | detail | ok |\n'
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "provider claude-design, figma.com handoff URL"
+grep -qx 'This ticket has design frames. Follow the design-faithful sequence:' "$FAKE_GH/prompt-1.txt" && grep -qF 'with the Agent tool: design-toolkit:design-faithful-reviewer.' "$FAKE_GH/prompt-2.txt" \
+  && grep -q ',DesignSync' "$FAKE_GH/args-2.txt" && ! grep -q 'mcp__figma\|mcp__plugin_figma' "$FAKE_GH/args-1.txt" "$FAKE_GH/args-2.txt" \
+  && ok "provider claude-design with a figma.com URL: build, grants and review all stay claude-design" || bad "provider claude-design, figma URL: $(grep -ho 'Follow the [a-z-]* sequence\|Agent tool: design-toolkit:[a-z-]*' "$FAKE_GH/prompt-1.txt" "$FAKE_GH/prompt-2.txt" | tr '\n' '|')"
 # F20: the review session reviews the diff itself — no Skill, no Workflow, no staging or review-context lint; Agent stays
 # for the design-fidelity reviewer, and the session runs in the foreground
 fixture rpanel; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[F20] review tools"
@@ -191,15 +206,15 @@ rsec() { awk -v h="### $1" 'index($0, h) == 1 {on=1; next} /^###/{on=0} on && NF
 [ "$(rsec 'Review policy edited')" = "(none)" ] && ok "[I10] #1009: a diff that edits no review policy says (none)" || bad "[I10] #1009: policy section: [$(rsec 'Review policy edited')]"
 
 # I10 #1009: head-side edits to the review policy reach the review input: both sides of a rename out of the policy dir,
-# and the config and context files. No lane reader loads a reviewers.add[] agent file, so none is listed
+# the config and context files, and the agent files the review session loads from its working tree
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"reviewers":{"add":[{"name":"orders-reviewer"},{"name":"pack:billing-reviewer"}]}}' fixture rpol
 mkdir -p "$d/main/.claude/second-shift"; echo 'never raw SQL' > "$d/main/.claude/second-shift/security-rules.md"
 git -C "$d/main" add -f .claude/second-shift/security-rules.md && git -C "$d/main" commit -qm policy && git -C "$d/main" push -q origin main
 printf 'build-edit-policy\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] #1009 run"
 s="$(rsec 'Review policy edited')"
 grep -qxE $'R[0-9]+\t\\.claude/second-shift/security-rules\\.md\tdocs/security-rules\\.md' <<<"$s" && grep -qxF $'A\t.claude/second-shift/review-context.md' <<<"$s" \
-  && grep -qxF $'A\t.claude/second-shift.config.json' <<<"$s" && ! grep -q '\.claude/agents/' <<<"$s" && [ "$(grep -c '' <<<"$s")" -eq 3 ] \
-  && ok "[I10] #1009: the rename out of the policy dir and the context and config files are listed; no agent file is" || bad "[I10] #1009: policy section: $(tr '\n\t' '| ' <<<"$s")"
+  && grep -qxF $'A\t.claude/second-shift.config.json' <<<"$s" && [ "$(grep -cE '^A[[:space:]]+\.claude/agents/' <<<"$s")" -eq 3 ] && [ "$(grep -c '' <<<"$s")" -eq 6 ] \
+  && ok "[I10] the rename out of the policy dir, the context and config files and the three agent files are listed" || bad "[I10] policy section: $(tr '\n\t' '| ' <<<"$s")"
 grep -q '^### Review policy edited' "$(SD)/review-1.1.prompt" && grep -q "For every file under 'Review policy edited' in the scheduler input below, trace the edit" "$(SD)/review-1.1.prompt" \
   && ok "[I10] #1009: the section and its trace instruction reach the review prompt" || bad "[I10] #1009: not in the review prompt"
 
@@ -238,6 +253,41 @@ fixture rq; printf 'build-pr\nreview-needs-work-drop-base\nbuild-push-only\n' > 
 # J11: an unresolvable merge-base (an orphan branch) is env-base-unreadable
 fixture rr; mkdir -p "$d/wt"; ( cd "$d/main" && git worktree add -q --detach "$d/wt/42" && cd "$d/wt/42" && git checkout -q --orphan second-shift/42 && git commit -qm orphan --allow-empty && git push -q origin second-shift/42 ) 2>/dev/null
 printf 'in-progress\nopus\n' > "$FAKE_GH/labels"; run_case "$d" --resume; expect env-base-unreadable "[J11] no merge-base with the base branch"; [ "$RC" -eq 2 ] && ok "[J11] exit 2" || bad "[J11] exit $RC"
+
+# a pause-and-ask region is the requester's to decide: the build stops on it, and the run ends there for a human
+park_d2() { # the fixture receipt with D-2 parked under a pause-and-ask OR-1, beside a reversible OR-2
+  local r="$d/main/.claude/pipeline-state/42-ledger.md"
+  awk '{ print }
+    /^\| D-1 \|/ { print "| D-2 | backfill order | parked under OR-1 | deferred | open |" }' "$r" \
+    | awk '/^No open regions/ { print "| ID | Region | Disposition |"; print "| --- | --- | --- |"; print "| OR-1 | Ordering of the backfill | pause-and-ask |"; print "| OR-2 | Retention window | reversible-default-and-flag |"; print ""; print "OR-2 default: 90 days, chosen by the operator; one config line to reverse."; next } { print }' > "$r.tmp" && mv "$r.tmp" "$r"
+}
+fixture pa; park_d2; printf 'build-pause\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-paused "[pause] the build stopped on the region"
+[ "$RC" -eq 1 ] && [ "$(cat "$FAKE_GH/calls")" -eq 1 ] && ok "[pause] exit 1, and no review is spawned" || bad "[pause] rc=$RC calls=$(cat "$FAKE_GH/calls")"
+grep -qF "terminal: build-paused — the build stopped on OR-1 — Ordering of the backfill." <<<"$OUT" && grep -qF "The build's question: Oldest first, or newest first? —" <<<"$OUT" && ! grep -qF 'OR-2' <<<"$OUT" \
+  && ok "[pause] the detail names the region and carries the build's question" || bad "[pause] detail: $(grep 'terminal: ' <<<"$OUT" | head -n 1)"
+grep -qF 'build-paused — the build stopped on OR-1' "$FAKE_GH/issue-comments" 2>/dev/null && ok "[pause] the closing comment on the ticket names the region" || bad "[pause] closing comment: $(tail -n 2 "$FAKE_GH/issue-comments" 2>/dev/null)"
+[ -d "$d/wt" ] && grep -qx half "$(find "$d/wt" -name work.txt | head -n 1)" && ok "[pause] the worktree and its uncommitted work are left in place" || bad "[pause] worktree: $(ls "$d/wt" 2>/dev/null)"
+fixture pa2; park_d2; printf 'build-pr\nreview-approve-d2\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[pause] a build that never needed the parked decision goes on to an approve"
+fixture pa3; park_d2; printf 'build-pause\n' > "$FAKE_CLAUDE_PLAN"; FAKE_PAUSE=OR-2 run_case "$d"; expect build-paused "[pause] a pause that names a region the record does not mark pause-and-ask still stops"
+grep -qF "names no pause-and-ask region of the record ('paused: OR-2')" <<<"$OUT" && ok "[pause] ...and the detail says so" || bad "[pause] detail: $(grep 'terminal: ' <<<"$OUT" | head -n 1)"
+fixture pa5; park_d2; printf 'build-pause\n' > "$FAKE_CLAUDE_PLAN"; FAKE_PAUSE_RAW=$'I could not decide OR-1\nso I stopped\n' run_case "$d"; expect build-paused "[pause] a pause file with no 'paused:' first line still stops"
+grep -qF "names no pause-and-ask region of the record ('I could not decide OR-1'). What it wrote: so I stopped —" <<<"$OUT" && [ "$RC" -eq 1 ] && ok "[pause] ...and the detail quotes its first line instead of naming a region" || bad "[pause] rc=$RC detail: $(grep 'terminal: ' <<<"$OUT" | head -n 1)"
+fixture pa6; park_d2; printf 'build-pause\n' > "$FAKE_CLAUDE_PLAN"; FAKE_PAUSE_RAW='' run_case "$d"; expect build-paused "[pause] an empty pause file still stops"
+grep -qF "names no pause-and-ask region of the record (''). What it wrote: (nothing) —" <<<"$OUT" && [ "$RC" -eq 1 ] && ok "[pause] ...and the detail says nothing was written" || bad "[pause] rc=$RC detail: $(grep 'terminal: ' <<<"$OUT" | head -n 1)"
+fixture pa7; park_d2; printf 'build-pr\nreview-approve-d2\n' > "$FAKE_CLAUDE_PLAN"; mkdir -p "$T/awkdead"
+cat > "$T/awkdead/awk" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *'"pause-and-ask"'*) exit 2 ;; esac; exec "$(command -v awk)" "\$@"
+EOF
+chmod +x "$T/awkdead/awk"; OUT="$( cd "$d/main" && PATH="$T/awkdead:$PATH" bash "$RUN" 42 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"
+expect env-worktree "[pause] regions that cannot be read refuse the build"; [ "$RC" -eq 2 ] && [ ! -f "$FAKE_GH/calls" ] && ok "[pause] ...exit 2, and no session is spawned" || bad "[pause] rc=$RC calls=$(cat "$FAKE_GH/calls" 2>/dev/null)"
+fixture pa4; park_d2; printf 'build-pr-decide-parked\nreview-approve-d2\nreview-approve-d2\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "[pause] an approve that scores the build's own decision of the parked row honored never binds"
+grep -qF "user-delegated row under a pause-and-ask region not scored violated: D-2 honored" <<<"$OUT" && [ ! -s "$FAKE_GH/statuses" ] && ok "[pause] ...the miss names the rule, and no status is posted" || bad "[pause] miss: $(grep 'verdict grammar' <<<"$OUT" | head -n 1)"
+
+# the policy list covers what the review session itself loads from the head, and nothing else under .claude/
+fixture rpol2; printf 'build-edit-session-files\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] session files run"
+s="$(rsec 'Review policy edited')"; want="$(printf 'A\t%s\n' .claude/agents/a.md .claude/commands/c.md .claude/hooks/h.sh .claude/output-styles/o.md .claude/rules/r.md .claude/settings.json .claude/settings.local.json .claude/skills/s/SKILL.md .mcp.json CLAUDE.md src/CLAUDE.local.md)"
+[ "$s" = "$want" ] && ok "[I10] every file the review session loads from the head is listed; a plan under .claude/ and a look-alike name are not" || bad "[I10] session files: $(tr '\n\t' '| ' <<<"$s")"
 
 # J13: a diff against the first commit that cannot be read stops the run
 fixture rs; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; mkdir -p "$T/gitdiffdead"

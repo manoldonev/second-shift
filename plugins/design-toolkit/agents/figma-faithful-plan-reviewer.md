@@ -41,18 +41,15 @@ agent that returns `N/A` on the input in front of you is not a hand-off, it is a
 that is exactly how per-node sizing and component suitability came to be owned by nobody. Where a
 check genuinely has no owner on this lane, it says so in as many words instead of naming one.
 
-- **Component _identity_** (does a real repo component exist at that import, and did the spec
-  resolve one at all?) → `design-toolkit:figma-faithful-spec-reviewer`. Its `N/A` is narrowed to
-  an input that is not a design artifact at all, so a plan-bearing spec reaches it. Its _suitability_ half stays yours as well (above); that overlap
-  is deliberate, because a check two agents run is cheaper than one neither does.
-- **Import-path existence** in the repo → `design-toolkit:figma-faithful-reviewer` (post-build
-  grep).
+- **Import-path existence** in the repo (does a real repo component exist at that import?) →
+  `design-toolkit:figma-faithful-reviewer` (post-build grep). Whether the plan resolved a
+  component for a node at all is yours: you are the one reader of the resolved-component list, so
+  a node the plan renders with no resolution is a finding here, alongside its suitability.
 - **Copy drift** against a discoverable spec → `design-toolkit:figma-faithful-reviewer`. Copy
-  _capture_ (is this the string the design shows?) has an owner only where the
-  spec recorded the strings: `design-toolkit:figma-faithful-spec-reviewer` reviews a plan-bearing
-  spec, but it cannot check copy an artifact never carried, and neither can you. Where the spec
-  records no copy, that gap has no owner — say it exists; do not fill it with findings about
-  strings you cannot see.
+  _capture_ (is this the string the design shows?) has no blind reviewer: only
+  `figma-faithful-spec`, which has Figma access, can record it, and its step-7 self-check is the
+  check. Where the spec records no copy, that gap has no owner — say it exists; do not fill it
+  with findings about strings you cannot see.
 - **Code style, style-prop shape, hand-rolled primitives** → `design-toolkit:figma-faithful-reviewer`.
 - **Whether a recorded Figma value is itself correct** → the REVIEW session, which
   renders every screen at the head and compares it with its frame. That is the reader that sees both sides. It is **not** a pixel-diff — no such gate
@@ -82,7 +79,12 @@ You are static and have no Figma/MCP access. You check that `Repo output` is the
 The plan now carries the node's gaps to its **siblings** (from the parent frame) and a **placement decision**, not just intra-node values — the round-2 failure modes (a block gap left to the surrounding code; a node nested instead of mounted as the sibling the frame tree showed). You have no Figma/MCP access, so you check the plan is internally complete and coherent, not that it matches the design.
 
 - **[Warning]** the plan describes a screen with **multiple stacked blocks** (e.g. a header card + a list + a banner) but carries **no inter-block gap rows** and **no placement decision** — step 3b was skipped, so the implementer will default block spacing to whatever the existing file already has (the 16px-shipped-at-8px failure).
-- **[Warning]** a **placement decision that disagrees with the file list** — e.g. it states "renders as a sibling of the section" but the file list edits only the section component (which would nest it), with no parent/page-level mount. Stated hierarchy and the planned structure must agree.
+<!-- LOCKSTEP-BEGIN plan-reviewer-placement -->
+- **[Warning]** a **placement decision that disagrees with the file list** — e.g. it states the
+  node "renders as a sibling of the section" while the file list edits only the section component
+  (which would nest it), with no parent/page-level mount. Stated hierarchy and planned structure
+  must agree.
+<!-- LOCKSTEP-END plan-reviewer-placement -->
 - **[Warning]** a **control shown in a distinct screen region** (e.g. a field in the right rail vs the content column) whose placement row / file list mounts it in the wrong region's component. Cross-region placement must be explicit and the edited file must be that region's component.
 - **[Blocker]** a plan for a **control-bearing screen** (inputs, selects, buttons, any individually sized control) that records **no dimension row at all**. This is the SILENT case, and it is the one that ships: `figma-faithful` step 3b requires sizing per node unconditionally, so a plan with zero recorded dimensions did not do step 3b — the implementer will size every control by eye, and the design-blind code reviewer downstream will have no recorded number to compare against either. A screen of individually sized controls is not a "repeating / wrapping group", so the check below never fires on it. Observed: a plan carried exactly one dimension row and none for any control; the design specified 32px controls, and the build shipped them at ~107px. Do not accept a token table in place of dimensions — spacing and color rows are not sizing.
 - **[Warning]** a **repeating / wrapping group** (cards in a row, a grid) whose plan carries gaps but **no sizing/fill behavior** — fixed-width vs fill-container columns, whether an incomplete last row stretches, fixed item dimensions, overflow/truncation. A token-only plan leaves these to the implementer: a wrap row of fill-container items is a fixed-column **grid** (incomplete row keeps the column width — no stretch), not a flex row with `flexGrow:1` (which stretches). This is the stretch / fixed-height / truncation class of gap.
@@ -92,44 +94,66 @@ The plan now carries the node's gaps to its **siblings** (from the parent frame)
 
 The plan reviewer is the only agent that sees the resolved-component list on the lane. You
 have no Figma access, so you cannot confirm a component matches the frame — what you CAN do is
-refuse a resolution the plan never justified, which is how a name match survives.
+refuse a resolution the plan never justified, which is how a name match survives. Observed: a
+node named `(NEW) Input Field` was resolved to a number-field controller rendering steppers the
+frame does not contain, which the library exposed no prop to suppress; the resolution was made on
+the layer name.
 
+<!-- LOCKSTEP-BEGIN plan-reviewer-suitability -->
 - **[Blocker]** a resolved component whose rendered affordances plainly **exceed** what the plan
   describes the node as being — a number field that renders increment/decrement steppers where the
   plan describes a plain numeric input, a combobox with a clear button, a select with a chevron the
   plan never mentions — with no note that the extra affordance is intended and no prop named that
-  suppresses it. Observed: a node named `(NEW) Input Field` was resolved to a number-field
-  controller rendering steppers the frame does not contain, which the library exposed no prop to
-  suppress; the resolution was made on the layer name. Ask for the affordance inventory, not a
-  second opinion about the design.
-- **[Blocker]** a resolution stated **only as a name match** — an empty or restated `why this
-  component` cell (`"the Figma layer is called Select"`, `"closest match"`). The cell exists so
-  that silence is visible; a cell that repeats the layer name is silence with characters in it.
+  suppresses it. Ask for the affordance inventory, not a second opinion about the design.
+- **[Blocker]** a resolution stated **only as a name match** — an empty or restated
+  `why this component` cell (`"the design node is called Select"`, `"closest match"`). The cell
+  exists so that silence is visible; a cell that repeats the node's name is silence with characters
+  in it.
 - **[Warning]** a component resolved to a repo primitive where the plan's own description names a
   behavior that primitive does not have (a searchable list resolved to a plain `Select`).
+<!-- LOCKSTEP-END plan-reviewer-suitability -->
 - **[Note]** an extra affordance the plan explicitly calls intended, with the reason. Take it.
 
+<!-- LOCKSTEP-BEGIN plan-reviewer-tail -->
 ### Analog suitability
 
-- **[Warning]** the chosen analog screen is a weak structural match for what the spec needs (e.g. a read-only list page chosen as the analog for a multi-step validated form). Name a closer analog if one is evident.
-- **[Blocker]** no analog named at all for a non-trivial screen (the implementer will improvise structure).
+- **[Warning]** the chosen analog screen is a weak structural match for what the spec needs (e.g.
+  a read-only list page chosen as the analog for a multi-step validated form). Name a closer
+  analog if one is evident.
+- **[Blocker]** no analog named at all for a non-trivial screen — the implementer will improvise
+  structure, which is the failure mirroring the analog is meant to prevent.
 
 ### State→code wiring (requires the spec)
 
-- **[Blocker]** a state/transition in the spec with **no** planned mechanism in the plan — e.g. spec has "navigate-away → exit dialog" but the plan has no navigation-guard; spec has "Save → in-flight → snackbar + navigate" but the plan wires no mutation/pending/invalidation. A spec'd affordance with no plan ships dead.
-- **[Warning]** a secondary state (error/empty/disabled) enumerated in the spec but absent from the plan's wiring.
+- **[Blocker]** a state/transition the spec declares with **no** planned mechanism in the plan —
+  on the lane, an `RS-n` row with no wiring; elsewhere, a spec'd affordance the plan never mounts:
+  the spec has "navigate-away → exit dialog" but the plan has no navigation-guard, or the spec has
+  "Save → in-flight → snackbar + navigate" but the plan wires no mutation/pending/invalidation. A
+  spec'd affordance with no plan ships dead.
+- **[Warning]** a secondary state (error/empty/disabled) enumerated in the spec but absent from
+  the plan's wiring.
 
 ### File coverage
 
-- **[Warning]** the file list omits an obvious required file given the screens (a new route with no route-registration entry; a new component with no co-located test).
+- **[Warning]** the file list omits an obvious required file given the screens — a new route with
+  no route-registration entry, a new component with no co-located test.
 
 ### Decision Ledger (contract: the `interviewing-baseline` protocol, via `intake-toolkit` where installed)
 
-<!-- mirror of interviewing-baseline provenance enum — keep verbatim -->
+- **[Blocker]** the plan's `## Decision Ledger` section is missing or malformed: no rows AND no
+  explicit empty form (`No decisions to record. The code settles every choice.`, or the older
+  `No material decisions — all choices codebase-derived.`); or a row's provenance is outside the
+  closed enum below.
+- **[Blocker]** a spec Open Question or grilled resolution visibly consumed by the plan carries no
+  ledger row — cite the plan step.
+- Exceptions: the explicit empty form always satisfies the section check; a plan file whose git
+  authored date (or mtime, if untracked) predates the ledger convention's merge gets a
+  **Warning** instead — never infer "predates the rule" from content alone.
+<!-- LOCKSTEP-END plan-reviewer-tail -->
 
-- **[Blocker]** the plan's `## Decision Ledger` section is missing or malformed: no rows AND no explicit empty form (`No decisions to record. The code settles every choice.`, or the older `No material decisions — all choices codebase-derived.`); or a row's provenance is outside the closed enum `user-answered | user-delegated | codebase-derived | deferred | ticket-sourced` (`assumed` is never legal).
-- **[Blocker]** a spec Open Question or grilled resolution visibly consumed by the plan carries no ledger row — cite the plan step.
-- Exceptions: the explicit empty form always satisfies the section check; a plan file whose git authored date (or mtime, if untracked) predates the ledger convention's merge gets a **Warning** instead — never infer "predates the rule" from content alone.
+<!-- LOCKSTEP-BEGIN provenance-enum-mirror -->
+- the closed provenance enum is `user-answered | user-delegated | codebase-derived | deferred | ticket-sourced`; `assumed` is never legal.
+<!-- LOCKSTEP-END provenance-enum-mirror -->
 
 ## Severity calibration
 
@@ -141,8 +165,12 @@ If every token row checks out, the analog fits, every transition is wired, and f
 
 ## Reviewer baseline
 
-<!-- LOCKSTEP: held verbatim to figma-faithful-spec-reviewer.md, the canonical side; the
-     reasoning lives there. -->
+<!-- LOCKSTEP, canonical side. The two plan reviewers adopt review-toolkit:reviewer-baseline
+     but must override the same two things the same way: the merge-gating severity ladder, which
+     means nothing for an artifact graded before implementation, and the block they end with,
+     which has its own keys. Live copies rather than a cross-reference: each agent is loaded
+     alone, into a context that has not read the other, so a pointer would resolve to nothing at
+     the moment the override is needed. -->
 <!-- LOCKSTEP-BEGIN artifact-reviewer-baseline-deltas -->
 `review-toolkit:reviewer-baseline` loads automatically via the `skills:` frontmatter (by name, not path — no relative path resolves in both the repo and installed-cache layouts). Take its **Grounding Verdicts**, **Confidence Scoring**, **Tool Discipline**, and per-finding evidence discipline. Two deltas apply, because this agent grades an **artifact before implementation**, not a diff before merge:
 
@@ -171,6 +199,7 @@ If every token row checks out, the analog fits, every transition is wired, and f
 [One sentence. If `block`, list the rows that must be corrected before implementation.]
 ```
 
+<!-- LOCKSTEP-BEGIN plan-reviewer-verdict-rule -->
 **Trinary verdict rule:**
 
 | Verdict      | When                                        |
@@ -180,3 +209,4 @@ If every token row checks out, the analog fits, every transition is wired, and f
 | `pass`       | Zero Blockers, zero Warnings (Notes/empty). |
 
 Omit empty severity sections. If the input is not a translation plan, return `N/A` with one line explaining why.
+<!-- LOCKSTEP-END plan-reviewer-verdict-rule -->
