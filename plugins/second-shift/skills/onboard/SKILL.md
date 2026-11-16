@@ -132,7 +132,8 @@ Ask AT MOST one AskUserQuestion batch, containing ONLY (skip any that detection 
      or framework deps like react/vue/svelte in package.json — or a design MCP in
      `claude mcp list`): include design-toolkit? If yes, WHICH provider — emit top-level
      `design: { "provider": "figma" }` or `{ "provider": "claude-design" }`.
-     Declined or not UI-shaped → NO `design` key at all (absent = off).
+     Declined or not UI-shaped → NO `design` key at all (absent = no provider: the ad hoc
+     review-lead still routes the generic design-faithful-reviewer on web-component diffs).
      When design is accepted, also detect a render harness: a `render:verify` script in
      this repo's package.json (or a script whose usage names `--route`/`--out`). Detected →
      offer `design.liveRender` pre-filled (`command: "yarn render:verify --route {route} --state {state} --out {out}"`);

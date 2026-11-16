@@ -225,4 +225,5 @@ testable + negative ACs) where one is available.
 
 A structured FE-spec markdown following the template, **presented for approval** — never auto-posted
 to the tracker; the user decides where it lands. When handed to `figma-faithful`, it triggers that
-skill's spec-fed mode (trust the Copy Index + component list, skip re-derivation).
+skill's spec-fed mode (trust the Copy Index + component list in place of copy capture and
+component resolution; the token table, layout context and plan gate still run).

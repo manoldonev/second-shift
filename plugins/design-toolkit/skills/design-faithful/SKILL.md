@@ -42,6 +42,7 @@ with a stated reason per component, the per-node dimensions, the chosen analog s
 list you will create/edit. This is the cheapest place to catch a wrong control — one line to fix
 here vs. the same component spread across call-sites after the build.
 
+<!-- LOCKSTEP-BEGIN plan-table-columns -->
 Two tables in it carry the contract:
 
 - a table declaring a **`why this component`** column, one row per resolved component;
@@ -50,27 +51,33 @@ Two tables in it carry the contract:
 
   | node | RS | px | dimensions | overflow |
   | --- | --- | --- | --- | --- |
-  | form column | RS-1 | 560×- | fixed 560px inline size, hug block size | none |
-  | signing secret | RS-2 | -×40 | fill inline size, 40px block size | truncate the masked value |
+  | Filter panel | RS-2 | 320×604 | fixed 320px wide, hug height | none |
+  | Results grid | RS-1 | -×412 | fill width, 12px row gap | scroll-y |
 
   `node` is the plan's own name for the node; `RS` is the render state of the record's
   `## Design frames` row it is measured in; `px` is `<w>×<h>` with an integer or `-` per axis,
-  `-` being a node with no fixed size on that axis. `dimensions` stays **prose** — per-axis
-  fixed/hug/fill, wrap behavior, overflow/truncation — which is what `560×-` cannot carry.
-  Whether a recorded value is the *design's* is the REVIEW session's call, which renders every
-  screen at the head and compares it with its frame.
+  `-` being a node with no fixed size on that axis.
 
+  <!-- LOCKSTEP-END plan-table-columns -->
+
+  `dimensions` stays **prose** — per-axis fixed/hug/fill, wrap behavior, overflow/truncation —
+  which is what `320×604` cannot carry.
+
+<!-- LOCKSTEP-BEGIN plan-table-rule -->
 Every cell of both tables must be filled, and a row may not declare fewer cells than its header.
-That is deliberate: an omission has to read as an **empty cell**, not as an
-absent thought. A resolved component with no stated reason is the name-match resolution that ships
-the wrong control; a node with no recorded dimensions is the eyeballed size that ships at 3× the
-design.
+That is deliberate: an omission has to read as an **empty cell**, not as an absent thought. A
+resolved component with no stated reason is the name-match resolution that ships the wrong
+control; a node with no recorded dimensions is the eyeballed size that ships at 3× the design.
+Whether a recorded value is the *design's* is the REVIEW session's call, which renders every
+screen at the head and compares it with its frame.
+<!-- LOCKSTEP-END plan-table-rule -->
 
 **No token map table.** A Claude Design handoff carries CSS custom properties, and mapping them to
 the repo's token roles is graded on the diff by
 [`design-toolkit:design-faithful-reviewer`](../../agents/design-faithful-reviewer.md), not here.
 A table nobody reads is a cell nobody fills — do not add one, and do not copy the figma-faithful
-token table across: the two families' plan steps are deliberately not lockstep.
+token table across: of the two families' plan steps, only the two tables above are held in
+lockstep.
 
 **Dispatch
 [`design-toolkit:design-faithful-plan-reviewer`](../../agents/design-faithful-plan-reviewer.md) on
@@ -161,3 +168,10 @@ session (auth is session-bound).
 It is the operator-run demo, mirroring the README acceptance-demo framing. The offline-reproducible
 substitute for the contract surface is `lib/extractor.test.mjs` plus the worked spec at
 `../design-faithful-spec/examples/detail-spec.example.md`.
+
+## Push the repo's design system (on request only)
+
+When the operator asks to publish the repo's own design system — its tokens and a representative
+component set — to a Claude Design design-system project, follow [`PUSH.md`](./PUSH.md). It builds
+the card bytes with `tools/build-ds-files.mjs` and syncs them delta-only through `DesignSync`. It
+is a separate job from implementing a screen: never run it as part of the sequence above.

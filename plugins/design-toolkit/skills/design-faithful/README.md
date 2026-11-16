@@ -15,7 +15,8 @@ or fall back to conservative discovery.
 
 This directory ships the contract **library** (`lib/`) + its fixtures, tests, and the push
 driver/runbook, plus the invocable **`design-faithful` implement skill** (`SKILL.md`) — the skill
-body imports the lib to read a handoff and implement a screen in the repo's FE app. The sibling
+body imports the lib to read a handoff and implement a screen in the repo's FE app. The skill's
+"Push the repo's design system" section routes an operator's push request to `PUSH.md`. The sibling
 spec-producing skill lives at [`../design-faithful-spec/`](../design-faithful-spec/SKILL.md).
 
 > `SKILL.md` here is the **implement** skill (also dispatched as `agentType` `design-faithful`);
@@ -114,7 +115,7 @@ node tools/build-ds-files.mjs <globals-css-path>   # re-run: 0 writes (in sync)
 
 ```bash
 node --test lib/extractor.test.mjs   # read path
-node --test lib/emit.test.mjs        # push path
+node --test lib/emit.test.mjs        # push path, including tools/build-ds-files.mjs
 ```
 
 Zero external deps (`node:test` + `node:assert`) — the convention for `.claude/` tooling. These
