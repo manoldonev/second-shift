@@ -15,8 +15,8 @@ plugins/dev-pipeline/skills/run/run-detach-selftest.sh	27	debt	selftest labels; 
 plugins/dev-pipeline/skills/run/run-joined-selftest.sh	3	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-judge-selftest.sh	56	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-record-selftest.sh	111	debt	selftest labels; fixture ids among them become data rows when swept
-plugins/dev-pipeline/skills/run/run-rows-selftest.sh	25	open-pr	selftest labels and fixture ids
-plugins/dev-pipeline/skills/run/run-selftest-lib.sh	39	open-pr	selftest labels and fixture ids
+plugins/dev-pipeline/skills/run/run-rows-selftest.sh	27	open-pr	selftest labels and fixture ids
+plugins/dev-pipeline/skills/run/run-selftest-lib.sh	41	open-pr	selftest labels and fixture ids
 plugins/dev-pipeline/skills/run/run-selftest.sh	27	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-verdict-selftest.sh	26	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run.sh	1	data	the AC tag syntax the build prompt states
@@ -32,7 +32,7 @@ plugins/dev-pipeline/tools/plan-coverage-selftest.sh	129	debt	selftest labels; f
 plugins/dev-pipeline/tools/plan-coverage.sh	5	data	the AC syntax the tool parses and prints
 plugins/dev-pipeline/tools/post-review-status-selftest.sh	25	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/tools/pre-commit-typecheck-selftest.sh	1	debt	selftest labels; fixture ids among them become data rows when swept
-plugins/dev-pipeline/tools/verdict-check-selftest.sh	44	open-pr	selftest labels and fixture ids
+plugins/dev-pipeline/tools/verdict-check-selftest.sh	51	open-pr	selftest labels and fixture ids
 plugins/dev-pipeline/tools/verdict-check.sh	2	open-pr	comments and runtime messages
 plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh	7	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/intake-toolkit/skills/plan-interview/tools/dup-scan-selftest.sh	24	debt	selftest labels; fixture ids among them become data rows when swept
