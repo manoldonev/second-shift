@@ -141,7 +141,7 @@ exit_code_for() { # the taxonomy a wrapper branches on
   esac
 }
 # A replace ref in the checkout changes what a sha returns without changing the sha. Every git call below, each tool's
-# and each session's reads the objects as pushed.
+# and each session's ignores replace refs. Nothing else is claimed: a shallow file or info/grafts still rewrites parents.
 export GIT_NO_REPLACE_OBJECTS=1
 # Run state the terminal reports on. Set as the run advances; empty until then.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
