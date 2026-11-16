@@ -382,6 +382,19 @@ This is a different concern from the `unset SECOND_SHIFT_CONFIG …` lines at th
 when a sweep or CI's glob runs it directly — a path the check scrub never touches — so both
 defenses stay, in depth.
 
+## Dead surfaces: a caller and a reader
+
+A selftest keeps a script covered, not called. `scripts/check-dispatchers-and-readers.sh` is the
+mechanized half: every shipped agent has a dispatcher and every schema config key a reader. Two
+surfaces it cannot trace by grep stay a checklist for a dead-code sweep:
+
+- **Workflow `args`.** For each `args.<name>` an `.mjs` reads, find a caller that passes it — a
+  skill's Workflow call or `run.sh` — and for each argument a caller passes, find the read. One
+  without the other is dead.
+- **Shell flags.** For each flag a script's option parser accepts, find a caller outside its own
+  selftest that passes it. A flag only its selftest passes, or a refusal arm only its selftest
+  reaches, is dead.
+
 ## Lockstep blocks: discovered, never declared twice
 
 `scripts/check-lockstep-pairs.sh` enforces contracts that exist in two or more copies by
