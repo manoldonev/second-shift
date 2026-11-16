@@ -256,7 +256,7 @@ WHICH reviewer: the provider map below decides, as it does for an unarmed diff a
 | `figma` | **figma-faithful-reviewer** |
 | _key absent_ | **figma-faithful-reviewer** — no provider means the figma family |
 
-The no-provider row is a **default, not a fallback to nothing**: a repo with no design axis configured still gets design-system-discipline review on its web components.
+The no-provider row is a **default, not a fallback to nothing**: a repo with no design axis configured still gets design-system-discipline review on its web components, from the figma family because that is the family the lane builds with when no provider is set.
 
 **What this dimension asserts.** Both reviewers are design-blind by contract — they verify *the abstraction is right*, not that it matches an unseen design. This dimension covers design-token discipline, logical-vs-physical style props, real-component reuse over hand-rolled primitives, copy drift against a discoverable spec, and library conformance: each override, wrapper prop and justification comment checked against the installed UI library's source, with the installed line cited, every conformance finding a Warning. **It is not a pixel check** — the pixel loop belongs to the implementing session's self-verify artifact, to the pipeline's REVIEW session on a design-armed run (which renders every screen at the head and compares it with its frame, and cannot approve without that render), and to the human reviewer.
 
