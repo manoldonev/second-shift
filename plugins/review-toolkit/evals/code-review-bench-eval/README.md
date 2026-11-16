@@ -135,8 +135,10 @@ The patch applies to the base after the overlay, and adds the plan at
 the id in its scratch path and session name. Each overlay under `planted/overlays/` is shared by
 the cases of one upstream. `NOTICE` names each upstream and its license.
 
-A case configures no test runner, so the lane's fails-without-the-change gate is not-applicable on
-every case; a runner added to an overlay's config makes the recipe run it on the record commit's
-tree, as the lane does. The checkouts, the clones and the per-run state live under the cache dir,
-never in the repo. Each review session's stdout and stderr are in `state/session.stdout` and
+Four cases (`a9n5jx`, `d6m1zo`, `t3h7we`, `v2q8ci`) are runner cases: their overlay
+`anuraghazra__github-readme-stats-jest` declares a jest `testRunners` entry, the recipe runs it on
+the record commit's tree as the lane does, and the case expects the lane to stop on
+fails-without-the-change. Building them runs `npm install`, so they need npm and the network. Every
+other case configures no test runner, so that gate is not-applicable on it. The checkouts, the
+clones and the per-run state live under the cache dir, never in the repo. Each review session's stdout and stderr are in `state/session.stdout` and
 `state/session.stderr` beside its checkout.
