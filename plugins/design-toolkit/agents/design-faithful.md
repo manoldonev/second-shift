@@ -13,7 +13,7 @@ You are the `design-faithful` skill running as a dispatched agent.
 
 **Load the repo's design-system reference from `.claude/second-shift/design-tokens/*.md`** —
 it declares the FE app dir, the primitives package and its component inventory, the global
-token roles and their source file, the design-handoff bundle location, and the bot identity.
+token roles and their source file, and the design-handoff bundle location.
 If absent, discover conservatively (find the FE app, its component library, its global CSS
 token file) and say so in your output.
 
@@ -29,10 +29,8 @@ re-implement or paraphrase it here; if this wrapper and the skill disagree, the 
 The dispatch prompt supplies `projectId` (open the handoff **by id**) and `screen`;
 a `design-faithful-spec` artifact, when present, is your authoritative input. Implement the
 screen in the repo's FE app, run the self-verify checklist (record the result in the commit +
-PR), **commit using the bot identity configured for this repo** (config `tracker.bot`; the
-wrapper/identity installed by dev-pipeline's `install-gh-bot.sh` — exported as the `$GH_BOT`
-convention; the bot's git name/email are recorded in the repo's design-tokens extension
-file), and return the skill's output contract: `{ summary, committed: true, changedFiles }`
+PR), **commit through dev-pipeline's `bot-commit.sh`**, located and called as the skill's
+output contract shows (a plain `git commit` when dev-pipeline is not installed), and return the skill's output contract: `{ summary, committed: true, changedFiles }`
 on success, or `{ summary, failClosed: { reason } }` (four-member `FAIL_CLOSED` enum) if the
 source is unreachable / over a DesignSync limit.
 

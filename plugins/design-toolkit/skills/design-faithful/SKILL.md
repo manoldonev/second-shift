@@ -139,16 +139,20 @@ silently pass.
 
 ## Output contract
 
-Commit the change via **bot identity** — the bot configured for this repo (config
-`tracker.bot`; the wrapper/identity installed by dev-pipeline's `install-gh-bot.sh` —
-exported as the `$GH_BOT` convention). The bot's git name/email values are recorded in the
-repo's design-tokens extension file:
+Commit the change through dev-pipeline's `bot-commit.sh`, which owns the bot's git identity
+(config `tracker.bot`) and commits as the repo default when no bot is configured. Toolkits never
+hard-path into dev-pipeline's layout: resolve its install path, then find the helper by name under
+it:
 
 ```bash
-git -c user.name="<bot login, e.g. <name>[bot]>" \
-    -c user.email="<bot noreply email>" \
-    commit -m "feat(<fe-scope>): <screen> — faithful implementation of Claude Design handoff"
+DEV_PIPELINE_ROOT=$(claude plugin list --json | jq -r '.[] | select(.id == "dev-pipeline@second-shift") | .installPath')
+BOT_COMMIT_SH=$(find "$DEV_PIPELINE_ROOT" -name bot-commit.sh | head -1)
+bash "$BOT_COMMIT_SH" -C "<repo or worktree>" \
+    -m "feat(<fe-scope>): <screen> — faithful implementation of Claude Design handoff"
 ```
+
+When dev-pipeline is not installed (no install path, or no `bot-commit.sh` under it), make a plain
+`git commit` with the same message.
 
 Then return:
 
