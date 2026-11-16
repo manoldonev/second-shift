@@ -6,13 +6,12 @@
 # configured. The failed-add abort path is covered by claim-selftest.sh.
 #
 # Scope: the REST two-call fallback ONLY (the path live when the Projects-classic
-# GraphQL deprecation breaks `gh issue edit` — see SKILL.md "Canonical REST forms").
+# GraphQL deprecation breaks `gh issue edit`).
 # The single-call atomic `gh issue edit --add-label in-progress --remove-label
 # ready-for-dev` form is inherently safe (one API call, no intermediate zero-label
 # window, no confirm step) and stays a documented one-line alternative — not here.
 #
-# Why add-before-remove AND confirm-before-remove (SKILL.md "Label-swap ordering
-# rule"): removing `ready-for-dev` first leaves a crash window where the issue
+# Why add-before-remove AND confirm-before-remove: removing `ready-for-dev` first leaves a crash window where the issue
 # carries neither label — invisible to the queue AND unclaimed (silently lost).
 # Adding first fixes the ordering; but a SILENTLY-failed add (e.g. a dropped
 # `--input -` -> HTTP 422) followed by a successful remove reaches the same
@@ -33,6 +32,9 @@
 #   1  aborted       — the add did not apply; `ready-for-dev` left intact (no DELETE
 #                      issued). This is a bare stop: nothing was mutated to undo.
 #   2  usage error   — no issue number.
+#   3  rolled back   — the add applied but the `ready-for-dev` DELETE failed; gh's
+#                      error is printed and the `in-progress` label is removed again
+#                      (best effort), so a retry starts from the queued state.
 #
 # macOS ships bash 3.2 as /bin/bash; this script stays 3.2-compatible (the selftest
 # runs there).
@@ -84,7 +86,16 @@ else
   exit 1
 fi
 
-# 3. Remove the queue label.
-"$GH_BOT" api -X DELETE "repos/{owner}/{repo}/issues/$ISSUE/labels/$QUEUE_LABEL"
+# 3. Remove the queue label. No `set -e` here, so a failed DELETE must be caught
+#    explicitly or the issue is left carrying both labels behind an exit 0.
+if ! DELETE_ERR=$("$GH_BOT" api -X DELETE "repos/{owner}/{repo}/issues/$ISSUE/labels/$QUEUE_LABEL" 2>&1 >/dev/null); then
+  echo "[claim-issue] '$QUEUE_LABEL' removal failed: $DELETE_ERR" >&2
+  if "$GH_BOT" api -X DELETE "repos/{owner}/{repo}/issues/$ISSUE/labels/$CLAIMED_LABEL" >/dev/null 2>&1; then
+    echo "[claim-issue] rolled back '$CLAIMED_LABEL' on #$ISSUE; '$QUEUE_LABEL' left in place" >&2
+  else
+    echo "[claim-issue] rollback of '$CLAIMED_LABEL' on #$ISSUE also failed; remove it by hand" >&2
+  fi
+  exit 3
+fi
 
 echo "[claim-issue] claimed #$ISSUE ('$CLAIMED_LABEL' added, '$QUEUE_LABEL' removed)"

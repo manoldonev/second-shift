@@ -41,8 +41,10 @@ trap 'rm -rf "$TMP"' EXIT
 #   POST   .../labels                 -> prints $MOCK_ADD_STDOUT (emulates the
 #                                        `--jq '[.[].name]'` output), exits $MOCK_ADD_RC
 #   DELETE .../labels/$MOCK_QUEUE_LABEL -> logs its args to $CALL_LOG, touches
-#                                        $DELETE_SENTINEL, exits 0 (label defaults to
-#                                        ready-for-dev; case (g) drives a custom one)
+#                                        $DELETE_SENTINEL, exits $MOCK_DELETE_RC (default
+#                                        0; label defaults to ready-for-dev; case (g)
+#                                        drives a custom one)
+#   DELETE .../labels/<other>          -> logs a ROLLBACK line, exits 0
 # MOCK_ADD_STDOUT / MOCK_ADD_RC / CALL_LOG / DELETE_SENTINEL arrive via the
 # environment the helper inherits from each run_claim invocation.
 # ---------------------------------------------------------------------------
@@ -58,6 +60,13 @@ case "$args" in
   *"-X DELETE"*"labels/$Q"*)
     printf 'DELETE %s\n' "$args" >> "$CALL_LOG"
     : > "$DELETE_SENTINEL"
+    if [[ "${MOCK_DELETE_RC:-0}" != "0" ]]; then
+      echo "gh: Resource not accessible by integration (HTTP 403)" >&2
+    fi
+    exit "${MOCK_DELETE_RC:-0}"
+    ;;
+  *"-X DELETE"*"labels/"*)
+    printf 'ROLLBACK %s\n' "$args" >> "$CALL_LOG"
     exit 0
     ;;
   *"-X POST"*"/labels"*)
@@ -100,6 +109,7 @@ run_claim() {
     MOCK_ADD_STDOUT="$add_stdout" \
     MOCK_ADD_RC="$add_rc" \
     MOCK_QUEUE_LABEL="${MOCK_QUEUE_LABEL:-ready-for-dev}" \
+    MOCK_DELETE_RC="${MOCK_DELETE_RC:-0}" \
     CALL_LOG="$CALL_LOG" \
     DELETE_SENTINEL="$DELETE_SENTINEL" \
     bash "$HELPER" $issue_arg "$@" >/dev/null 2>&1
@@ -116,6 +126,18 @@ rc=$(run_claim '["ready-for-dev","in-progress"]' 0)
 if [[ "$rc" == "0" ]] && deleted; then ok "happy: add applied -> exit 0, DELETE ran"; else bad "happy: rc=$rc deleted=$(deleted && echo y || echo n)"; fi
 # And the DELETE hit the correct label, not just "a DELETE happened".
 if delete_target_ok; then ok "happy: DELETE targeted labels/ready-for-dev"; else bad "happy: DELETE target wrong/absent ($(cat "$CALL_LOG"))"; fi
+
+echo "=== claim-issue.sh: failed-remove path (claimed label rolled back) ==="
+
+# (j) The add applied but the queue-label DELETE fails: the claim must not report
+#     success, and the claimed label it just added must be removed again so the issue
+#     is not left carrying both labels.
+rc=$(MOCK_DELETE_RC=1 run_claim '["ready-for-dev","in-progress"]' 0)
+if [[ "$rc" != "0" ]] && grep -q 'ROLLBACK .*-X DELETE.*labels/in-progress' "$CALL_LOG"; then
+  ok "failed-remove: DELETE rc=1 -> non-zero exit, in-progress rolled back"
+else
+  bad "failed-remove: rc=$rc calls=$(cat "$CALL_LOG")"
+fi
 
 echo "=== claim-issue.sh: failed-add path (DELETE skipped, ready-for-dev intact) ==="
 
