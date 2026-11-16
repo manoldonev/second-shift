@@ -80,16 +80,17 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
   }
   function lineof(a) { sub(/^.*:/, "", a); return a + 0 }
   function dist(a, b,   d) { if (!near(a, b)) return -1; d = lineof(a) - lineof(b); return d < 0 ? -d : d }
+  function unready(s) { gsub(/Ready to merge\?/, "Ready to merge", s); return s }
   function added(   k, c) {
     if (done) return 0; done = 1
-    for (k = 1; k <= np; k++) if (!pmatch[k]) { c++; print (rep ? "- [blind] " : "- [blocker] " newid[k] " [blind] ") ptext[k]; printf "%s", pcont[k] }
+    for (k = 1; k <= np; k++) if (!pmatch[k]) { c++; print (rep ? "- [blind] " : "- [blocker] " newid[k] " [blind] ") unready(ptext[k]); printf "%s", unready(pcont[k]) }
     return c
   }
   function usd(x) { return x == "null" ? "unpriced" : sprintf("$%.2f", x) }
   function secs(x) { return x == "null" ? "? s" : x " s" }
   function addl(c, lab, t) { nl++; lcls[nl] = c; llab[nl] = lab; ltxt[nl] = t; lloc[nl] = loc(t); lfull[nl] = t; cur = nl; return nl }
   function dismissed(t,   p) { p = index(t, DASH); return t ~ /^(Dismissed|Suppressed)\./ || (p && substr(t, p + DL) ~ /^(Dismissed|Suppressed)\./) }
-  function esc(s) { gsub(/Ready to merge\?/, "Ready to merge", s); gsub(/</, "\\&lt;", s); return s }
+  function esc(s) { s = unready(s); gsub(/</, "\\&lt;", s); return s }
   function sent(t) { return match(t, /\.( |$)/) ? substr(t, 1, RSTART) : t }
   function untag(t) { sub(/^\[[A-Za-z0-9 _.\/-]+\] /, "", t); return t }
   function ex(t,   p, l, s, r) {
@@ -182,7 +183,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     print "<details><summary>blind review, as written</summary>"; print ""; print "```text"
     for (i = 1; i <= nraw; i++) {
       s = praw[i]; if (s !~ /[^ \t]/) continue
-      gsub(/Ready to merge\?/, "Ready to merge", s); s = "    " s
+      s = "    " unready(s)
       if (tot + length(s) > 8000) { for (left = 0; i <= nraw; i++) if (praw[i] ~ /[^ \t]/) left++; print "    … " left " more lines not shown"; break }
       tot += length(s); print s
     }
