@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-configversion-migration-doc.sh — a schema-breaking change ships its upgrade doc (#119).
+# check-configversion-migration-doc.sh — a schema-breaking change ships its upgrade doc.
 #
 # docs/migrations/README.md's contract: a breaking config-schema change is a major release +
 # a `configVersion` bump + `docs/migrations/vN-to-vN+1.md`. The migration filename is

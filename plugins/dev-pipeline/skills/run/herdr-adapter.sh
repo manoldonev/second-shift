@@ -88,7 +88,7 @@ cmd_watch() {
 # Follows the log's `session: <role> <attempt> <uuid> <glob>` lines and renders the newest session's transcript one line
 # per event: an assistant text block (its first line), a tool call (its name and key argument), a failed tool result —
 # `ERROR <first line>` for a permission denial only, `exit <code> <next line>` for a non-zero exit, `failed <first line>`
-# for any other tool error (#964 D-5 D-6), so a clean run shows no ERROR line.
+# for any other tool error, so a clean run shows no ERROR line.
 # Thinking, successful results, every other entry type, a user entry with string content and any sidechain entry are
 # skipped. A line that is not JSON, or lacks the fields of an event it would render, is one `[unparsed]` line.
 # shellcheck disable=SC2016  # jq program text
@@ -204,7 +204,7 @@ cmd_open() {
   [ -n "$tab" ] && [ -n "$root" ] || die "tab create returned no tab or root pane id: $out"
   # shellcheck disable=SC2016  # fixed text: the pane's own shell expands $SS_ADAPTER from its --env
   out="$("$HERDR" pane run "$root" 'bash "$SS_ADAPTER" watch' 2>&1)" || die "pane run (watch) failed: $out"
-  # D-24: the transcript pane below the log pane, with the larger share (the ratio is the first pane's)
+  # the transcript pane below the log pane, with the larger share (the ratio is the first pane's)
   out="$("$HERDR" pane split "$root" --direction down --ratio 0.35 --cwd "$wt" "${envs[@]}" --no-focus 2>&1)" || die "pane split failed: $out"
   below="$(jq -r '.result.pane.pane_id // empty' <<<"$out" 2>/dev/null)"; [ -n "$below" ] || die "pane split returned no pane id: $out"
   # shellcheck disable=SC2016  # fixed text, as above
@@ -219,7 +219,7 @@ cmd_open() {
 
 # ---------------------------------------------------------------- build and review: the operator's own sessions
 usage() { echo "herdr-adapter: $*" >&2; echo "usage: herdr-adapter.sh build <ticket>... | review <pr>" >&2; exit 2; }
-repo_context() { # sets MAIN SLUG TRACKER KEY_PATTERN from the checkout the call runs in (D-23), the config as run.sh reads it
+repo_context() { # sets MAIN SLUG TRACKER KEY_PATTERN from the checkout the call runs in, the config as run.sh reads it
   local common cfg
   common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || usage "not inside a git checkout"
   MAIN="$(cd "$common/.." 2>/dev/null && pwd -P)" || usage "cannot resolve the main checkout from $common"
@@ -242,13 +242,13 @@ open_tab() { # open_tab <ticket> <tab label> <fixed text> <--env args...> — pr
   out="$("$HERDR" tab create --workspace "$ws" --cwd "$MAIN" --label "$tlabel" "$@" --no-focus 2>&1)" || { fail "tab create failed"; return 1; }
   tab="$(jq -r '.result.tab.tab_id // empty' <<<"$out" 2>/dev/null)"; pane="$(jq -r '.result.root_pane.pane_id // empty' <<<"$out" 2>/dev/null)"
   [ -n "$tab" ] && [ -n "$pane" ] || { fail "tab create returned no tab or root pane id"; return 1; }
-  # D-27: a login shell still loading its rc files may drop typed text; wait for its first output, then type anyway (OR-2)
+  # a login shell still loading its rc files may drop typed text; wait for its first output, then type anyway
   "$HERDR" pane wait-output "$pane" --regex '\S' --timeout 10000 >/dev/null 2>&1 \
     || echo "herdr-adapter: $label: did not see the shell in pane $pane ready within 10 s; typing the command anyway" >&2
   out="$("$HERDR" pane run "$pane" "$text" 2>&1)" || { fail "pane run failed"; return 1; }
   echo "herdr: $label: workspace $ws, tab $tab ($tlabel), pane $pane"
 }
-start_editor_waiter() { # start_editor_waiter <ticket> <worktree> — D-32 D-33: detached, one per ticket at a time
+start_editor_waiter() { # start_editor_waiter <ticket> <worktree> — detached, one per ticket at a time
   local tmp="${TMPDIR:-/tmp}" lock pid secs
   case "${RUN_WATCH_EDITOR:-}" in
     "") return 0 ;;
@@ -289,7 +289,7 @@ cmd_build() {
   # a launch from inside a herdr pane carries that pane's ids; nothing here may fall back to them
   unset HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID
   for t in "$@"; do
-    case "$seen" in *" $t "*) continue ;; esac   # D-25: herdr does not keep labels unique, so a ticket opens once
+    case "$seen" in *" $t "*) continue ;; esac   # herdr does not keep labels unique, so a ticket opens once
     seen="$seen$t "
     wt="${RUN_WORKTREE_ROOT:-$(dirname "$MAIN")/$SLUG-worktrees}/$t"
     local envs=(--env "SS_WT=$wt" --env "SS_ISSUE=$t" --env "SS_ADAPTER=$SELF")

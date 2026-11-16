@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # post-review-status.sh — the manual /dev-pipeline:review's `second-shift/review` commit status, posted only
-# on a verdict body that passes verdict-check.sh (#991). run.sh checks the body it bound before its own
+# on a verdict body that passes verdict-check.sh. run.sh checks the body it bound before its own
 # status post; this is the same gate for the session that posts by hand.
 #
 # Usage:
@@ -19,10 +19,10 @@
 # <sha> instead of nothing, so the status no longer attests a body that changed under it; the
 # description names the first failed rule.
 #
-# An approve is also held to the plan's AC coverage (#1039 D-10): plan-coverage.sh beside this script runs
+# An approve is also held to the plan's AC coverage: plan-coverage.sh beside this script runs
 # on <record-at-first> and the plan beside <record-at-head> (`<x>-decisions.md` → `<x>-plan.md`, the
 # checked-out head's), with <record-at-head> as its `--head` so an AC added after the baseline
-# under a recorded departure counts (#1085), and a red one posts nothing, as a body that breaks
+# under a recorded departure counts, and a red one posts nothing, as a body that breaks
 # a rule does. Not-applicable (a record with no Test intent, a ticket with no AC block) posts as before. A
 # needs-work posts `failure` whatever the coverage. On this path a session runs it, not the scheduler: it
 # binds a merge only where branch protection requires `second-shift/review`.
@@ -100,7 +100,7 @@ case "$(head -n 1 "$BODY" | tr -d '\r')" in
   *) echo "second-shift/review NOT posted on $SHA: line 1 of $BODY is not a verdict line" >&2; exit 2 ;;
 esac
 if [ "$state" = success ]; then
-  plan="${4%-decisions.md}-plan.md"   # beside the record, as run.sh places it (D-4)
+  plan="${4%-decisions.md}-plan.md"   # beside the record, as run.sh places it
   cov="$(bash "$HERE/plan-coverage.sh" --head "$4" "$5" "$plan" 2>&1)"; rc=$?
   case "$rc" in
     0|3) : ;;

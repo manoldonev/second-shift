@@ -1,4 +1,4 @@
-# install-topology — the class guard for #419, event-triggered rather than nightly (#666).
+# install-topology — the installed-layout class guard, event-triggered rather than nightly.
 #
 # WHAT THE CLASS GUARD GUARDS. A shipped suite can pass in this checkout and fail everywhere it
 # is actually installed, because it silently borrows something from the tree it was authored
@@ -26,7 +26,7 @@
 #     — this is the trigger that actually re-runs every staged suite, filter or no filter.
 #   - workflow_dispatch, for a branch under development that touches packaging or a suite.
 #
-# PATH FILTER (AC-3), each family named for what the guard actually stages, not for what it
+# PATH FILTER, each family named for what the guard actually stages, not for what it
 # merely ships alongside:
 #   - plugins/*/.claude-plugin/plugin.json — the guard reads THIS file's `version` to lay the
 #     plugin out at <plugin>/<version>/ in the cache; editing it changes the key the topology
@@ -40,7 +40,7 @@
 #   `plugins/**` is off the table above: matching it would fire on every merge that touches any
 #   plugin, which is the cron-frequency behavior this move exists to leave.
 #
-# ON RED (AC-2): file-issue-on-red dedupes against an already-open issue by title rather than
+# ON RED: file-issue-on-red dedupes against an already-open issue by title rather than
 # filing one per push — a red state gets one tracked issue, not one per trigger.
 #
 # BOTH LANES. Several install-topology-known-red.tsv rows were explicitly environment-dependent
@@ -101,7 +101,7 @@ jobs:
           bash --version | head -1
           bash tools/install-topology-selftest.sh
 
-  # AC-2: a red run files a deduplicated issue; a green run files nothing. `needs` both guard
+  # A red run files a deduplicated issue; a green run files nothing. `needs` both guard
   # jobs so it can name whichever lane(s) actually failed; `always()` because the default
   # `needs` gate would otherwise skip this job the moment either upstream job fails.
   file-issue-on-red:

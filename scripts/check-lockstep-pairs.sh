@@ -18,7 +18,7 @@
 # Default root: the parent of this script's directory.
 #
 #
-# ## Pairs are DISCOVERED, never declared twice (#604)
+# ## Pairs are DISCOVERED, never declared twice
 #
 # There is no manifest. The markers in the files are the whole declaration: this script
 # walks the tree, groups every marker site by its anchor, and compares all members of

@@ -187,7 +187,7 @@ With the freeze unavailable that made **rung 1 self-neutralizable**: those const
 control prevents a run from editing it. The one bound that held was visibility — the check echoed
 the resolved prefix on every not-applicable verdict.
 
-#731 deleted the check: nothing had emitted the stage-marker trail it demanded since #348, so it
+The check was deleted: nothing had emitted the stage-marker trail it demanded since the staged lane went, so it
 was unsatisfiable while still live. The limitation stays recorded because the shape recurs — every
 record such a gate reads is agent-written, and so is its own configuration. Rung 1 was
 **tamper-evidence, not proof**.

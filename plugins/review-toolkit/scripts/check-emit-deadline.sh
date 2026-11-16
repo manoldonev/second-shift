@@ -256,7 +256,7 @@ for dir in $ROOTS; do
         echo "        Enrolled because a dispatch-time nudge alone did not hold it, or none reaches it; the reason is recorded beside DEADLINE_AT_DEFAULT." >&2
       fi
       echo "        Add: 'By **turn <D>** (of your $cap maximum) you MUST be writing the final result.'" >&2
-      echo "        Raising the cap is not a fix on its own (#183) — the deadline is what makes the agent emit." >&2
+      echo "        Raising the cap is not a fix on its own — the deadline is what makes the agent emit." >&2
       FAIL=$((FAIL + 1))
       continue
     fi

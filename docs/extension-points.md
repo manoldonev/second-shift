@@ -267,8 +267,8 @@ Asserts the `.mjs` workflow model tables ↔ agent frontmatter agreement, now wi
 
 **EP-4 covers named workflow agents too, not just panel reviewers.** `modelOverrides` keys
 accept any agent the `.mjs` dispatch tables model — including the `structured-emitter`
-transcription sink, which joined the tables in #351, not only `<name>-reviewer` entries. (The
-`mutation-executor` key this section used to name left with its engine in #574.) The schema
+transcription sink, not only `<name>-reviewer` entries. (The
+`mutation-executor` key this section used to name left with its engine.) The schema
 description says "per-reviewer" as the common case, not as a constraint;
 `check-model-tiers.sh` validates whatever key you override against the actual tables.
 
@@ -298,4 +298,4 @@ The second-shift plugin ships a versioned **manifest** of known extension-file n
 
 ### `check-config-shadowing.sh` (EP-1 companion)
 
-Fails closed if any key the schema publishes is not actually read by its owning tool/skill file — the report's defect-#1 guard against "a published key the plugin ignores" (surface rot). Fixture-covered by its selftest.
+Fails closed if any key the schema publishes is not actually read by its owning tool/skill file — the report's first-defect guard against "a published key the plugin ignores" (surface rot). Fixture-covered by its selftest.

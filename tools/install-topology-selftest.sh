@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install-topology-selftest.sh — the class guard for #419.
+# install-topology-selftest.sh — the installed-layout class guard.
 #
 # WHAT CLASS. A shipped suite can pass in this checkout and fail everywhere it is actually
 # installed, because it silently borrows something from the tree it was authored in. Nothing
@@ -24,7 +24,7 @@
 # `tools/`, which is not inside `plugins/` — it cannot stage itself, so no recursion guard is
 # needed.
 #
-# VERDICT. A staged suite that fails REDS, full stop (#641: the known-red allowlist that used to
+# VERDICT. A staged suite that fails REDS, full stop (the known-red allowlist that used to
 # carve out an exception here emptied to 0 rows and outlived its purpose — deleted, along with
 # this read path. A suite listed nowhere is already the "everything must pass" posture once the
 # allowlist plumbing is gone).
@@ -135,8 +135,8 @@ CONSUMER="$BASE/consumer"
 mkdir -p "$CACHE" "$CONSUMER"
 
 # The consumer's cwd. A real git repo (that is what a consumer checkout is) holding none of
-# this repo's tree — the second half of the reproduction, and where the symptom #419 was
-# filed against actually appears.
+# this repo's tree — the second half of the reproduction, and where the symptom
+# actually appears.
 git init -q "$CONSUMER"
 git -C "$CONSUMER" config user.email selftest@example.invalid
 git -C "$CONSUMER" config user.name selftest
@@ -253,7 +253,7 @@ while IFS= read -r line; do
     detail="no verdict written — the worker died before scoring this suite (infra, not a result)"
   elif [[ "$rc" -gt 128 && "$rc" -lt 165 ]]; then
     # Killed by a signal, so it never reached a verdict — infra, like 124 and 125, and named
-    # rather than described (#664). Without this arm the loose sweep below quotes whatever the
+    # rather than described. Without this arm the loose sweep below quotes whatever the
     # suite had printed before it died, which for a suite killed mid-run is its last PASSING
     # line: `rc=143 — PASS: milestone-1 fails when the lane spec is absent` was a real red from
     # this guard, and it points a reader at an assertion that had just succeeded. The usual
@@ -261,7 +261,7 @@ while IFS= read -r line; do
     # whole process group, which is a fact about the run, not about the suite.
     detail="killed by signal $((rc - 128)) before reaching a verdict — no assertion failed (infra, not a result). Re-run it alone before reading this as a regression."
   else
-    # A suite's OWN failure line first, and only then the loose substring sweep (#664).
+    # A suite's OWN failure line first, and only then the loose substring sweep.
     # The loose sweep alone picked the first line merely CONTAINING "fail" anywhere, which
     # for pipeline-doctor-selftest.sh is a PASSING line — `ok: (d3) completed + failed at
     # 24h` — 37 lines above the real `FAIL:` one. Seven nightly reds named a green case,

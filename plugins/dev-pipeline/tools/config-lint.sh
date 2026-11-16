@@ -124,7 +124,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
       + err((.writes != null) and ((.writes | type) != "boolean"); "tracker.writes: must be boolean")
       + err((.branchPrefix != null) and ((.branchPrefix | type) != "string"); "tracker.branchPrefix: must be string")
       + err((.keyPattern != null) and ((.keyPattern | type) != "string"); "tracker.keyPattern: must be string")
-  # `labels` is tracker-gated and `bot` deliberately is NOT (#440). A label vocabulary is queue
+  # `labels` is tracker-gated and `bot` deliberately is NOT. A label vocabulary is queue
   # machinery, and a JIRA repo has no queue — so that one really is github-only. The bot is a
   # CODE-HOST capability that was modelled on the tracker axis by accident: every key the shape
   # rules below allow (enabled / envVar / wrapperPath / app.*) configures write IDENTITY, and
@@ -173,7 +173,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
         + err(has("testFile"); "commands." + $repo + ".testFile was removed — it was the retired unit-test mutation engine\u0027s per-spec runner template, read by nothing else. Delete the key from your config (docs/migrations/v1-to-v2.md)")
         + err(has("lintAutofixes"); "commands." + $repo + ".lintAutofixes was removed in configVersion 3 — the scheduler runs lint as a blocking check in the worktree, so configure lint as its non-mutating form (e.g. eslint ., not eslint --fix) and delete the key " + $v3doc)
         + err(((keys) - ["lint","lintAutofixes","typecheck","test","testFile","unitTestScope","format","lanes","extraLanes","testRunners","testSupport","allowUnverified"]) != []; "commands." + $repo + ": unknown keys (note: integrationTest/apiTest were removed in v2.1.6, commands.<repo>.build was removed — ship those tiers via extraLanes; see docs/migrations)")
-        # testSupport (#1053 D-21 D-26): globs of helper files the fails-without-the-change leg brings from the head, never runs
+        # testSupport: globs of helper files the fails-without-the-change leg brings from the head, never runs
         + err(has("testSupport") and (((.testSupport | type) != "array") or ((.testSupport | length) < 1) or any(.testSupport[]?; type != "string" or . == "")); "commands." + $repo + ".testSupport: a non-empty array of file globs")
         + ([to_entries[] | select(.key | IN("lint","typecheck","test","format")) |
             err((.value | type) | IN("string","null") | not; "commands." + $repo + "." + .key + ": must be string or null")
@@ -181,7 +181,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
         + err((.allowUnverified? != null) and ((.allowUnverified | type) != "boolean"); "commands." + $repo + ".allowUnverified: must be boolean")
         + ((.lanes // []) | if type != "array" then ["commands." + $repo + ".lanes: must be array"] else (to_entries | map(
             (.key as $li | .value |
-              # Entry-shape guard FIRST (#100). Without it a non-object entry is
+              # Entry-shape guard FIRST. Without it a non-object entry is
               # silently accepted: jq evaluates `+` operands right-to-left, and
               # `.name?` on a string/number/array yields `empty`, which collapses
               # the whole chain before `keys` below is ever reached — so the lane
@@ -204,7 +204,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
           ) | add // []) end)
         + ((.extraLanes // []) | if type != "array" then ["commands." + $repo + ".extraLanes: must be array"] else (to_entries | map(
             (.key as $i | .value |
-              # Same entry-shape guard as lanes[] above (#100). extraLanes was not
+              # Same entry-shape guard as lanes[] above. extraLanes was not
               # silent — a non-object entry crashed jq with rc=5 via `.commands`
               # below — but a raw crash is not a lint violation; make it clean.
               if (type != "object") then
@@ -222,7 +222,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
               end
             )
           ) | add // []) end)
-        # testRunners (#1040 D-3, #1053 D-5): which command runs the tagged tests on the fails-without-the-change leg —
+        # testRunners: which command runs the tagged tests on the fails-without-the-change leg —
         # the first entry whose `when` glob matches the file. `format` says what the leg reads: exit (the default; one file,
         # its exit code), cases (one file, its `case<TAB><passed|failed><TAB><id>` lines; {cases} optional), vitest-json and
         # jest-json (one call over all the files of the runner, its JSON report). Each placeholder belongs to its formats only,
@@ -359,7 +359,7 @@ ERRORS=$(jq -r --argjson shippedTiers "$SHIPPED_TIERS_JSON" --argjson tierDocFou
 ' "$CONFIG")
 
 # The per-engineer override beside the config (run.sh C6a): it may set tracker.branchPrefix and the
-# bot's GitHub App keys (#1059 D-3 D-10), and nothing else, and it stays out of git. run.sh refuses the
+# bot's GitHub App keys, and nothing else, and it stays out of git. run.sh refuses the
 # same three shapes; linting them here surfaces them in doctor and onboard before a run trips on them.
 # The app keys are checked by name only, any value type, as the committed block is. Every leaf counts,
 # false and null included: paths(scalars) skips those, so a local `"enabled": false` went unnamed.

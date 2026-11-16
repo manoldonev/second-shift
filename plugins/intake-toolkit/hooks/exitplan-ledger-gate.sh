@@ -6,7 +6,7 @@
 # lint: plan-interview/tools/ledger-lint.sh).
 #
 # Blocking idiom: this hook blocks via `exit 2` (stderr shown to the model) —
-# the plan-mode hook contract. This differs from acme's Bash-matcher hooks
+# the plan-mode hook contract. This differs from the Bash-matcher hooks
 # (check-model-tiers.sh, check-reviewer-references.sh), which emit
 # `permissionDecision:"deny"` JSON. Both are honored by Claude Code; the
 # divergence is intentional (this hook matches `ExitPlanMode`, not `Bash`, so
@@ -22,11 +22,11 @@
 #      transcript's creation. Prefers birth time (`find -newermB`, BSD); GNU find has no
 #      -newermB, so the hook probes once and falls back to mtime (`-newer`) —
 #      a weaker signal, but a working tier instead of a permanently vacuous
-#      one (#228). Exactly one candidate → lint it; zero → warn-and-allow;
+#      one. Exactly one candidate → lint it; zero → warn-and-allow;
 #      multiple → ambiguous, warn-and-allow. A scan that ERRORS is distinct
 #      from a scan that finds zero candidates: it fails CLOSED (block),
-#      because treating a broken scan as "found nothing" is what made #228
-#      invisible. Never lint a stale file silently: a single old plan with an
+#      because treating a broken scan as "found nothing" hides the
+#      break. Never lint a stale file silently: a single old plan with an
 #      old ledger must not false-PASS.
 #
 # Escape hatch: PLAN_INTERVIEW_SKIP=1 allows without linting.

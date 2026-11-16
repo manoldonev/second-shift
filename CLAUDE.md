@@ -92,6 +92,11 @@ not which ticket asked for it. The PR body is the ledger's one link: its `Closes
 record-row citations stay. Anywhere else, the exception is a reference the reader cannot do
 without, and it is rare.
 
+The scheduler's contract-row ids (`row F3`) and a suite's own case labels (`[F7]`, `(ll-q)`) are
+not ticket ids: they name a row of a table or a case that lives in the tree, so a reader can
+follow them. `scripts/check-no-archeology.sh` enforces the rule on scripts, workflow files and
+top-level docs; `scripts/no-archeology-baseline.tsv` holds what is still to sweep.
+
 ## Verification
 
 ```bash
