@@ -48,7 +48,7 @@ if [ "\$1 \$2" = "pr view" ] && [[ "\$*" == *body* ]]; then exit 1; fi; exec "$T
 EOF
 chmod +x "$T/bin/gh-prview-dies"; RUN_GH="$T/bin/gh-prview-dies" run_case "$d"; expect env-tracker-unreadable "[E12] unreadable PR body"; [ "$RC" -eq 2 ] && ok "[E12] exit 2" || bad "[E12] exit $RC"
 
-# E20 #926: an untracked file the review left at close-out is archived, and the approved worktree is removed
+# E20: an untracked file the review left at close-out is archived, and the approved worktree is removed
 fixture rj; printf 'build-pr\nreview-approve-dirty\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[E20] the review left an untracked file behind"
 toc="$(tar -tf "$(SD)/quarantine-closeout.tar" 2>&1)"
 [ "$RC" -eq 0 ] && [ ! -d "$d/wt/42" ] && grep -qx review-scratch.txt <<<"$toc" && ok "[E20] exit 0, the file is in quarantine-closeout.tar and the worktree is removed" || bad "[E20] rc=$RC, worktree $([ -d "$d/wt/42" ] && echo kept || echo gone), archive: $(tr '\n' ' ' <<<"$toc")"
@@ -155,7 +155,7 @@ grep -q 'unpriced' "$FAKE_GH/issue-comments" && ok "[I16] the closing comment sa
 printf '%s\n' "$OUT" | grep -q 'unpriced' && ok "[I16] the operator is told a session is unpriced" || bad "[I16] nothing said about the unpriced session"
 scr="$(sed -n 's/^.* \[run\] scratch: \(.*\) (both sessions.*$/\1/p' <<<"$OUT")"; toc="$(tar -tf "$(SD)/scratch.tar" 2>&1)"
 [ -n "$scr" ] && [ ! -e "$scr" ] && grep -qx './probe-1.txt' <<<"$toc" \
-  && ok "#964 D-2: a blocked run's scratch dir is archived into \$STATE as evidence and removed" || bad "#964 D-2: blocked run scratch '${scr:-none}'"
+  && ok "a blocked run's scratch dir is archived into \$STATE as evidence and removed" || bad "blocked run scratch '${scr:-none}'"
 fixture rk2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 ! grep -q 'mcp__figma' "$FAKE_GH/args-1.txt" && ! grep -q 'figma-faithful' "$FAKE_GH/prompt-1.txt" && ok "[F7 F18] neither on a ticket without frames" || bad "[F7 F18] leaked onto a frames-less ticket"
 
@@ -201,51 +201,51 @@ fixture ro2; printf 'build-pr\nreview-silent\nreview-silent\n' > "$FAKE_CLAUDE_P
 fixture rp; printf 'build-skip-test\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] run"
 grep -q 'it.skip' "$(SD)/review-1.1.prompt" && grep -q 'ci.yml' "$(SD)/review-1.1.prompt" && ok "[I10] the added skip and the CI edit are named in the review input" || bad "[I10] not surfaced"
 rsec() { awk -v h="### $1" 'index($0, h) == 1 {on=1; next} /^###/{on=0} on && NF' "$(SD)/review-input-1.1.md" 2>/dev/null; }
-[ "$(rsec 'Deleted or renamed test files')" = "(none)" ] && [ "$(rsec 'Configured lanes not run')" = "(none)" ] && ok "[I10] #956: the deleted-tests and skipped-lanes sections say (none) when empty" || bad "[I10] #956: deleted=[$(rsec 'Deleted or renamed test files')] lanes=[$(rsec 'Configured lanes not run')]"
-[ "$(rsec 'Existing test or snapshot expectations changed')" = "(none)" ] && ok "[I10] #957: lines only added to an existing spec change no expectation: (none)" || bad "[I10] #957: additive section: [$(rsec 'Existing test or snapshot expectations changed')]"
-[ "$(rsec 'Review policy edited')" = "(none)" ] && ok "[I10] #1009: a diff that edits no review policy says (none)" || bad "[I10] #1009: policy section: [$(rsec 'Review policy edited')]"
+[ "$(rsec 'Deleted or renamed test files')" = "(none)" ] && [ "$(rsec 'Configured lanes not run')" = "(none)" ] && ok "[I10] the deleted-tests and skipped-lanes sections say (none) when empty" || bad "[I10] deleted=[$(rsec 'Deleted or renamed test files')] lanes=[$(rsec 'Configured lanes not run')]"
+[ "$(rsec 'Existing test or snapshot expectations changed')" = "(none)" ] && ok "[I10] lines only added to an existing spec change no expectation: (none)" || bad "[I10] additive section: [$(rsec 'Existing test or snapshot expectations changed')]"
+[ "$(rsec 'Review policy edited')" = "(none)" ] && ok "[I10] a diff that edits no review policy says (none)" || bad "[I10] policy section: [$(rsec 'Review policy edited')]"
 
-# I10 #1009: head-side edits to the review policy reach the review input: both sides of a rename out of the policy dir,
+# I10: head-side edits to the review policy reach the review input: both sides of a rename out of the policy dir,
 # the config and context files, and the agent files the review session loads from its working tree
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"reviewers":{"add":[{"name":"orders-reviewer"},{"name":"pack:billing-reviewer"}]}}' fixture rpol
 mkdir -p "$d/main/.claude/second-shift"; echo 'never raw SQL' > "$d/main/.claude/second-shift/security-rules.md"
 git -C "$d/main" add -f .claude/second-shift/security-rules.md && git -C "$d/main" commit -qm policy && git -C "$d/main" push -q origin main
-printf 'build-edit-policy\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] #1009 run"
+printf 'build-edit-policy\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] run"
 s="$(rsec 'Review policy edited')"
 grep -qxE $'R[0-9]+\t\\.claude/second-shift/security-rules\\.md\tdocs/security-rules\\.md' <<<"$s" && grep -qxF $'A\t.claude/second-shift/review-context.md' <<<"$s" \
   && grep -qxF $'A\t.claude/second-shift.config.json' <<<"$s" && [ "$(grep -cE '^A[[:space:]]+\.claude/agents/' <<<"$s")" -eq 3 ] && [ "$(grep -c '' <<<"$s")" -eq 6 ] \
   && ok "[I10] the rename out of the policy dir, the context and config files and the three agent files are listed" || bad "[I10] policy section: $(tr '\n\t' '| ' <<<"$s")"
 grep -q '^### Review policy edited' "$(SD)/review-1.1.prompt" && grep -q "For every file under 'Review policy edited' in the scheduler input below, trace the edit" "$(SD)/review-1.1.prompt" \
-  && ok "[I10] #1009: the section and its trace instruction reach the review prompt" || bad "[I10] #1009: not in the review prompt"
+  && ok "[I10] the section and its trace instruction reach the review prompt" || bad "[I10] not in the review prompt"
 
-# I10 #957: a modified existing spec and a snapshot outside the spec pattern are listed with their removed lines, capped at 20
+# I10: a modified existing spec and a snapshot outside the spec pattern are listed with their removed lines, capped at 20
 FIXTURE_FILES="src/b.test.ts src/__snapshots__/price.snap" FIXTURE_BODY="$(for i in $(seq 1 22); do echo "expect(v$i).toBe(1999)"; done)" fixture rp3
-printf 'build-edit-expectation\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] #957 run"
+printf 'build-edit-expectation\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] run"
 want="$(echo src/__snapshots__/price.snap; for i in $(seq 1 20); do echo "  -expect(v$i).toBe(1999)"; done; echo '  (… 2 more)'; echo src/b.test.ts; echo '  -expect(v1).toBe(1999)')"
-s="$(rsec 'Existing test or snapshot expectations changed')"; [ "$s" = "$want" ] && ok "[I10] #957: the edited assertion and the regenerated snapshot are named with their old expectations; the additive and new specs are not" || bad "[I10] #957: section: $(tr '\n' '|' <<<"$s")"
-grep -q '^### Existing test or snapshot expectations changed' "$(SD)/review-1.1.prompt" && ok "[I10] #957: the section reaches the review prompt" || bad "[I10] #957: not in the review prompt"
+s="$(rsec 'Existing test or snapshot expectations changed')"; [ "$s" = "$want" ] && ok "[I10] the edited assertion and the regenerated snapshot are named with their old expectations; the additive and new specs are not" || bad "[I10] section: $(tr '\n' '|' <<<"$s")"
+grep -q '^### Existing test or snapshot expectations changed' "$(SD)/review-1.1.prompt" && ok "[I10] the section reaches the review prompt" || bad "[I10] not in the review prompt"
 
-# I10 #956: the detectors are stack-neutral, and a when-skipped lane is named even when another lane ran
+# I10: the detectors are stack-neutral, and a when-skipped lane is named even when another lane ran
 FIXTURE_FILES="tests/test_x.py src/__tests__/b.js pyproject.toml" FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"unit","when":["src/**"],"commands":["true"]},{"name":"docs-lint","when":["docs/**"],"commands":["true"]}]}}}' fixture rp2 ""
-printf 'build-polyglot\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] #956 polyglot run"
-s="$(rsec 'Deleted or renamed test files')"; grep -qE '^D[[:space:]]+tests/test_x\.py$' <<<"$s" && grep -qE '^D[[:space:]]+src/__tests__/b\.js$' <<<"$s" && ok "[I10] #956: a top-level tests/ and a __tests__/ deletion are listed" || bad "[I10] #956: deleted section: $(tr '\n' '|' <<<"$s")"
-s="$(rsec 'Added skips')"; grep -q '@pytest.mark.skip' <<<"$s" && grep -q 't.Skip("later")' <<<"$s" && ok "[I10] #956: a pytest skip and a Go t.Skip( are listed" || bad "[I10] #956: skips section: $(tr '\n' '|' <<<"$s")"
-s="$(rsec 'CI or check configuration edited')"; grep -qx 'pyproject.toml' <<<"$s" && grep -qx 'eslint.config.mjs' <<<"$s" && ! grep -q 'test_y.py' <<<"$s" && ok "[I10] #956: the pyproject.toml coverage edit and eslint.config.mjs are listed" || bad "[I10] #956: config section: $(tr '\n' '|' <<<"$s")"
-s="$(rsec 'Configured lanes not run')"; [ "$s" = "docs-lint" ] && grep -q 'ok: true' "$(SD)/checks-1.1.log" && ok "[I10] #956: the when-skipped lane is named while the matched one ran" || bad "[I10] #956: lanes section: $(tr '\n' '|' <<<"$s")"
+printf 'build-polyglot\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "[I10] polyglot run"
+s="$(rsec 'Deleted or renamed test files')"; grep -qE '^D[[:space:]]+tests/test_x\.py$' <<<"$s" && grep -qE '^D[[:space:]]+src/__tests__/b\.js$' <<<"$s" && ok "[I10] a top-level tests/ and a __tests__/ deletion are listed" || bad "[I10] deleted section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'Added skips')"; grep -q '@pytest.mark.skip' <<<"$s" && grep -q 't.Skip("later")' <<<"$s" && ok "[I10] a pytest skip and a Go t.Skip( are listed" || bad "[I10] skips section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'CI or check configuration edited')"; grep -qx 'pyproject.toml' <<<"$s" && grep -qx 'eslint.config.mjs' <<<"$s" && ! grep -q 'test_y.py' <<<"$s" && ok "[I10] the pyproject.toml coverage edit and eslint.config.mjs are listed" || bad "[I10] config section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'Configured lanes not run')"; [ "$s" = "docs-lint" ] && grep -q 'ok: true' "$(SD)/checks-1.1.log" && ok "[I10] the when-skipped lane is named while the matched one ran" || bad "[I10] lanes section: $(tr '\n' '|' <<<"$s")"
 
-# I10 #1011: a non-ASCII path, a path with a space and this repo's own *-selftest.* reach every section and the when-glob.
+# I10: a non-ASCII path, a path with a space and this repo's own *-selftest.* reach every section and the when-glob.
 # Names are NFC bytes (macOS git recomposes to NFC, Linux does not); quotePath=true is pinned through GIT_CONFIG_*, so a
 # machine with a global quotePath=false cannot pass these without run.sh's own -c
 cafe=$'caf\303\251'
 FIXTURE_FILES="src/$cafe.spec.ts scripts/x-selftest.sh" FIXTURE_BODY=$'expect(a).toBe(1)\nexpect(b).toBe(2)' \
   FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"extraLanes":[{"name":"cafe","when":["src/'"$cafe"'.spec.ts"],"commands":["true cafe"]}]}}}' fixture rp4 ""
 mkdir -p "$d/main/src/old dir"; echo x > "$d/main/src/old dir/y.spec.ts"; git -C "$d/main" add -A; git -C "$d/main" commit -qm "spaced spec"; git -C "$d/main" push -q origin main 2>/dev/null
-printf 'build-path-names\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=true run_case "$d"; expect approved "[I10] #1011 run"
+printf 'build-path-names\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=true run_case "$d"; expect approved "[I10] run"
 want="$(printf 'scripts/x-selftest.sh\n  -expect(a).toBe(1)\nsrc/%s.spec.ts\n  -expect(a).toBe(1)' "$cafe")"
-s="$(rsec 'Existing test or snapshot expectations changed')"; [ "$s" = "$want" ] && ok "[I10] #1011: a non-ASCII spec and a *-selftest.sh are named with their removed expectations" || bad "[I10] #1011: expectations section: $(tr '\n' '|' <<<"$s")"
-s="$(rsec 'Deleted or renamed test files')"; [ "$s" = $'D\tsrc/old dir/y.spec.ts' ] && ok "[I10] #1011: a deleted spec whose path holds a space is listed whole" || bad "[I10] #1011: deleted section: $(tr '\n' '|' <<<"$s")"
-s="$(rsec 'CI or check configuration edited')"; [ "$s" = ".github/workflows/$cafe.yml" ] && ok "[I10] #1011: a non-ASCII CI config is listed unquoted" || bad "[I10] #1011: config section: $(tr '\n' '|' <<<"$s")"
-s="$(rsec 'Configured lanes not run')"; [ "$s" = "(none)" ] && grep -qx 'ok: true cafe' "$(SD)/checks-1.1.log" && ok "[I10] #1011: a when-glob naming the non-ASCII path runs its lane" || bad "[I10] #1011: lanes section: $(tr '\n' '|' <<<"$s"); log: $(tr '\n' '|' < "$(SD)/checks-1.1.log")"
+s="$(rsec 'Existing test or snapshot expectations changed')"; [ "$s" = "$want" ] && ok "[I10] a non-ASCII spec and a *-selftest.sh are named with their removed expectations" || bad "[I10] expectations section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'Deleted or renamed test files')"; [ "$s" = $'D\tsrc/old dir/y.spec.ts' ] && ok "[I10] a deleted spec whose path holds a space is listed whole" || bad "[I10] deleted section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'CI or check configuration edited')"; [ "$s" = ".github/workflows/$cafe.yml" ] && ok "[I10] a non-ASCII CI config is listed unquoted" || bad "[I10] config section: $(tr '\n' '|' <<<"$s")"
+s="$(rsec 'Configured lanes not run')"; [ "$s" = "(none)" ] && grep -qx 'ok: true cafe' "$(SD)/checks-1.1.log" && ok "[I10] a when-glob naming the non-ASCII path runs its lane" || bad "[I10] lanes section: $(tr '\n' '|' <<<"$s"); log: $(tr '\n' '|' < "$(SD)/checks-1.1.log")"
 
 # J7: origin/<base> that no longer resolves mid-run is staleness-unreadable, never 'nothing moved'
 fixture rq; printf 'build-pr\nreview-needs-work-drop-base\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect staleness-unreadable "[J7] the base ref vanished before round 2"; [ "$RC" -eq 1 ] && ok "[J7] exit 1" || bad "[J7] exit $RC"

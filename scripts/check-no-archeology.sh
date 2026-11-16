@@ -9,7 +9,6 @@
 #
 #   data      the ids are test data or a format the tool documents, and stay
 #   debt      ids still to be swept
-#   open-pr   ids still to be swept, in a file an open pull request was changing when the row was written
 #
 # A file over its count fails, and so does a row whose file has no hits left, so a count only goes
 # down. A file under its count passes and the summary says the row can be lowered.
@@ -124,7 +123,7 @@ REPORT="$(NA_COUNTS="$COUNTS" awk -F'\t' '
     path = $1
     if (NF < 4 || $4 == "") { print "FAIL\t" path ": malformed row (need path, count, class, why — tab-separated)"; next }
     if ($2 !~ /^[0-9]+$/ || $2 == 0) { print "FAIL\t" path ": the count must be a positive number, got \"" $2 "\""; next }
-    if ($3 != "data" && $3 != "debt" && $3 != "open-pr") { print "FAIL\t" path ": unknown class \"" $3 "\" (data | debt | open-pr)"; next }
+    if ($3 != "data" && $3 != "debt") { print "FAIL\t" path ": unknown class \"" $3 "\" (data | debt)"; next }
     if (path in allowed) { print "FAIL\t" path ": listed twice"; next }
     allowed[path] = $2; nrows++
     if (!(path in hits)) { print "FAIL\t" path ": STALE — the row allows " $2 " hit(s) and the file has none. Delete the row."; next }

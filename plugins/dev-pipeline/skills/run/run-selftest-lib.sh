@@ -13,7 +13,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN="$SCRIPT_DIR/run.sh"
 PASS=0; FAIL=0
-# #1053 D-4 D-13 D-15: a case is a fixture block — everything after `fixture <name>` up to the next fixture, its id the
+# A case is a fixture block — everything after `fixture <name>` up to the next fixture, its id the
 # expanded name. Its ok/bad rows fold (any bad fails it), and at exit the suite prints one `case<TAB><passed|failed><TAB><id>`
 # line per block that has a row, for the cases format of the fails-without-the-change check; a block with no row prints
 # none, so a crash reads "did not run", never passed. SELFTEST_CASES (space-separated ids) selects blocks: an unselected
@@ -37,7 +37,7 @@ case_lines() {
 }
 ok()  { [ "$CASE_ON" -eq 1 ] || return 0; PASS=$((PASS+1)); echo "  ok   $*"; case_row passed; }
 bad() { [ "$CASE_ON" -eq 1 ] || return 0; FAIL=$((FAIL+1)); echo "  FAIL $*"; case_row failed; }
-# #1022: run.sh lints the receipt with intake-toolkit's ledger-lint.sh. The sibling plugin sits beside this one in a
+# run.sh lints the receipt with intake-toolkit's ledger-lint.sh. The sibling plugin sits beside this one in a
 # checkout (plugins/intake-toolkit) and one version segment further up in an install cache (<cache>/intake-toolkit/<v>)
 IT_ROOT=""
 for _c in "$SCRIPT_DIR/../../../intake-toolkit" "$SCRIPT_DIR"/../../../../intake-toolkit/*; do
@@ -50,7 +50,7 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@x GIT_COMMITTER_NAME=t GIT_COMMITTER
 # a BUILD session running this suite carries the spawn env run.sh gives it, and an operator's shell may carry RUN_* caps:
 # the F-env cases read what run.sh sets from its defaults, not what this shell inherited
 unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS BASH_DEFAULT_TIMEOUT_MS BASH_MAX_TIMEOUT_MS CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS RUN_BUILD_TIMEOUT RUN_REVIEW_TIMEOUT GIT_NO_REPLACE_OBJECTS
-# ...and an operator's shell may be a herdr pane with a watch configured (#939): the cases set these themselves
+# ...and an operator's shell may be a herdr pane with a watch configured: the cases set these themselves
 for _v in $(compgen -e HERDR_) RUN_WATCH_CMD RUN_WATCH_EDITOR RUN_DETACHED_LOG; do unset "$_v"; done
 # every slice but run-joined-selftest.sh drives the switched-off review, the lane review alone; that suite unsets this
 export RUN_JOINED_REVIEW=false
@@ -98,7 +98,7 @@ case "$sub" in
   "api graphql") [ -f "$S/minimize-fail" ] && { cat "$S/minimize-fail" >&2; exit 1; }   # one line per minimize: who, the node id
                  for a in "$@"; do case "$a" in id=*) echo "${FAKE_GH_AS:-operator} ${a#id=}" >> "$S/minimized" ;; esac; done; echo '{}' ;;
   # users/<login> is bot-commit.sh's `--jq .id` lookup: a numeric id, as real gh prints it. The '{}' default once
-  # passed for an id, which bot-commit.sh now refuses (#1068).
+  # passed for an id, which bot-commit.sh now refuses.
   # inline review comments and reviews: one array each, [] when the case writes none, as GitHub lists them
   api*)         case "$path" in
                   *pulls/*/comments*) [ -f "$S/inline-unreadable" ] && { echo "HTTP 502: Bad Gateway" >&2; exit 1; }; cat "$S/inline-comments.json" 2>/dev/null || echo '[]' ;;
@@ -143,19 +143,19 @@ fi
 n=$(cat "$S/calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$S/calls"
 plan=$(sed -n "${n}p" "$FAKE_CLAUDE_PLAN"); prompt="$(cat)"; [ -n "$prompt" ] || prompt="${@: -1}"   # stdin is the contract; the argv fallback lets (q12) fail for the real reason against an argv-passing run.sh
 printf '%s' "$prompt" > "$S/prompt-$n.txt"; printf '%s\n' "$@" > "$S/args-$n.txt"
-# #964: each --add-dir that exists while the session runs is recorded, and a probe is left in the run's scratch dir
+# Each --add-dir that exists while the session runs is recorded, and a probe is left in the run's scratch dir
 prev=""; for a in "$@"; do if [ "$prev" = --add-dir ] && [ -d "$a" ]; then echo "$a" >> "$S/live-dirs-$n.txt"; case "$a" in *-scratch.*) echo "probe $n" > "$a/probe-$n.txt" ;; esac; fi; prev="$a"; done
 # the config path the session was handed, and that file's content as the session starts
 printf '%s\n' "${SECOND_SHIFT_CONFIG:-}" > "$S/config-path-$n.txt"; [ -f "${SECOND_SHIFT_CONFIG:-}" ] && cp "$SECOND_SHIFT_CONFIG" "$S/config-seen-$n.json"
 # the session's env as claude would apply it: what it inherited, overlaid by any --settings env; the watch's own
-# variables are captured too, so a leak of one into a session is visible (#939 D-29)
+# variables are captured too, so a leak of one into a session is visible
 { env | grep -E '^(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS|BASH_(DEFAULT|MAX)_TIMEOUT_MS|HERDR_[A-Za-z0-9_]*|RUN_WATCH[A-Za-z0-9_]*|RUN_DETACHED_LOG)='; prev=""; for a in "$@"; do [ "$prev" = --settings ] && printf '%s' "$a" | jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"'; prev="$a"; done; } | awk -F= '{ v[$1] = $0 } END { for (k in v) print v[k] }' | sort > "$S/env-$n.txt"
 ls -A > "$S/tree-seen-$n.txt"   # the worktree's top level as the session starts
 branch=$(git rev-parse --abbrev-ref HEAD); cost="${FAKE_COST:-1}"
-# #1039: a session whose call number has a $FAKE_GH/plan-<n>.md writes it as the test-first plan, beside the record
+# A session whose call number has a $FAKE_GH/plan-<n>.md writes it as the test-first plan, beside the record
 rec=$(git ls-files 'docs/plans/*-decisions.md' 2>/dev/null | head -n 1)
 [ -f "$S/plan-$n.md" ] && [ -n "$rec" ] && cp "$S/plan-$n.md" "${rec%-decisions.md}-plan.md"
-# #1040: ...and a $FAKE_GH/tree-<n>/ is copied over the worktree as the session's code and tests
+# ...and a $FAKE_GH/tree-<n>/ is copied over the worktree as the session's code and tests
 [ -d "$S/tree-$n" ] && cp -R "$S/tree-$n/." .
 push() { echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "build $n"; git push -q origin "$branch"; }
 openpr() { # body as the prompt instructs: built-by line, the record link, then Closes (under the Jira heading when bracketed)
@@ -165,7 +165,7 @@ openpr() { # body as the prompt instructs: built-by line, the record link, then 
   case "${FAKE_CLOSES:-}" in lower) key="closes #42" ;; esac
   { printf '%s\n\nrecord: %s\n\n' "${rid:-built-by: second-shift run ?}" "${rec:-?}"; case "$key" in *"["*) printf '### Jira Items\n%s\n' "$key" ;; *) printf '%s\n' "${key:-Closes #?}" ;; esac; } > "$S/pr-created-body.txt"; echo 7 > "$S/prs"
 }
-# #991: a verdict body in the grammar verdict-check.sh enforces. A consistent one by default: D-1 (the fixture
+# A verdict body in the grammar verdict-check.sh enforces. A consistent one by default: D-1 (the fixture
 # record's one row) honored, and a [blocker] on a needs-work; $ROWS / $FINDINGS replace either part
 vbody() { # vbody <verdict> <sha> [<text after the findings>]
   local f="None."; [ "$1" = needs-work ] && f="- [blocker] B1 fake finding"
@@ -206,20 +206,20 @@ case "$plan" in
   build-pr-untracked) push; openpr; printf 'it("probe", () => {});\n' > src/zz-probe.spec.ts; mkdir -p "src/probe dir"; echo scratch > "src/probe dir/notes.txt" ;;   # never committed: what a probing build leaves
   build-commit-nopush) echo "$n" >> work.txt; git add -A >/dev/null; git commit -qm "local only $n" ;;
   build-skip-test) printf 'it.skip("x", () => {});\n' >> src/a.spec.ts; mkdir -p .github/workflows; echo 'on: push' > .github/workflows/ci.yml; push; openpr ;;
-  build-polyglot)  git rm -q tests/test_x.py src/__tests__/b.js; mkdir -p tests; printf '@pytest.mark.skip\ndef test_y(): pass\n' > tests/test_y.py   # #956: a non-JS weakening
+  build-polyglot)  git rm -q tests/test_x.py src/__tests__/b.js; mkdir -p tests; printf '@pytest.mark.skip\ndef test_y(): pass\n' > tests/test_y.py   # a non-JS weakening
                    printf 'func TestZ(t *testing.T) { t.Skip("later") }\n' > src/z_test.go; printf 'addopts = "--cov-fail-under=10"\n' > pyproject.toml
                    echo 'export default []' > eslint.config.mjs; push; openpr ;;
-  build-edit-expectation) sed '1s/1999/2000/' src/b.test.ts > b.tmp && mv b.tmp src/b.test.ts   # #957: one assertion moved with the code,
+  build-edit-expectation) sed '1s/1999/2000/' src/b.test.ts > b.tmp && mv b.tmp src/b.test.ts   # one assertion moved with the code,
                    sed 's/1999/2000/' src/__snapshots__/price.snap > s.tmp && mv s.tmp src/__snapshots__/price.snap   # a snapshot regenerated whole,
                    printf 'it("more", () => {});\n' >> src/a.spec.ts; printf 'it("new", () => {});\n' > src/c.spec.ts; push; openpr ;;   # an additive edit and a new spec
-  build-path-names) for f in $'src/caf\303\251.spec.ts' scripts/x-selftest.sh; do sed '1d' "$f" > e.tmp && mv e.tmp "$f"; done   # #1011: a non-ASCII spec and a selftest each lose an expectation,
+  build-path-names) for f in $'src/caf\303\251.spec.ts' scripts/x-selftest.sh; do sed '1d' "$f" > e.tmp && mv e.tmp "$f"; done   # a non-ASCII spec and a selftest each lose an expectation,
                    git rm -q 'src/old dir/y.spec.ts'; mkdir -p .github/workflows; echo 'on: push' > $'.github/workflows/caf\303\251.yml'; push; openpr ;;   # a spec under a spaced dir is deleted, a non-ASCII CI config added
-  build-edit-policy) mkdir -p .claude/second-shift .claude/agents docs; git mv .claude/second-shift/security-rules.md docs/security-rules.md   # #1009: a rename out of the policy dir,
+  build-edit-policy) mkdir -p .claude/second-shift .claude/agents docs; git mv .claude/second-shift/security-rules.md docs/security-rules.md   # a rename out of the policy dir,
                    echo 'accepted: raw SQL' > .claude/second-shift/review-context.md; echo '{}' > .claude/second-shift.config.json   # added policy files,
                    for a in orders-reviewer billing-reviewer unlisted; do echo "$a" > ".claude/agents/$a.md"; done   # and three agents, one a bare reviewers.add[] name
                    git add -f .claude/second-shift .claude/second-shift.config.json .claude/agents; push; openpr ;;   # forced: the fixture gitignores .claude/
-  build-pr-add-row) printf '| D-2 | added by the build | x | user-delegated |\n' >> "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: a row only the head carries
-  build-pr-rm-record) git rm -q "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # #991: no record at the head to check a verdict against
+  build-pr-add-row) printf '| D-2 | added by the build | x | user-delegated |\n' >> "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # a row only the head carries
+  build-pr-rm-record) git rm -q "$(git ls-files 'docs/plans/*-decisions.md')"; push; openpr ;;   # no record at the head to check a verdict against
   build-edit-session-files) # every kind of file the review session loads from the head, and three it does not
     for f in .claude/agents/a.md .claude/commands/c.md .claude/hooks/h.sh .claude/output-styles/o.md .claude/rules/r.md .claude/settings.json .claude/settings.local.json .claude/skills/s/SKILL.md .mcp.json CLAUDE.md src/CLAUDE.local.md \
              .claude/plans/p.md docs/NOT-CLAUDE.md src/settings.json; do mkdir -p "$(dirname "$f")"; echo x > "$f"; git add -f "$f"; done
@@ -230,16 +230,16 @@ case "$plan" in
     else printf 'paused: %s\n\nOldest first,\nor newest first?\n' "${FAKE_PAUSE:-OR-1}" > "$f"; fi; echo half >> work.txt ;;
   build-pr-decide-parked) # a build that decides the parked D-2 itself instead of stopping
     rec=$(git ls-files 'docs/plans/*-decisions.md'); sed 's/^| D-2 | .*/| D-2 | backfill order | oldest first. Changed in build: it reads best. | user-delegated | intent |/' "$rec" > r.tmp && mv r.tmp "$rec"; push; openpr ;;
-  build-pr-operator-departure) # #1085: the operator restored a guard mid-build — the head's record carries the decision as a
+  build-pr-operator-departure) # the operator restored a guard mid-build — the head's record carries the decision as a
                    # user-answered D-2 row and its AC-9 under Test intent; the record at FIRST is untouched, and the plan tags AC-9
                    awk '$0 == "| D-1 | a | b | user-answered | intent |" { print; print "| D-2 | the guard | restored by the operator | user-answered | intent |"; next }
                         /^ACs: / { print $0 " AC-9"; print "AC-9: the restored guard refuses an over-size layout"; next } { print }' "$rec" > r.tmp && mv r.tmp "$rec"; push; openpr ;;
-  build-pr-add-ac-no-row) # #1085: the same AC-9 added at the head with no ledger row to decide it — a build inventing an AC
+  build-pr-add-ac-no-row) # the same AC-9 added at the head with no ledger row to decide it — a build inventing an AC
                    awk '{ print } $0 == "AC-8: the scheduler runs the coverage check" { print "AC-9: the restored guard refuses an over-size layout" }' "$rec" \
                      | sed 's/^ACs: AC-1 AC-2 AC-8$/ACs: AC-1 AC-2 AC-8 AC-9/' > r.tmp && mv r.tmp "$rec"; push; openpr ;;
-  build-pr-two-acs) # #1085: a build slip in the head's record — a second 'ACs:' line under Test intent; the record at FIRST is untouched
+  build-pr-two-acs) # a build slip in the head's record — a second 'ACs:' line under Test intent; the record at FIRST is untouched
                    awk '{ print } /^ACs: / { print }' "$rec" > r.tmp && mv r.tmp "$rec"; push; openpr ;;
-  build-pr-mark-covered) # #1039 AC-5: a build that tries to mark the coverage check passed — it exempts AC-8 in the head's
+  build-pr-mark-covered) # a build that tries to mark the coverage check passed — it exempts AC-8 in the head's
                    # record and commits a coverage script that always passes where the plugin's sits in this repo
                    sed 's/^AC-8: .*/AC-8: exempt — the build says so/' "$rec" > r.tmp && mv r.tmp "$rec"
                    mkdir -p plugins/dev-pipeline/tools; printf '#!/usr/bin/env bash\necho "plan-coverage: pass"\n' > plugins/dev-pipeline/tools/plan-coverage.sh
@@ -273,8 +273,8 @@ case "$plan" in
       review-needs-work-move-base) b="$(mktemp -d)"; git clone -q "$(git remote get-url origin)" "$b" 2>/dev/null   # main edits work.txt's FIRST line; the build appends
                                    sed '1s/.*/moved/' "$b/work.txt" > "$b/w" && mv "$b/w" "$b/work.txt" && git -C "$b" commit -qam "base moves into the branch's file" && git -C "$b" push -q origin main; rm -rf "$b" ;;
     esac ;;
-  # #991 AC-2: verdicts whose own comment does not back their verdict line
-  review-approve-d2) post "$(ROWS=$'| D-1 | honored | fake |\n| D-2 | honored | Added by the build, user-answered. |' vbody approve "$(git rev-parse "origin/$branch")")" ;;   # #1085: the head's added row scored
+  # verdicts whose own comment does not back their verdict line
+  review-approve-d2) post "$(ROWS=$'| D-1 | honored | fake |\n| D-2 | honored | Added by the build, user-answered. |' vbody approve "$(git rev-parse "origin/$branch")")" ;;   # the head's added row scored
   review-bad-approve-blocker)  post "$(ROWS='| D-1 | honored | fake |' FINDINGS='- [blocker] B1 must change before merge' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-approve-violated) post "$(ROWS='| D-1 | violated | fake |' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-needs-work-noblocker) post "$(FINDINGS='- [note] N1 nothing required' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
@@ -300,7 +300,7 @@ printf '{"subtype":"success","total_cost_usd":%s,"num_turns":3,"permission_denia
 EOF
 cat > "$T/bin/watch-fake" <<'EOF'
 #!/usr/bin/env bash
-# the fake RUN_WATCH_CMD (#939): records each call, its argv, cwd, herdr env and process group; $FAKE_WATCH picks its behavior
+# the fake RUN_WATCH_CMD: records each call, its argv, cwd, herdr env and process group; $FAKE_WATCH picks its behavior
 S="$FAKE_GH"; echo call >> "$S/watch-calls"; printf '%s\n' "$@" > "$S/watch-args"; pwd -P > "$S/watch-cwd"
 env | grep -E '^HERDR_' | sort > "$S/watch-env"; echo "$$ $(ps -o pgid= -p $$ | tr -d ' ')" > "$S/watch-pgid"
 echo "WATCH-STDOUT"; echo "WATCH-STDERR" >&2
@@ -325,10 +325,10 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
   printf '%s\n' ".claude/" > "$d/main/.gitignore"
   git -C "$d/main" add -A && git -C "$d/main" commit -qm init && git -C "$d/main" push -q -u origin main 2>/dev/null
   git -C "$d/origin.git" symbolic-ref HEAD refs/heads/main
-  # #1022 D-11: a whole v3 receipt (#1032), so the launch lint passes it; #1039: v3 carries no Test intent, so every case but
+  # A whole v3 receipt, so the launch lint passes it; v3 carries no Test intent, so every case but
   # run-record-selftest's (pc) block, which moves it to v4, runs the plan coverage as not-applicable (an empty checks line is
-  # the section's empty form); D-1's first four cells are the text (a) greps for in the build prompt; #1023: only the
-  # operator's skip form lints. #1032 D-8: the knowledge-source answer carries its own heading, '| D-9 |' row and
+  # the section's empty form); D-1's first four cells are the text (a) greps for in the build prompt; only the
+  # operator's skip form lints. The knowledge-source answer carries its own heading, '| D-9 |' row and
   # 'Receipt: v99' line, indented — the launch's version read, its lint and the build's record all pass them by.
   printf '# record\n\nReceipt: v3\n\n## Intake steps\n\nRequirements: the ticket body as written\nSplit: not split\nExplore: the fixture repo\nFan-out: skipped — by the operator; the selftest fixture runs no intake\nDup-scan: no candidates\nPost-merge scan: no post-merge AC\nSizing: opus\n\n## Decision Ledger\n\n| ID | Decision | Resolution | Provenance | Kind |\n| --- | --- | --- | --- | --- |\n| D-1 | a | b | user-answered | intent |\n\n## Open Regions\n\nNo open regions — every decision in scope is ratified.\n\n## Surface Inventory\n\nNo user-visible surface — this change renders nothing a user reads.\n\n## Fan-out\n\nFan-out: skipped — by the operator; the selftest fixture runs no intake\n\n## Knowledge source\n\nProvider: <plugin>:<provider-agent>\n\n    ## Answer\n\n    The fixture worker retries a 409 forever.\n\n    | D-9 | a knowledge-base row | x | user-answered | intent |\n\n    Receipt: v99\n\n    Sources:\n    - <kb-page>\n\n## Checks\n\n%s\n%s\n' \
     "${chk:-No ticket-specific checks — the configured lanes cover this change.}" "$extra" > "$d/main/.claude/pipeline-state/42-ledger.md"
@@ -338,7 +338,7 @@ fixture() { # fixture <case> [checks-line] [extra-record] — sets $d and the en
   export RUN_WORKTREE_ROOT="$d/wt" RUN_CLAUDE="$T/bin/claude" RUN_GH="$T/bin/gh" SECOND_SHIFT_CONFIG="$d/main/.claude/second-shift.config.json"
   export SECOND_SHIFT_INTAKE_TOOLKIT_ROOT="$IT_ROOT"   # the (rl) cases unset it to drive the plugin-list lookup
 }
-commit_record() { # the receipt already committed as the lane branch's first commit, as an earlier run leaves it: never re-linted (#1022 D-8)
+commit_record() { # the receipt already committed as the lane branch's first commit, as an earlier run leaves it: never re-linted
   git -C "$d/main" checkout -q -b second-shift/42 && mkdir -p "$d/main/docs/plans" \
     && cp "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/docs/plans/main-42-decisions.md" \
     && git -C "$d/main" add docs/plans/main-42-decisions.md && git -C "$d/main" commit -qm "docs: add the decision record" \

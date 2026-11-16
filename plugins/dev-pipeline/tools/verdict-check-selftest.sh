@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# verdict-check-selftest.sh — behavioral selftest for tools/verdict-check.sh (#991 AC-1).
+# verdict-check-selftest.sh — behavioral selftest for tools/verdict-check.sh.
 #
-# INVARIANTS GUARDED: PR #983's two verdicts as posted are rejected against the #979 record at each
+# INVARIANTS GUARDED: a real PR's two verdicts as posted are rejected against its record at each
 # head and at its first commit (round 1 names "needs-work with no blocker", round 2 "Findings not in
 # the grammar"); each rule passes and fails; a needs-work with any of the three line-3 reasons passes; a row the build
 # deleted or added is still owed a score; a folded rows table passes only under a summary that counts it and
@@ -22,7 +22,7 @@ trap 'rm -rf "$T"' EXIT
 
 SHA=0123456789abcdef0123456789abcdef01234567
 # two record versions: D-1 and D-2 at the first commit; at the head D-2 is gone and D-3 was added.
-# The indented row is a fan-out snapshot, never one of the record's own (#991 D-6).
+# The indented row is a fan-out snapshot, never one of the record's own.
 printf '# record\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | a | b | user-answered |\n| D-2 | c | d | user-answered |\n\n## Fan-out\n\n    | D-77 | snapshot | x | y |\n' > "$T/first.md"
 printf '# record\n\n| ID | Decision | Resolution | Provenance |\n| --- | --- | --- | --- |\n| D-1 | a | b | user-answered |\n| D-3 | e | f | user-delegated |\n' > "$T/head.md"
 HEAD_ROWS=$'| D-1 a | honored | x |\n| D-2 c | departed (deleted by the build) | y |\n| D-3 e | honored | z |'
@@ -37,13 +37,13 @@ fails_with() { [ "$RC" -eq 1 ] && has "$2" && ok "$1" || bad "$1: rc=$RC, wanted
 
 echo "== verdict-check.sh =="
 
-# ---- AC-1: PR #983's verdicts as posted, against the #979 record at each head and at its first commit ----
+# ---- (ac1) a real PR's verdicts as posted, against its record at each head and at its first commit ----
 OUT="$(bash "$TOOL" "$FX/pr983-round1.md" "$FX/record-979-at-7100d01b.md" "$FX/record-979-at-7100d01b.md")"; RC=$?   # 1be8b826's record is byte-identical to 7100d01b's
-fails_with "(ac1) #983 round 1 (needs-work on one Warning) is rejected" "needs-work with no blocker"
+fails_with "(ac1) round 1 (needs-work on one Warning) is rejected" "needs-work with no blocker"
 has "Decision record rows not in the grammar" && has "unknown section: ## review-lead" && has "Ready to merge? in the body" \
   && ok "(ac1) round 1 also names its prose in the rows section, its extra sections and 'Ready to merge?'" || bad "(ac1) round 1: $(tr '\n' '|' <<<"$OUT")"
 OUT="$(bash "$TOOL" "$FX/pr983-round2.md" "$FX/record-979-at-c9ff84e4.md" "$FX/record-979-at-7100d01b.md")"; RC=$?
-fails_with "(ac1) #983 round 2 (approve beside a must-fix Warning) is rejected" "Findings not in the grammar"
+fails_with "(ac1) round 2 (approve beside a must-fix Warning) is rejected" "Findings not in the grammar"
 ! has "record row not scored" && ! has "row not in the record" && ok "(ac1) round 2 scored D-8, the row its build added, and every other row" || bad "(ac1) round 2 rows: $(tr '\n' '|' <<<"$OUT")"
 
 # ---- each rule passing ----
