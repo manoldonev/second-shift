@@ -196,7 +196,7 @@
     },
     "design": {
       "type": "object",
-      "description": "Optional design-fidelity axis. Selects the design-toolkit adapter family. Key absent = no provider declared, not design fidelity off: /dev-pipeline:run requires no design section in the record, and the ad hoc /review-toolkit:review-lead still routes design-faithful-reviewer, the generic fidelity reviewer, on a diff that matches reviewers.webComponentGlobs. To turn the fidelity reviewer off, set reviewers.webComponentGlobs to [] or remove the reviewer with reviewers.remove.",
+      "description": "Optional design-fidelity axis. Selects the design-toolkit adapter family. The provider picks the design-fidelity reviewer, in /dev-pipeline:run's review and in the ad hoc /review-toolkit:review-lead alike: claude-design picks design-faithful-reviewer, and figma or no provider picks figma-faithful-reviewer; a handoff URL in the record does not change the pick. Key absent = no provider declared, not design fidelity off: /dev-pipeline:run requires no design section in the record, and review-lead still routes figma-faithful-reviewer on a diff that matches reviewers.webComponentGlobs. To turn the fidelity reviewer off, set reviewers.webComponentGlobs to [] or remove the reviewer with reviewers.remove.",
       "additionalProperties": false,
       "required": ["provider"],
       "properties": {

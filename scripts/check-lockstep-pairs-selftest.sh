@@ -6,8 +6,8 @@
 # indistinguishable from one that cannot fail — which is precisely the prose-presence class
 # this script's subject replaces.
 #
-# Cases (b) onward run against SYNTHETIC fixture trees rather than a copy of the repo. Since
-# #604 the checker takes no manifest, so there is no row set to drive a copy from; a fixture
+# Cases (b) onward run against SYNTHETIC fixture trees rather than a copy of the repo.
+# The checker takes no manifest, so there is no row set to drive a copy from; a fixture
 # tree also lets a case state exactly one property, which a repo copy cannot.
 #
 # ## Why this file never writes a marker literally
@@ -159,7 +159,7 @@ else
 fi
 
 # ---- (f) a DELETED marker is never a silent skip ---------------------------------------
-# Same intent as the pre-#604 case, reached from the other side: removing one leg's BEGIN
+# The deleted-row intent, reached from the other side: removing one leg's BEGIN
 # drops the group to one member, which (e)'s rule reds. A deleted PAIR is the known trade,
 # stated in docs/testing.md — this asserts the one-sided deletion is still loud.
 d=$(tree f)

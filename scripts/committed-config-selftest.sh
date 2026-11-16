@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # committed-config-selftest.sh — this repo's own .claude/second-shift.config.json is committed, and
-# never with the bot's GitHub App identity in it (#1059).
+# never with the bot's GitHub App identity in it.
 #
 # The config is tracked so the policy the lane runs under (checks, test runners, tracker settings)
 # shows in a diff. tracker.bot.app stays in each engineer's gitignored

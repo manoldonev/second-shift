@@ -6,7 +6,7 @@
 #                        install-topology (see below) is the suites that ship with no plugin —
 #                        those under tools/, scripts/ and tests/.
 #
-# install-topology used to run here too, on this same cron. #666 moved it to
+# install-topology used to run here too, on this same cron. It moved to
 # .github/workflows/install-topology.yml on event triggers (push on packaging paths, the
 # release PR, workflow_dispatch): a clock is the least relevant trigger for a guard whose
 # answer only moves when packaging/layout changes or a release is cut, and its red was

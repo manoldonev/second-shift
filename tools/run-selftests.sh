@@ -2,21 +2,13 @@
 # run-selftests.sh — the repo's ONE selftest sweep runner. Discovers every `*-selftest.sh`,
 # runs them concurrently, and replays each suite's output as one contiguous framed block.
 #
-# WHY THIS EXISTS. CLAUDE.md's Verification section mandates `xargs -0 -P 4` and records it as
-# the difference between a 13:12 and a 5:22 sweep. Both CI selftest jobs were running the exact
-# serial form the repo tells contributors not to run — 17:50 on macos, 12:51 on ubuntu, of which
-# 709s was the one selftest step. This runner replaces both inline `while read` loops.
-#
 # WHY A SCRIPT AND NOT A `-P` FLAG. At `-P 4` the suites' raw stdout interleaves and the job log
 # stops being readable — you cannot tell which suite printed which FAIL. Per-suite capture and
 # ordered replay under `::group::`/`::endgroup::` is the whole reason this is a file. The
 # every-checked-in-script-is-covered rule then binds it to tools/run-selftests-selftest.sh,
 # which is the second reason (CLAUDE.md, Verification).
 #
-# PARALLEL SAFETY is asserted by CLAUDE.md: the suites are independent, each allocating its own
-# `mktemp` state dir. The one suite that carried a literal `/tmp` path passed `/tmp/x` only as
-# an opaque `--worktree` argument and never wrote it; that suite was deleted
-# with the staged lane in #348, so no suite in the tree carries one today.
+# PARALLEL SAFETY: the suites are independent, each allocating its own `mktemp` state dir.
 #
 # DISCOVERY IS `*-selftest.sh` ONLY, deliberately. The two `*-selftest.mjs` files are executed
 # by plugins/review-toolkit/workflows/workflows-mjs-selftest.sh, which is itself in this
@@ -36,7 +28,7 @@
 #                 can run in its own CI job. An exclusion matching no discovered suite is a HARD
 #                 ERROR — a stale workflow argument fails loudly, not silently.
 #   --full        do NOT apply tools/selftest-suite-timings.tsv. The sweep of record passes this;
-#                 see #566 below for why the table is on by default and the opt-out is explicit.
+#                 see the slow-suite table below for why the table is on by default and the opt-out is explicit.
 #   --jobs        concurrency; defaults to $SELFTEST_JOBS, itself defaulting to 4 (the recipe).
 #   --root        tree to discover under; defaults to the repo root above this script.
 #   --shard       run only shard <i> of <n>: the i-th, (i+n)-th, ... suite of the sorted,
@@ -45,7 +37,7 @@
 #
 # EXIT: 0 iff every run suite passed. Non-zero names every failing suite. 2 for a usage error,
 # a stale exclusion, or a discovered/run count disagreement.
-# 3 (#527) when there were failures and EVERY one of them is the no-verdict infrastructure class —
+# 3 when there were failures and EVERY one of them is the no-verdict infrastructure class —
 # the workers died rather than the suites failing, so the sweep learned nothing about the tree.
 # Mixed infra-and-real is 1, because a red branch is still a red branch.
 #
@@ -55,7 +47,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$HERE")"   # HERE is already absolute and resolved, so its dirname is too
 JOBS="${SELFTEST_JOBS:-4}"
 EXCLUDES=""   # newline-separated; bash 3.2 has no array-of-args ergonomics worth the noise here
-FULL=0        # 1 = do not apply the slow-suite table (#566)
+FULL=0        # 1 = do not apply the slow-suite table
 SHARD_I=1; SHARD_N=1   # --shard <i>/<n>; 1/1 is the whole sweep
 DEFERRED=""   # newline-separated "<suite><TAB><reason>", for the announcement below
 TAB=$'\t'
@@ -85,7 +77,7 @@ if [[ "${1:-}" == "--run-one" ]]; then
   # The parent's test-only seams are stripped for the same reason: a nested runner must not
   # inherit an instruction to truncate its own worklist or to suppress its own verdicts.
   #
-  # THE CLOCK BRACKETS THE SUITE AND NOTHING ELSE (#629). Whole seconds from `date +%s`, which is
+  # THE CLOCK BRACKETS THE SUITE AND NOTHING ELSE. Whole seconds from `date +%s`, which is
   # the one form both lanes agree on — a sub-second flag is GNU-only, and a dual form fails dirty
   # on macos. A suite that finishes inside one second is charged ONE, never zero: the consumer is
   # a SUM over ~50 suites, and rounding the small ones away would let the set grow by half a
@@ -97,7 +89,7 @@ if [[ "${1:-}" == "--run-one" ]]; then
   W_RC=$?   # captured BEFORE anything else runs — a later test would overwrite $?
   W_SECS=$(( $(date +%s) - W_T0 ))
   [[ "$W_SECS" -ge 1 ]] || W_SECS=1
-  # Rejection-assertion seam #2 (see RUN_SELFTESTS_DROP_LAST below): exit WITHOUT writing the
+  # The second rejection-assertion seam (see RUN_SELFTESTS_DROP_LAST below): exit WITHOUT writing the
   # verdict file, reproducing a worker that died mid-suite. That path is a documented guarantee
   # — a suite with no verdict is named as infra, never scored as a pass — and it is unreachable
   # from a fixture otherwise, since a suite cannot reach its own worker's results directory.
@@ -131,7 +123,7 @@ done
 [[ -d "$ROOT" ]] || die "--root is not a directory: $ROOT"
 ROOT="$(cd "$ROOT" && pwd)"
 
-# ---- the slow-suite table (#566) -------------------------------------------------------
+# ---- the slow-suite table -------------------------------------------------------
 # ON BY DEFAULT, and `--full` is the opt-out. The inverse — an opt-in `--quick` — was rejected
 # at intake for a reason that is structural rather than stylistic: a caller that wants the
 # bound runs a `test` command out of a consumer's gitignored config, so an opt-in flag would
@@ -149,7 +141,7 @@ ROOT="$(cd "$ROOT" && pwd)"
 # sweep of another tree must read that tree's table or it is applying this one's membership to
 # suites it has never measured. Absent, every suite is treated as fast.
 #
-# THE THRESHOLD HAS ONE HOME (#641, carried over from #629): the table's own
+# THE THRESHOLD HAS ONE HOME: the table's own
 # `# threshold-seconds` directive. A row below it is filtered out here at read time.
 SLOW_SUITES="$ROOT/tools/selftest-suite-timings.tsv"
 if [[ "$FULL" -eq 0 && -f "$SLOW_SUITES" ]]; then
@@ -169,7 +161,18 @@ fi
 
 # ---- discovery -----------------------------------------------------------------------
 # Sorted so the worklist — and therefore the replayed log — is deterministic across lanes.
-ALL="$(cd "$ROOT" && find . -name '*-selftest.sh' -type f | sed 's|^\./||' | LC_ALL=C sort)"
+# Inside a git work tree only tracked and untracked-unignored files count: a gitignored in-tree
+# worktree holds stale copies of every suite from other branches. A non-git --root keeps `find`.
+# A tracked suite deleted from disk is dropped, or its worker would red on a missing file.
+discover_suites() {
+  if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    (cd "$ROOT" && git ls-files -z -co --exclude-standard -- '*-selftest.sh' \
+      | while IFS= read -r -d '' rel; do [[ -f "$rel" ]] && printf '%s\n' "$rel"; done)
+  else
+    (cd "$ROOT" && find . -name '*-selftest.sh' -type f | sed 's|^\./||')
+  fi
+}
+ALL="$(discover_suites | LC_ALL=C sort -u)"
 DISCOVERED=0
 [[ -n "$ALL" ]] && DISCOVERED="$(printf '%s\n' "$ALL" | wc -l | tr -d ' ')"
 [[ "$DISCOVERED" -gt 0 ]] || die "discovered 0 suites under $ROOT — a sweep that runs nothing is never green"
@@ -215,7 +218,7 @@ EOF
 # anything about the tree. One list, counted and filtered from the same bytes.
 EXCLUDES="$SEEN"
 
-# ---- the deferred-to-CI listing (#566 AC-4) --------------------------------------------
+# ---- the deferred-to-CI listing --------------------------------------------
 # NAMED, one line per suite, never a count. An operator reading a green sweep has to be able to
 # tell which suites that green does NOT cover, and a number cannot answer it.
 #
@@ -292,12 +295,12 @@ xargs -P "$JOBS" -n1 -I{} \
 
 # ---- ordered replay ------------------------------------------------------------------
 # Worklist order, not completion order: the log reads the same at -P 4 as it does at -P 1, which
-# is what makes AC-4's same-verdict claim inspectable rather than merely asserted. The
+# is what makes the same-verdict claim inspectable rather than merely asserted. The
 # ::group:: framing is emitted unconditionally — GitHub folds it, a local run just sees a
 # labelled block, and a selftest can assert contiguity without faking $GITHUB_ACTIONS.
 RAN=0
 FAILED=""
-# #527 AC-1. The infra tally beside the failure list. The per-suite class already exists below
+# The infra tally beside the failure list. The per-suite class already exists below
 # (`rc=125`, the no-verdict-written case) and is already PRINTED as infra — only the parent
 # collapsed it, so a caller could not tell a sweep whose workers were killed from a sweep whose
 # suites are red. Counted here rather than re-derived from $FAILED at the exit: parsing "(rc=125)"
@@ -314,7 +317,7 @@ while IFS="$TAB" read -r idx suite; do
     rc=125
   fi
 
-  # ELAPSED SITS BETWEEN THE STATUS AND THE SUITE (#629), not after it. The suite path stays the
+  # ELAPSED SITS BETWEEN THE STATUS AND THE SUITE, not after it. The suite path stays the
   # LAST whitespace-separated token of a pass frame, which is what run-selftests-selftest's
   # contiguity walk reads it as; appending the time instead would have made `(3s)` the suite name.
   # A worker that wrote no verdict wrote no time either, so `?s` and rc=125 arrive together.

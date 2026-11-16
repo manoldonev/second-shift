@@ -182,7 +182,7 @@ TRACKER_TYPE="$(cfg '.tracker.type' 'github')"
 QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
 CLAIMED_LABEL="$(cfg '.tracker.labels.claimed' 'in-progress')"
 
-# D-6: the jira adapter has no queue and no labels, so there is no corpus to define.
+# The jira adapter has no queue and no labels, so there is no corpus to define.
 # Say so out loud rather than inventing a substitute one — an intake exit that reads a
 # silent 0 cannot tell "nothing matched" from "nothing was looked at".
 if [ "$TRACKER_TYPE" != "github" ]; then

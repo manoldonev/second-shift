@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-frozen-files.sh — the PR-time inverse of the old version-bump discipline (#119).
+# check-frozen-files.sh — the PR-time inverse of the old version-bump discipline.
 #
 # Under release-time derivation, feature PRs must NOT write the release-owned files:
 # CHANGELOG.md, any plugins/*/.claude-plugin/plugin.json `version` field, the

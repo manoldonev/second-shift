@@ -217,7 +217,7 @@ thorough.
 
 ## Reviewer baseline
 
-<!-- LOCKSTEP: held verbatim to figma-faithful-spec-reviewer.md, the canonical side; the
+<!-- LOCKSTEP: held verbatim to figma-faithful-plan-reviewer.md, the canonical side; the
      reasoning lives there. -->
 <!-- LOCKSTEP-BEGIN artifact-reviewer-baseline-deltas -->
 `review-toolkit:reviewer-baseline` loads automatically via the `skills:` frontmatter (by name, not

@@ -9,7 +9,7 @@
 # whole denominator-as-artifact design exists to prevent.
 #
 # The negative direction is equally load-bearing: (g9) through (g12) pin what the recipe must
-# NOT enumerate. A scanner that reds on the `printf | grep -q` shape #522 already owns, or on
+# NOT enumerate. A scanner that reds on the `printf | grep -q` shape the pipeline leg excludes, or on
 # `||`, would be turned off within a week, and then it guards nothing.
 #
 # TECHNIQUE: fixture trees under mktemp, each with its own scripts/fail-open-sites.tsv, handed
@@ -159,7 +159,7 @@ echo "== what the recipe must NOT enumerate =="
 
 D="$(new_fixture notsites)"
 cat >> "$D/tools/probe.sh" <<'EOF'
-printf '%s\n' "$KNOWN" | grep -Fxq "$1"        # variable producer: #522 owns this shape
+printf '%s\n' "$KNOWN" | grep -Fxq "$1"        # variable producer: an excluded shape
 some-producer --list || grep -q wanted /dev/null # `||` is not a pipe
 EOF
 mkdir -p "$D/docs/plans"

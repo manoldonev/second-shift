@@ -107,7 +107,7 @@ while [ $# -gt 0 ]; do
     --review-model)         REVIEW_MODEL="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --review-model-basis)   REVIEW_MODEL_BASIS="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --max-rounds)           MAX_ROUNDS="${2-}"; MAX_ROUNDS_SET=1; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
-    --max-continuations)    usage_refusal usage-max-continuations "--max-continuations was removed in #718 along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
+    --max-continuations)    usage_refusal usage-max-continuations "--max-continuations was removed along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
     --dry-run)              usage_refusal usage-dry-run "--dry-run was removed: the real run makes the same preflight checks before it claims anything, and stops on the first one that fails." ;;
     --resume)               RESUME=1; KEEP_ARGS+=("$1"); shift ;;
     --detach)               DETACH=1; shift ;;
@@ -140,6 +140,9 @@ exit_code_for() { # the taxonomy a wrapper branches on
     *) echo 1 ;;
   esac
 }
+# A replace ref in the checkout changes what a sha returns without changing the sha. Every git call below, each tool's
+# and each session's ignores replace refs. Nothing else is claimed: a shallow file or info/grafts still rewrites parents.
+export GIT_NO_REPLACE_OBJECTS=1
 # Run state the terminal reports on. Set as the run advances; empty until then.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; PR_DRAFT=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
@@ -1018,7 +1021,7 @@ route_smoke() { # route_smoke <attempt> -> 0 ok, 1 red (log at $STATE/smoke-<att
     [ -z "$dup" ] || smoke_red "render states $dup and $rs hash identically — the harness rendered the same view for two declared states"
     seen="$seen$sha $rs
 "
-    [ -n "$must" ] || { smoke_red "$rs declares no must-show value — the record must name one per screen (D-4)"; continue; }
+    [ -n "$must" ] || { smoke_red "$rs declares no must-show value — the record must name one per screen"; continue; }
     if [ "$scales" = 1 ]; then
       c="$(subst "$SMOKE_CMD" '{route}' "$(shquote "$route")")"; c="$(subst "$c" '{mustShow}' "$(shquote "$must")")"
       if lane "$c" >> "$log" 2>&1 </dev/null; then echo "ok: $rs shows '$must'" >> "$log"; say "smoke: $rs rendered to $png and shows '$must'"; else smoke_red "$rs must-show '$must' not satisfied"; fi
@@ -1982,7 +1985,8 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
     sets="$(jq -cn --arg ms "$BUILD_BASH_MS" --arg hook "bash $(shquote "$TOOLS/lane-permission-hook.sh") $(shquote "$WT") $(shquote "$SCRATCH") $(shquote "$WT/$RECORD_REL") $(shquote "$WT/$PLAN_REL")" \
       '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms},hooks:{PermissionRequest:[{hooks:[{type:"command",command:$hook}]}]}}')" \
       || terminal env-session-settings "cannot write the build session's --settings JSON"
-  else sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms}}')" \
+  # the review loads the head's own settings.json, whose env could name the variable again: --settings sits above it
+  else sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms,GIT_NO_REPLACE_OBJECTS:"1"}}')" \
       || terminal env-session-settings "cannot write the review session's --settings JSON"; fi
   # the session reads a copy of the config, written afresh from the launch-time read before every spawn: the sessions
   # share the scratch dir, so a build's edit to its copy must not reach the review that follows it. After every -u:

@@ -73,7 +73,7 @@ for id in $(jq -r '(.commands // {}) | keys[]' "$CONFIG" 2>/dev/null); do
   fi
 done
 
-# --- glob → ERE (AC-3) --------------------------------------------------------------------
+# --- glob → ERE --------------------------------------------------------------------
 # bash 3.2 has no `globstar`, and `git ls-files` pathspec globbing does not brace-expand, so
 # neither shell globbing nor git can match these patterns. Transliterate and grep instead.
 #
@@ -127,7 +127,7 @@ count_glob_matches() { # $1.. globs → prints the number of tracked files match
   printf '%s' "$n"
 }
 
-# --- trigger 2: a silent-fallback default that cannot match the repo (AC-2/AC-3) ----------
+# --- trigger 2: a silent-fallback default that cannot match the repo ----------
 # One row: reviewers.webComponentGlobs, the trigger the ad hoc review-lead routes a11y-reviewer
 # and the design-fidelity dimension on. It fires on BOTH an absent key whose resolved default matches
 # nothing AND a hand-set value that matches nothing: an adopted value can itself be broken, so
@@ -199,7 +199,7 @@ t2_key() { # $1 id, $2 key, $3 jq expr yielding the configured globs (empty when
 # present behavior stands — over-firing is the safe error, so it only suppresses when confident.
 WEB_SURFACE_PROBE=("*.{tsx,jsx,vue,svelte,astro,html,css,scss,sass,less}")
 
-# Repo-wide (#1076 D-17): a component or stylesheet at any depth routes the web checks, so an
+# Repo-wide: a component or stylesheet at any depth routes the web checks, so an
 # absent key fires here only on a surface the default does not list (an Angular .html + .ts tree).
 DEFAULT_GLOBS=("**/*.{tsx,jsx,vue,svelte,css,scss,less}")
 CANDIDATES=("src/app/**/*.{html,ts}" "src/**/*.vue" "app/**/*.tsx" "src/**/*.{tsx,jsx}")
@@ -208,7 +208,7 @@ t2_key "T2.webComponentGlobs" "reviewers.webComponentGlobs" \
   '(.reviewers.webComponentGlobs // []) | .[]' \
   "This glob routes a11y-reviewer and the design-fidelity reviewer in the ad hoc /review-toolkit:review-lead: while it matches nothing, neither is routed there, and its review looks clean because they never ran. The lane's review does not read it: there the design-fidelity reviewer runs on a record with design frames."
 
-# --- trigger 4: internally inconsistent config (AC-4) --------------------------------------
+# --- trigger 4: internally inconsistent config --------------------------------------
 # design.provider declared with no design.liveRender behind it: the design axis is on with no
 # render harness behind it, so a ticket that declares design frames has nothing to render.
 DESIGN_PROVIDER="$(jq -r '.design.provider // ""' "$CONFIG")"
@@ -228,7 +228,7 @@ if [[ -n "$DESIGN_PROVIDER" && -z "$DESIGN_LR" ]]; then
   fi
 fi
 
-# --- trigger 5: a declared command that contradicts repo reality (AC-5) --------------------
+# --- trigger 5: a declared command that contradicts repo reality --------------------
 # EVERY configured command is inspected: a command that never exits hangs the verify lane,
 # so the exposure is the same wherever it sits.
 #
@@ -343,7 +343,7 @@ if [[ -n "$REPO_ID" ]]; then
   fi
 fi
 
-# --- trigger 6: the fails-without-the-change check is off on a vitest or jest repo (#1063) ---
+# --- trigger 6: the fails-without-the-change check is off on a vitest or jest repo ---
 # /dev-pipeline:run runs that check only through commands.<id>.testRunners, and reads it as
 # `.testRunners[]? | objects`: unset or empty, every run reports the check not-applicable. A root
 # manifest that depends on exactly one of vitest and jest makes the entry mechanical — config-lint

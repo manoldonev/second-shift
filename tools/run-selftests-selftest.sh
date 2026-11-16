@@ -45,13 +45,13 @@ make_suite() {
 }
 
 # frame_set <file> — the replayed ::group:: headers with the elapsed field blanked. See the
-# AC-4 case below for why the time is not part of what is being compared.
+# jobs=1/jobs=4 case below for why the time is not part of what is being compared.
 frame_set() { awk '/^::group::/ { $2 = "ELAPSED"; print }' "$1"; }
 
 echo "== run-selftests-selftest =="
 
 # ---------------------------------------------------------------------------------------
-# AC-2 — a failing suite reds the run, and EVERY failing suite is named.
+# A failing suite reds the run, and EVERY failing suite is named.
 # Two failures, not one: a runner that stops at the first red would pass a one-failure case.
 # ---------------------------------------------------------------------------------------
 R2="$BASE/ac2"; mkdir -p "$R2"
@@ -61,8 +61,8 @@ make_suite "$R2" "c-selftest.sh" 3 'echo charlie-broke'
 make_suite "$R2" "d-selftest.sh" 0 'echo delta-ok'
 
 run_runner "$R2"
-[[ "$RC" -ne 0 ]] && ok "AC-2: a failing suite exits non-zero (rc=$RC)" \
-                 || fail "AC-2: failing suites exited 0"
+[[ "$RC" -ne 0 ]] && ok "a failing suite exits non-zero (rc=$RC)" \
+                 || fail "failing suites exited 0"
 # Scoped to the FAILED-suites block, NOT the whole output. Every suite is named ANYWAY by its
 # own ::group:: header, so an unscoped grep here passes on a runner that records only the first
 # failure — measured: that mutant survived the unscoped form.
@@ -70,20 +70,20 @@ sed -n '/FAILED suites:/,$p' "$OUT" > "$BASE/ac2.failblock"
 [[ -s "$BASE/ac2.failblock" ]] \
   && grep -q 'b-selftest\.sh (rc=1)' "$BASE/ac2.failblock" \
   && grep -q 'c-selftest\.sh (rc=3)' "$BASE/ac2.failblock" \
-  && ok "AC-2: both failing suites are named with their exit codes" \
-  || { fail "AC-2: not every failing suite was named"; sed 's/^/    | /' "$OUT"; }
+  && ok "both failing suites are named with their exit codes" \
+  || { fail "not every failing suite was named"; sed 's/^/    | /' "$OUT"; }
 # The passing suites must NOT be in the failure list — a runner that names everything names
 # nothing.
 grep -q 'a-selftest\.sh' "$BASE/ac2.failblock" \
-  && fail "AC-2: a passing suite appears in the FAILED list" \
-  || ok "AC-2: passing suites stay out of the failure list"
+  && fail "a passing suite appears in the FAILED list" \
+  || ok "passing suites stay out of the failure list"
 # A failing sweep must still run every suite, not abort at the first red.
 grep -q 'delta-ok' "$OUT" \
-  && ok "AC-2: suites after the first failure still ran" \
-  || fail "AC-2: the sweep stopped at the first failing suite"
+  && ok "suites after the first failure still ran" \
+  || fail "the sweep stopped at the first failing suite"
 
 # ---------------------------------------------------------------------------------------
-# AC-3a — an --exclude matching no discovered suite is a hard error.
+# An --exclude matching no discovered suite is a hard error.
 # ---------------------------------------------------------------------------------------
 R3="$BASE/ac3"; mkdir -p "$R3"
 make_suite "$R3" "keep-selftest.sh" 0 'echo keep'
@@ -91,8 +91,8 @@ make_suite "$R3" "drop-selftest.sh" 0 'echo drop'
 
 run_runner "$R3" --exclude "nowhere/ghost-selftest.sh"
 [[ "$RC" -eq 2 ]] && grep -q 'stale exclusion' "$OUT" \
-  && ok "AC-3: a stale --exclude is a hard error naming it stale (rc=$RC)" \
-  || { fail "AC-3: stale --exclude did not hard-error (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+  && ok "a stale --exclude is a hard error naming it stale (rc=$RC)" \
+  || { fail "stale --exclude did not hard-error (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # A LIVE --exclude must be honored: excluded suite absent, the other present, counts stated.
 run_runner "$R3" --exclude "drop-selftest.sh"
@@ -100,11 +100,11 @@ run_runner "$R3" --exclude "drop-selftest.sh"
   && grep -q '2 discovered, 1 excluded, 1 to run' "$OUT" \
   && grep -q 'keep-selftest\.sh' "$OUT" \
   && ! grep -q 'drop-selftest\.sh' "$OUT" \
-  && ok "AC-3: a live --exclude removes exactly that suite and the counts say so" \
-  || { fail "AC-3: --exclude did not remove exactly one suite"; sed 's/^/    | /' "$OUT"; }
+  && ok "a live --exclude removes exactly that suite and the counts say so" \
+  || { fail "--exclude did not remove exactly one suite"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
-# AC-3b — discovered/run disagreement reds, even when every suite that DID run passed.
+# Discovered/run disagreement reds, even when every suite that DID run passed.
 # Driven through the runner's rejection-assertion seam (RUN_SELFTESTS_DROP_LAST), which
 # drops one worklist entry after the counts are taken. Without a seam this arm could only be
 # asserted in prose; the whole point is that a silently-truncated sweep must not read green.
@@ -118,17 +118,17 @@ env -u TMPDIR -u SELFTEST_JOBS RUN_SELFTESTS_DROP_LAST=1 \
   bash "$RUNNER" --root "$R3B" > "$OUT" 2>&1
 RC=$?
 [[ "$RC" -eq 2 ]] && grep -q 'silent truncation' "$OUT" \
-  && ok "AC-3: an all-green sweep that ran fewer suites than it discovered still reds" \
-  || { fail "AC-3: truncated sweep did not red (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+  && ok "an all-green sweep that ran fewer suites than it discovered still reds" \
+  || { fail "truncated sweep did not red (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # Control: the SAME fixture without the seam is green. Proves the case above measured the
 # reconciliation and not a broken fixture.
 run_runner "$R3B"
-[[ "$RC" -eq 0 ]] && ok "AC-3: control — the untruncated fixture is green" \
-                 || { fail "AC-3: control fixture is not green (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+[[ "$RC" -eq 0 ]] && ok "control — the untruncated fixture is green" \
+                 || { fail "control fixture is not green (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
-# AC-4 — SELFTEST_JOBS=1 and SELFTEST_JOBS=4 produce the same verdict over the same set.
+# SELFTEST_JOBS=1 and SELFTEST_JOBS=4 produce the same verdict over the same set.
 # Asserted on BOTH a green set and a red one: a runner that always reds, or always greens,
 # would satisfy either half alone.
 # ---------------------------------------------------------------------------------------
@@ -147,19 +147,19 @@ for root in "$R4G" "$R4R"; do
   run_runner "$root" --jobs 1; rc1="$RC"; out1="$OUT"
   run_runner "$root" --jobs 4; rc4="$RC"; out4="$OUT"
   [[ "$rc1" -eq "$rc4" ]] \
-    && ok "AC-4: $label — jobs=1 and jobs=4 agree on the verdict (rc=$rc1)" \
-    || fail "AC-4: $label — jobs=1 rc=$rc1 but jobs=4 rc=$rc4"
+    && ok "$label — jobs=1 and jobs=4 agree on the verdict (rc=$rc1)" \
+    || fail "$label — jobs=1 rc=$rc1 but jobs=4 rc=$rc4"
   # Same verdict is not enough: the same SET must have run, in the same order.
   #
-  # The elapsed field (#629) is normalized out, and that is the assertion staying honest rather
+  # The elapsed field is normalized out, and that is the assertion staying honest rather
   # than being weakened. The two runs differ by CONCURRENCY, which is the one thing a wall clock
   # is guaranteed to disagree about — a suite that straddles a second boundary at jobs=4 and not
   # at jobs=1 would red this case for behaving exactly as measured time behaves. What must not
   # move is the set and its order, and that is what is compared.
   if diff <(frame_set "$out1") <(frame_set "$out4") >/dev/null; then
-    ok "AC-4: $label — jobs=1 and jobs=4 report the identical suite set, in order"
+    ok "$label — jobs=1 and jobs=4 report the identical suite set, in order"
   else
-    fail "AC-4: $label — the reported suite set differs between jobs=1 and jobs=4"
+    fail "$label — the reported suite set differs between jobs=1 and jobs=4"
     diff <(frame_set "$out1") <(frame_set "$out4") | sed 's/^/    | /'
   fi
 done
@@ -170,11 +170,11 @@ env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST SELFTEST_JOBS=3 \
   bash "$RUNNER" --root "$R4G" > "$OUT" 2>&1
 RC=$?
 [[ "$RC" -eq 0 ]] && grep -q 'jobs=3' "$OUT" \
-  && ok "AC-4: SELFTEST_JOBS is honored as the concurrency source" \
-  || { fail "AC-4: SELFTEST_JOBS was not honored"; sed 's/^/    | /' "$OUT"; }
+  && ok "SELFTEST_JOBS is honored as the concurrency source" \
+  || { fail "SELFTEST_JOBS was not honored"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
-# AC-5 — each suite's output is one CONTIGUOUS group, never interleaved with another's.
+# Each suite's output is one CONTIGUOUS group, never interleaved with another's.
 #
 # The fixtures are built to interleave under a naive `-P 4`: each prints its marker, sleeps,
 # prints again. Run at jobs=4, the wall clocks overlap, so raw streams would braid. The
@@ -190,7 +190,7 @@ while [[ $i -le 4 ]]; do
 done
 
 run_runner "$R5" --jobs 4
-[[ "$RC" -eq 0 ]] || { fail "AC-5: fixture sweep did not pass (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
+[[ "$RC" -eq 0 ]] || { fail "fixture sweep did not pass (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # Walk the replay: inside p<N>'s group, every MARK line must be MARK<N>.
 #
@@ -213,10 +213,10 @@ awk '
         exit bad ? 1 : 0 }
 ' "$OUT" > "$BASE/ac5.report"
 if [[ -s "$BASE/ac5.report" ]]; then
-  fail "AC-5: suite output interleaved across groups"
+  fail "suite output interleaved across groups"
   sed 's/^/    | /' "$BASE/ac5.report"
 else
-  ok "AC-5: at jobs=4 every suite's output is contiguous inside its own group"
+  ok "at jobs=4 every suite's output is contiguous inside its own group"
 fi
 
 # Every group opened is closed — an unbalanced frame breaks GitHub's log folding, which is the
@@ -224,8 +224,8 @@ fi
 opens="$(grep -c '^::group::' "$OUT")"
 closes="$(grep -c '^::endgroup::' "$OUT")"
 [[ "$opens" -eq 4 && "$closes" -eq 4 ]] \
-  && ok "AC-5: 4 groups opened, 4 closed" \
-  || fail "AC-5: unbalanced framing — $opens ::group:: vs $closes ::endgroup::"
+  && ok "4 groups opened, 4 closed" \
+  || fail "unbalanced framing — $opens ::group:: vs $closes ::endgroup::"
 
 # ---------------------------------------------------------------------------------------
 # A worker that writes no verdict is INFRA, never a pass. Documented guarantee, and the one
@@ -241,7 +241,7 @@ OUT="$BASE/out.norc"
 env -u TMPDIR -u RUN_SELFTESTS_DROP_LAST RUN_SELFTESTS_DROP_RC=1 \
   bash "$RUNNER" --root "$RCM" --jobs 2 > "$OUT" 2>&1
 RC=$?
-# rc=3, not merely non-zero: this fixture is the REAL shape #527 reserves the code for — every
+# rc=3, not merely non-zero: this fixture is the REAL shape the code is reserved for — every
 # worker died without scoring its suite — so binding it to the exact parent code here is what ties
 # the reserved value to the path a consumer's lane actually takes.
 [[ "$RC" -eq 3 ]] \
@@ -260,7 +260,7 @@ run_runner "$RCM" --jobs 2
                  || { fail "no-verdict: control fixture is not green (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
-# #527 AC-1 — the RESERVED PARENT CODE, and the condition on it is ALL, never ANY.
+# The RESERVED PARENT CODE, and the condition on it is ALL, never ANY.
 #
 # The classification is the recorded rc, so a suite that genuinely exits 125 lands in the infra
 # class exactly like a worker that wrote no verdict — deliberate, and stated in the no-verdict
@@ -278,25 +278,25 @@ make_suite "$INF" "beta-selftest.sh"  125 'echo beta-infra'
 make_suite "$INF" "gamma-selftest.sh" 0   'echo gamma-ok'
 run_runner "$INF" --jobs 2
 [[ "$RC" -eq 3 ]] \
-  && ok "AC-1: every failure in the infra class ⇒ the reserved exit 3" \
-  || { fail "AC-1: an all-infra sweep exited $RC, not the reserved 3"; sed 's/^/    | /' "$OUT"; }
+  && ok "every failure in the infra class ⇒ the reserved exit 3" \
+  || { fail "an all-infra sweep exited $RC, not the reserved 3"; sed 's/^/    | /' "$OUT"; }
 # The split must be READABLE, not only encoded: an operator reading a log sees why the sweep
 # claimed infrastructure, and a consumer debugging a reclassification has the count to point at.
 grep -q '2 failed (2 infrastructure)' "$OUT" \
   && grep -q 'Exiting 3 (reserved)' "$OUT" \
-  && ok "AC-1: the summary names the infra split and the reserved code is announced" \
-  || { fail "AC-1: the infra split was not reported in the summary"; sed 's/^/    | /' "$OUT"; }
+  && ok "the summary names the infra split and the reserved code is announced" \
+  || { fail "the infra split was not reported in the summary"; sed 's/^/    | /' "$OUT"; }
 
 MIX="$BASE/infra-mixed"; mkdir -p "$MIX"
 make_suite "$MIX" "alpha-selftest.sh" 125 'echo alpha-infra'
 make_suite "$MIX" "beta-selftest.sh"  1   'echo beta-genuinely-red'
 run_runner "$MIX" --jobs 2
 [[ "$RC" -eq 1 ]] \
-  && ok "AC-1: one genuinely red suite alongside an infra failure still exits 1" \
-  || { fail "AC-1: a mixed sweep exited $RC, not 1 — a red branch would read as infrastructure"; sed 's/^/    | /' "$OUT"; }
+  && ok "one genuinely red suite alongside an infra failure still exits 1" \
+  || { fail "a mixed sweep exited $RC, not 1 — a red branch would read as infrastructure"; sed 's/^/    | /' "$OUT"; }
 grep -q '2 failed (1 infrastructure)' "$OUT" \
-  && ok "AC-1: the mixed summary still reports the infra count it did not act on" \
-  || { fail "AC-1: the mixed summary lost the infra count"; sed 's/^/    | /' "$OUT"; }
+  && ok "the mixed summary still reports the infra count it did not act on" \
+  || { fail "the mixed summary lost the infra count"; sed 's/^/    | /' "$OUT"; }
 
 # A green sweep is untouched by any of it — the code only exists on the failing path, and a
 # reserved value that leaked into a clean run would red every consumer lane at once.
@@ -304,8 +304,8 @@ GRN="$BASE/infra-green"; mkdir -p "$GRN"
 make_suite "$GRN" "alpha-selftest.sh" 0 'echo alpha-ok'
 run_runner "$GRN" --jobs 2
 [[ "$RC" -eq 0 ]] \
-  && ok "AC-1: a clean sweep still exits 0" \
-  || { fail "AC-1: a clean sweep exited $RC"; sed 's/^/    | /' "$OUT"; }
+  && ok "a clean sweep still exits 0" \
+  || { fail "a clean sweep exited $RC"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
 # Nesting — the runner must survive running a suite that itself invokes the runner.
@@ -368,7 +368,7 @@ run_runner "$R3" --exclude "keep-selftest.sh" --exclude "drop-selftest.sh"
                   || { fail "usage: an all-excluded sweep did not red (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 # ---------------------------------------------------------------------------------------
-# THE SLOW-SUITE TABLE (#566 AC-10). A sweep without --full fits inside a harness turn because
+# THE SLOW-SUITE TABLE. A sweep without --full fits inside a harness turn because
 # it is narrowed here, not because a runner outlives the turn.
 #
 # EVERY OTHER CASE IN THIS FILE BUILDS A --root WITH NO SUCH TABLE, which is what keeps them
@@ -388,7 +388,7 @@ make_suite "$RSL" "sub/other-selftest.sh"   0 'echo other'
 # under either operator.
 printf '# threshold-seconds\t9\ntools/heavy-selftest.sh\t147\t2026-08-20\ntools/quick-selftest.sh\t9\t2026-08-20\nsub/other-selftest.sh\t8\t2026-08-20\n' > "$RSL/tools/selftest-suite-timings.tsv"
 
-# AC-10 / AC-4. Applied BY DEFAULT — no flag opts in. The deferred suite is NAMED with its
+# Applied BY DEFAULT — no flag opts in. The deferred suite is NAMED with its
 # measured seconds and date (a count could not tell an operator which green they are not
 # getting), the sweep still exits 0, and the discovered/ran invariant holds because the
 # exclusion is computed before dispatch rather than by killing a live suite.
@@ -402,7 +402,7 @@ else
   fail "slow-table: default application failed (rc=$RC)"; sed 's/^/    | /' "$OUT"
 fi
 
-# AC-10. `--full` is the opt-out, and it is what every sweep of record passes. This is the case
+# `--full` is the opt-out, and it is what every sweep of record passes. This is the case
 # that says CI's coverage is unchanged by the table's existence.
 run_runner "$RSL" --full
 if [[ "$RC" -eq 0 ]] && ! grep -q 'deferred:' "$OUT" && grep -q '3 discovered, 0 excluded, 3 to run' "$OUT"; then
@@ -451,7 +451,7 @@ run_runner "$RSL"
 [[ "$RC" -eq 2 ]] && ok "slow-table: a non-numeric seconds column is rejected" \
                   || { fail "slow-table: malformed row was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
-# #641: a table with rows but no `# threshold-seconds` directive is unreadable, not "defer
+# A table with rows but no `# threshold-seconds` directive is unreadable, not "defer
 # nothing" — the membership rule the rows exist to state has gone missing.
 printf 'tools/heavy-selftest.sh\t147\t2026-08-20\n' > "$RSL/tools/selftest-suite-timings.tsv"
 run_runner "$RSL"
@@ -459,13 +459,13 @@ run_runner "$RSL"
   && ok "slow-table: a table with no '# threshold-seconds' directive is a hard error" \
   || { fail "slow-table: a directive-less table was accepted (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
-# AC-4 (#641): the committed table is a real union — no suite appears twice.
+# The committed table is a real union — no suite appears twice.
 DUPES="$(grep -v '^#' "$HERE/selftest-suite-timings.tsv" | grep -v '^$' | cut -f1 | sort | uniq -d)"
 [[ -z "$DUPES" ]] && ok "slow-table: the committed table has no duplicate suite row" \
                   || fail "slow-table: duplicate row(s) in the committed table: $DUPES"
 
 # ---------------------------------------------------------------------------------------
-# #629/AC-1 — every frame line carries the suite's elapsed seconds, and the exit-code contract
+# Every frame line carries the suite's elapsed seconds, and the exit-code contract
 # is untouched by it.
 #
 # THE SUB-SECOND ARM IS THE ONE THAT MATTERS. Most suites finish inside a second; an emitter
@@ -483,36 +483,36 @@ make_suite "$R629" "slow-selftest.sh" 0 'sleep 2' 'echo slept'
 make_suite "$R629" "red-selftest.sh"  1 'echo broke'
 
 run_runner "$R629" --jobs 3
-[[ "$RC" -ne 0 ]] && ok "#629/AC-1: the exit-code contract is unchanged — a red suite still reds (rc=$RC)" \
-                 || { fail "#629/AC-1: a failing suite exited 0 once elapsed was emitted"; sed 's/^/    | /' "$OUT"; }
+[[ "$RC" -ne 0 ]] && ok "the exit-code contract is unchanged — a red suite still reds (rc=$RC)" \
+                 || { fail "a failing suite exited 0 once elapsed was emitted"; sed 's/^/    | /' "$OUT"; }
 
 FRAMES="$(grep -c '^::group::' "$OUT")"
 TIMED="$(grep -cE '^::group::(pass|FAIL)  [0-9]+s  ' "$OUT")"
 [[ "$FRAMES" -eq 3 && "$TIMED" -eq 3 ]] \
-  && ok "#629/AC-1: all 3 frame lines carry an elapsed field" \
-  || { fail "#629/AC-1: $TIMED of $FRAMES frame lines carried elapsed"; sed 's/^/    | /' "$OUT"; }
+  && ok "all 3 frame lines carry an elapsed field" \
+  || { fail "$TIMED of $FRAMES frame lines carried elapsed"; sed 's/^/    | /' "$OUT"; }
 
 grep -qE '^::group::pass  1s  fast-selftest\.sh$' "$OUT" \
-  && ok "#629/AC-1: a sub-second suite is charged one second, never zero" \
-  || { fail "#629/AC-1: the instant suite was not charged exactly 1s"; sed 's/^/    | /' "$OUT"; }
+  && ok "a sub-second suite is charged one second, never zero" \
+  || { fail "the instant suite was not charged exactly 1s"; sed 's/^/    | /' "$OUT"; }
 
 SLOW_SECS="$(sed -n 's/^::group::pass  \([0-9][0-9]*\)s  slow-selftest\.sh$/\1/p' "$OUT" | head -1)"
 [[ -n "$SLOW_SECS" && "$SLOW_SECS" -ge 2 ]] \
-  && ok "#629/AC-1: a 2s suite reports at least its own sleep (${SLOW_SECS}s)" \
-  || { fail "#629/AC-1: the 2s suite reported '${SLOW_SECS:-<nothing>}'"; sed 's/^/    | /' "$OUT"; }
+  && ok "a 2s suite reports at least its own sleep (${SLOW_SECS}s)" \
+  || { fail "the 2s suite reported '${SLOW_SECS:-<nothing>}'"; sed 's/^/    | /' "$OUT"; }
 
 grep -qE '^::group::FAIL  [0-9]+s  red-selftest\.sh \(rc=1\)$' "$OUT" \
-  && ok "#629/AC-1: a FAIL frame carries the elapsed AND still names the exit code" \
-  || { fail "#629/AC-1: the FAIL frame lost its rc or its elapsed"; sed 's/^/    | /' "$OUT"; }
+  && ok "a FAIL frame carries the elapsed AND still names the exit code" \
+  || { fail "the FAIL frame lost its rc or its elapsed"; sed 's/^/    | /' "$OUT"; }
 
-# The property the AC-5 contiguity walk above depends on: a pass frame's LAST whitespace-separated
+# The property the contiguity walk above depends on: a pass frame's LAST whitespace-separated
 # token is still the suite path. Appending the time instead of inserting it would have made that
 # token `(1s)` and silently broken the leak detection while every case here stayed green.
 sed -n 's/^::group::pass .*[[:space:]]//p' "$OUT" > "$BASE/ac629.tokens"
 grep -qxF 'fast-selftest.sh' "$BASE/ac629.tokens" \
   && grep -qxF 'slow-selftest.sh' "$BASE/ac629.tokens" \
-  && ok "#629/AC-1: the suite path is still the last token of a pass frame" \
-  || { fail "#629/AC-1: elapsed displaced the suite path as the frame's last token"; sed 's/^/    | /' "$BASE/ac629.tokens"; }
+  && ok "the suite path is still the last token of a pass frame" \
+  || { fail "elapsed displaced the suite path as the frame's last token"; sed 's/^/    | /' "$BASE/ac629.tokens"; }
 
 # ---------------------------------------------------------------------------------------
 # --shard — the n shards of a sweep are the unsharded sweep: every suite in exactly one shard,
@@ -546,6 +546,29 @@ done
 run_runner "$RSH" --exclude x-selftest.sh --shard 6/6
 [[ "$RC" -eq 2 ]] && ok "--shard: a malformed or empty shard is a usage error" \
                  || { fail "--shard 6/6 over five suites exited $RC"; sed 's/^/    | /' "$OUT"; }
+
+# ---------------------------------------------------------------------------------------
+# Discovery in a git work tree: a gitignored in-tree worktree's copy of a suite is not run, an
+# untracked unignored suite is, and a tracked suite deleted from disk is not dispatched.
+# ---------------------------------------------------------------------------------------
+RG="$BASE/gitroot"; mkdir -p "$RG"
+git -C "$RG" init -q
+echo '.claude/worktrees/' > "$RG/.gitignore"
+make_suite "$RG" "tracked-selftest.sh" 0 'echo tracked-ok'
+make_suite "$RG" "gone-selftest.sh" 0 'echo gone-ok'
+git -C "$RG" add .gitignore tracked-selftest.sh gone-selftest.sh
+git -C "$RG" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
+  -c core.hooksPath=/dev/null commit -q -m fixture
+rm "$RG/gone-selftest.sh"
+make_suite "$RG" "sub/untracked-selftest.sh" 0 'echo untracked-ok'
+make_suite "$RG" ".claude/worktrees/stale/tracked-selftest.sh" 1 'echo stale-copy-ran'
+run_runner "$RG"
+[[ "$RC" -eq 0 ]] \
+  && grep -q '2 discovered, 0 excluded, 2 to run' "$OUT" \
+  && grep -q 'tracked-ok' "$OUT" && grep -q 'untracked-ok' "$OUT" \
+  && ! grep -q 'stale-copy-ran' "$OUT" && ! grep -q 'gone-selftest' "$OUT" \
+  && ok "git root: ignored copies and deleted tracked suites are not discovered; untracked suites are" \
+  || { fail "git root: discovery did not honor the work tree (rc=$RC)"; sed 's/^/    | /' "$OUT"; }
 
 echo
 if [[ "$FAILS" -eq 0 ]]; then

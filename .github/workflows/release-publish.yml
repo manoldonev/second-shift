@@ -1,5 +1,5 @@
 # release-publish — merging the release PR tags the release and publishes the GitHub
-# Release (#119). Trigger is the merged PR itself (head == release/next), never subject
+# Release. Trigger is the merged PR itself (head == release/next), never subject
 # sniffing on main. The Release body (What breaks / upgrade recipe) is assembled by
 # scripts/derive-release.sh release-notes from BREAKING CHANGE: / Changelog: trailers —
 # computed BEFORE the tag exists, so the derivation range (last-tag..HEAD) still covers

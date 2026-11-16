@@ -74,7 +74,7 @@ review.
 3. **Pass 1: review the diff from the ticket and the code alone.** Until step 4, do not open the
    decision record, the plan, the PR description, a PR comment or an earlier verdict. The diff is
    `origin/<base>...HEAD`, where `<base>` is the PR's base branch. Read it without the plans
-   directory: `git diff origin/<base>...HEAD -- . ':(exclude)<plansDir>'`. Review it yourself, in
+   directory: `git --no-replace-objects diff origin/<base>...HEAD -- . ':(exclude)<plansDir>'`. Review it yourself, in
    this session, against the ticket. Read `.claude/second-shift/review-context.md` at the head
    when it exists. It is the repo's context for this review.
 
@@ -96,9 +96,11 @@ review.
 
    Dispatch no reviewer, except the one design-fidelity reviewer of step 7.
 4. **Pass 2: read the record at its first commit and at the head.** The first commit is the commit that
-   added the record: `FIRST=$(git log --format=%H --diff-filter=A -- <record> | tail -n 1)`. Read
-   `git show $FIRST:<record>`. It shows what was decided before the build started. Then read the
-   file at the head.
+   added the record: `FIRST=$(git --no-replace-objects log --format=%H --diff-filter=A -- <record> | tail -n 1)`. Read
+   `git --no-replace-objects show $FIRST:<record>`. It shows what was decided before the build started. Then read the
+   file at the head. Write `git --no-replace-objects` in every command that reads `FIRST`, as
+   the commands below do. A replace ref in the checkout changes what a commit's sha returns, and
+   the review reads the commit that the remote shows.
    - A row edited since `FIRST` is a departure. The edit must name who decided.
    - A row added since `FIRST` is a decision made during the build. Score it too. It must also
      name who decided.
@@ -109,7 +111,7 @@ review.
    Check every row of the record against the diff. The record's test intent can exempt an
    acceptance criterion from a test. Then the pass-1 finding that the criterion has no test becomes
    a `[note]` that quotes the exemption.
-5. **Look at what the scheduler would have given you.** Read `git diff $FIRST..HEAD` and check
+5. **Look at what the scheduler would have given you.** Read `git --no-replace-objects diff $FIRST..HEAD` and check
    each item below. Each item is a question that the diff must answer, whatever the stack.
    - Deleted or renamed test files. A top-level `tests/`, `__tests__/`, `test_*.py`,
      `conftest.py`, `_spec.` and `*-selftest.*` count too.
@@ -123,7 +125,7 @@ review.
    - Every `when`-scoped `extraLanes` entry that no changed file matched. That is a configured
      lane that did not run on this diff.
    - Every added, edited, deleted or renamed review-policy file. List them with
-     `git diff --name-status $FIRST..HEAD`, and check both sides of a rename. The review-policy
+     `git --no-replace-objects diff --name-status $FIRST..HEAD`, and check both sides of a rename. The review-policy
      files are `.claude/second-shift.config.json`, anything under `.claude/second-shift/`, and
      what your own session loads from the working tree: `.claude/settings.json`,
      `.claude/settings.local.json`, `.mcp.json`, a `CLAUDE.md` or `CLAUDE.local.md` in any
@@ -134,7 +136,7 @@ review.
      that requires the citation. The edit itself is never the blocker.
 
    Then run the AC coverage check of the plan, as the scheduler does after its checks. Write the
-   record at `FIRST` to a file (`git show $FIRST:<record> > <file>`). Then run
+   record at `FIRST` to a file (`git --no-replace-objects show $FIRST:<record> > <file>`). Then run
    `bash <this skill's base directory>/../../tools/plan-coverage.sh --head <record at the head> <record at FIRST> <plan at the head>`.
    The plan is `<plansDir>/<repo>-<key>-plan.md`, beside the record
    ([the script](../../tools/plan-coverage.sh)). The record at the head is read for one thing: an
@@ -282,7 +284,7 @@ review.
    step and post your own draft.
 
    **Check the draft before you post it.** Write the body to a file. Write the record at `FIRST` to
-   another file (`git show $FIRST:<record> > <file>`). Then run
+   another file (`git --no-replace-objects show $FIRST:<record> > <file>`). Then run
    `bash <this skill's base directory>/../../tools/verdict-check.sh <draft> <record at the head> <record at FIRST>`
    ([the checker](../../tools/verdict-check.sh)). It prints every rule that the draft breaks. Fix
    the draft until the checker exits 0. Exit 2 means that it could not read a file. Fix the path.

@@ -2,7 +2,7 @@
 # check-eval-model-identity.sh — no vendor model identity in the RUNNABLE eval surface.
 #
 # WHY THIS EXISTS. The eval harnesses under `plugins/*/evals/**` ship inside two plugins, so a
-# model id checked in there is a vendor id in every consumer's tree (epic #350 asks that
+# model id checked in there is a vendor id in every consumer's tree (the rule is that
 # concrete backend targets stay with the operator). It is also an evidence defect: the runner's
 # `changelog.md` records `model=<reviewer_model>` as the key two eval rows are compared on, so a
 # default supplied by the repo attributes a score to whatever constant happened to be in the file
@@ -68,22 +68,34 @@ ALIASES='opus|sonnet|haiku|fable'
 POS_RE_TMPL='(--[a-z-]*model[=[:space:]]+["'\'']?(@A@)(["'\''[:space:]]|$)|"model"[[:space:]]*:[[:space:]]*"(@A@)"|[A-Z_]*MODEL=["'\'']?(@A@)(["'\''[:space:]]|$))'
 POS_RE="${POS_RE_TMPL//@A@/$ALIASES}"
 
-# Build the scan set with `find`, not `git ls-files`: the root may be a fixture tree that is not
-# a git repo, and an untracked runner output must still be excluded by name.
-exclusions=(-name 'results-*.json')
-for r in "${RECORD_FILES[@]}"; do
-  exclusions+=(-o -name "$r")
-done
+# Inside a git work tree the scan set is tracked and untracked-unignored files only, so a
+# gitignored in-tree worktree's stale copies are not scanned. A fixture root that is not a git
+# repo keeps `find`. Either way an untracked runner output is still excluded by name.
+list_candidates() {
+  if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    (cd "$ROOT" && git ls-files -z -co --exclude-standard) |
+      while IFS= read -r -d '' r; do printf '%s/%s\n' "$ROOT" "$r"; done
+  else
+    find "$ROOT" -type d -name '__pycache__' -prune -o -path '*/evals/*' -type f -print 2>/dev/null
+  fi
+}
+
+is_excluded_name() {
+  local base="${1##*/}" r
+  case "$base" in results-*.json) return 0 ;; esac
+  for r in "${RECORD_FILES[@]}"; do
+    [[ "$base" == "$r" ]] && return 0
+  done
+  return 1
+}
 
 files=()
 while IFS= read -r f; do
-  [[ -n "$f" ]] && files+=("$f")
-done < <(
-  find "$ROOT" \
-    -type d -name '__pycache__' -prune -o \
-    -path '*/evals/*' -type f ! \( "${exclusions[@]}" \) -print 2>/dev/null |
-    LC_ALL=C sort
-)
+  [[ -n "$f" && -f "$f" ]] || continue
+  case "$f" in */__pycache__/*) continue ;; */evals/*) ;; *) continue ;; esac
+  is_excluded_name "$f" && continue
+  files+=("$f")
+done < <(list_candidates | LC_ALL=C sort)
 
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "[check-eval-model-identity] scanned 0 files under $ROOT — nothing matches */evals/*." >&2

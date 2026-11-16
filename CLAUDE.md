@@ -92,6 +92,11 @@ not which ticket asked for it. The PR body is the ledger's one link: its `Closes
 record-row citations stay. Anywhere else, the exception is a reference the reader cannot do
 without, and it is rare.
 
+The scheduler's contract-row ids (`row F3`) and a suite's own case labels (`[F7]`, `(ll-q)`) are
+not ticket ids: they name a row of a table or a case that lives in the tree, so a reader can
+follow them. `scripts/check-no-archeology.sh` enforces the rule on scripts, workflow files and
+top-level docs; `scripts/no-archeology-baseline.tsv` holds what is still to sweep.
+
 ## Verification
 
 ```bash
@@ -116,6 +121,10 @@ the next run. The runner, the exclusion, concurrency and the scrub recipe:
 
 Every checked-in script is **exercised by some selftest**; CI discovers suites by glob, so a new
 selftest needs no registration. CI is model-free by design (no API-billed calls).
+
+Every shipped agent is **named by a dispatcher** (a skill, workflow or hook) and every schema config key
+**read outside the lints, tests and docs**; `scripts/check-dispatchers-and-readers.sh` enforces it and
+holds its exceptions, each with a reason.
 
 The rule is coverage, not naming. Several scripts are covered under a differently-named suite —
 `claim-issue.sh` by `claim-selftest.sh`, `check-frozen-files.sh` and `check-configversion-migration-doc.sh` by

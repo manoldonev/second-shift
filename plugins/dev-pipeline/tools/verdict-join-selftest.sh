@@ -217,5 +217,17 @@ printf '%s\n' "$OUT" | grep -qxF -- '- [lane+blind] [Security] src/a.ts:10 (conf
   && [ "$(jq -c '[.findings[] | [.src, .path, .line, (.pair != null)]]' <<<"$RR")" = '[["blind","app/posts/[id]/page.tsx",12,false],["lane","app/users/[id]/page.tsx",12,false],["lane","src/a.ts",10,true],["blind","src/a.ts",10,true],["lane","app/(shop)/[[...slug]]/page.tsx",3,false]]' ] \
   && ok "(r28) a route path is read whole, [x](src/a.ts:10) yields src/a.ts:10, and two route files at one line do not pair" || bad "(r28) findings=$(jq -c .findings <<<"$RR") $(printf '%s\n' "$OUT" | grep '^- ')"
 
+printf '%s\n' 'verdict: approve' "reviewed: $(printf 'a%.0s' $(seq 40))" '' '## Decision record rows' '' '| Row | Score | Evidence |' '| --- | --- | --- |' \
+  '| D-1 | honored | ok |' '' '## Findings' '' 'None.' > "$T/lane-ready.md"
+printf '%s\n' '| D-1 | a | b | user-answered |' > "$T/rec-ready.md"
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 src/x.ts:4 — the banner asks "Ready to merge?" before the save completes' \
+  '  Scenario: click save → the banner still says "Ready to merge?"' > "$T/plain-ready.md"
+OUT="$(bash "$TOOL" "$T/lane-ready.md" "$T/plain-ready.md")"; printf '%s\n' "$OUT" > "$T/joined-ready.md"
+CHECK="$(bash "$HERE/verdict-check.sh" "$T/joined-ready.md" "$T/rec-ready.md" "$T/rec-ready.md")"; RC=$?
+[ "$RC" -eq 0 ] && grep -qxF -- '- [blocker] B1 [blind] src/x.ts:4 — the banner asks "Ready to merge" before the save completes' <<<"$OUT" \
+  && grep -qxF '  Scenario: click save → the banner still says "Ready to merge"' <<<"$OUT" \
+  && ok "(r29) a blind blocker quoting Ready to merge? is added without the question mark, and the joined verdict passes verdict-check" \
+  || bad "(r29) rc=$RC: $CHECK"
+
 echo "verdict-join-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"
