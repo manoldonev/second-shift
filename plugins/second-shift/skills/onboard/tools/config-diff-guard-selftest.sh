@@ -229,6 +229,53 @@ expect_delta "a moved key the draft drops is a delta, named at both paths" \
   "Carry the value into reviewers.webComponentGlobs" "--ack stageParams.webComponentGlobs"
 expect_count "and it is the only one" 1
 
+# Three keys version 3 removed sit under parents that survive, so only the leaf retires: a draft
+# that keeps the sibling and drops the key blocks on nothing.
+cat > "$TMP/e7.json" <<'EOF'
+{ "configVersion": 2, "tracker": { "type": "github" },
+  "commands": { "app": { "lint": "yarn lint", "lintAutofixes": true } } }
+EOF
+cat > "$TMP/d7.json" <<'EOF'
+{ "configVersion": 3, "tracker": { "type": "github" },
+  "commands": { "app": { "lint": "yarn lint" } } }
+EOF
+run_guard "$TMP/e7.json" "$TMP/d7.json"
+expect_count "a dropped commands.<id>.lintAutofixes blocks on nothing" 0
+expect_list "and it is listed in retired[]" retired "commands.app.lintAutofixes"
+cat > "$TMP/e8.json" <<'EOF'
+{ "configVersion": 2, "tracker": { "type": "github" },
+  "reviewers": { "default": ["security-reviewer"], "add": [] },
+  "commands": { "app": { "lint": "yarn lint" } } }
+EOF
+cat > "$TMP/d8.json" <<'EOF'
+{ "configVersion": 3, "tracker": { "type": "github" },
+  "reviewers": { "add": [] },
+  "commands": { "app": { "lint": "yarn lint" } } }
+EOF
+run_guard "$TMP/e8.json" "$TMP/d8.json"
+expect_count "a dropped reviewers.default blocks on nothing" 0
+expect_list "and it is listed in retired[]" retired "reviewers.default"
+cat > "$TMP/e9.json" <<'EOF'
+{ "configVersion": 2, "tracker": { "type": "github" },
+  "paths": { "plansDir": "docs/plans", "pipelineStateDir": ".claude/pipeline-state" },
+  "commands": { "app": { "lint": "yarn lint" } } }
+EOF
+cat > "$TMP/d9.json" <<'EOF'
+{ "configVersion": 3, "tracker": { "type": "github" },
+  "paths": { "plansDir": "docs/plans" },
+  "commands": { "app": { "lint": "yarn lint" } } }
+EOF
+run_guard "$TMP/e9.json" "$TMP/d9.json"
+expect_count "a dropped paths.pipelineStateDir blocks on nothing" 0
+expect_list "and it is listed in retired[]" retired "paths.pipelineStateDir"
+cat > "$TMP/d10.json" <<'EOF'
+{ "configVersion": 3, "tracker": { "type": "github" },
+  "commands": { "app": { "lint": "yarn lint" } } }
+EOF
+run_guard "$TMP/e9.json" "$TMP/d10.json"
+expect_delta "a surviving sibling of a retired key is still protected" paths.plansDir removed
+expect_count "and it is the only delta" 1
+
 # --- AC-3: the ack channel ---------------------------------------------------------------------
 # Acks are exact and per-run. One ack drops exactly one delta; an unacked sibling stays blocking,
 # which is what keeps a single confirmation from clearing the whole screen.
