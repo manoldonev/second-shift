@@ -14,13 +14,13 @@ plugins/dev-pipeline/skills/run/run-claim-selftest.sh	25	debt	selftest labels; f
 plugins/dev-pipeline/skills/run/run-detach-selftest.sh	27	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-joined-selftest.sh	3	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-judge-selftest.sh	46	debt	selftest labels; fixture ids among them become data rows when swept
-plugins/dev-pipeline/skills/run/run-record-selftest.sh	100	debt	selftest labels; fixture ids among them become data rows when swept
+plugins/dev-pipeline/skills/run/run-record-selftest.sh	102	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-rows-selftest.sh	27	open-pr	selftest labels and fixture ids
-plugins/dev-pipeline/skills/run/run-selftest-lib.sh	34	open-pr	selftest labels and fixture ids
+plugins/dev-pipeline/skills/run/run-selftest-lib.sh	36	open-pr	selftest labels and fixture ids
 plugins/dev-pipeline/skills/run/run-selftest.sh	27	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-verdict-selftest.sh	26	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/tools/bot-commit-selftest.sh	47	debt	selftest labels; fixture ids among them become data rows when swept
-plugins/dev-pipeline/tools/branch-prefix-selftest.sh	6	debt	selftest labels; fixture ids among them become data rows when swept
+plugins/dev-pipeline/tools/branch-prefix-selftest.sh	4	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/tools/claim-selftest.sh	12	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/tools/config-lint-selftest.sh	4	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/tools/gh-bot-selftest.sh	2	debt	selftest labels; fixture ids among them become data rows when swept
