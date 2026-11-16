@@ -242,7 +242,7 @@ When the extension files or reviewers above would be copied across many of your 
 
 A **companion pack** is your own private plugin — same distribution mechanics as second-shift, different visibility — that carries the org-wide half of your extension surface: shared domain reviewers and shared knowledge files. (It used to carry shared workflow scripts and delegate agents too — the EP-6/EP-7 targets — but the config keys that referenced them are retired; see §3.6–3.7.) It's the concrete form of the "org/platform overlay" (layer 2) named in [`context-model.md`](context-model.md): author org knowledge once, version it, pin it, instead of vendoring it into every repo.
 
-A consumer repo enables the companion pack alongside second-shift and then *references* its contents from `.claude/second-shift.config.json` — `reviewers.add` for its reviewers — and declares its knowledge files in `.known-extensions` (§4.3). The pack itself never edits a consumer's config; wiring is always the consumer's auditable choice.
+A consumer repo enables the companion pack alongside second-shift, copies the pack's reviewers into `.claude/agents/` and registers them **bare** in `reviewers.add` (§4.2), and declares its knowledge files in `.known-extensions` (§4.3). The pack itself never edits a consumer's config; wiring is always the consumer's auditable choice.
 
 ### 4.1 The two-pin model
 
@@ -255,12 +255,12 @@ They upgrade independently: bumping your org pack's domain rules is a companion-
 
 ### 4.2 Namespaced agents and workflows
 
-Everything a companion pack exposes is addressed `<pack>:<name>`, exactly like the shipped plugins ([`namespaces.md`](namespaces.md)):
+Inside the plugin system, everything a companion pack exposes is addressed `<pack>:<name>`, exactly like the shipped plugins ([`namespaces.md`](namespaces.md)). Config is the exception for reviewers:
 
-- **Agents** referenced from config carry the qualifier: a pack reviewer registered via `reviewers.add` is dispatched by its qualified name, `"acme-platform:api-test-reviewer"`. (A repo-*local* agent stays bare — that's the disambiguation between the two roots.)
+- **Reviewers** reach the review-lead registry only as repo-local agents. `reviewers.add` takes repo-local agents only: `check-reviewer-references.sh` resolves each name to `.claude/agents/<name>.md` in the consumer repo and has no companion-pack root. So the consumer copies the pack's reviewer into `.claude/agents/api-test-reviewer.md` and registers it bare, `"api-test-reviewer"`. A qualified name such as `"acme-platform:api-test-reviewer"` fails that check (`DANGLING` and `QUALIFY`), and the review-toolkit hook runs the check on every `git commit` and denies the commit. The copy is a plain file in the repo's history; refresh it from the pinned pack release when you bump the pack.
 - **Workflows** a pack ships use the same `"<pack>:<relpath>"` form in references. The Workflow tool resolves neither a bare filename nor a plugin-cache path, so a caller resolves the pack's install path and stages the script into its session scratchpad before dispatching it (as `review-lead`'s pre-flight does); never hard-code a filesystem path into another plugin. No *config* key points at one any more — the two that did (`stageWorkflows`, `implementDelegates`) are retired.
 
-The qualifier is what lets `check-reviewer-references.sh` tell "shipped", "companion", and "repo-local" apart, and what keeps a pack from silently shadowing a shipped name.
+Bare against qualified is how `check-reviewer-references.sh` tells a repo-local reviewer from a plugin-shipped one ([`namespaces.md`](namespaces.md) rule 2). Its `SHADOW` check refuses a copied file whose name equals a shipped agent's name, so give pack reviewers names the shipped plugins do not use.
 
 ### 4.3 Vendoring the pack's knowledge files: `.known-extensions`
 
@@ -295,29 +295,42 @@ The single snippets above each touch one seam. Real capabilities compose several
 - `agents/api-test-reviewer.md` — reviews the written test code.
 - `skills/api-testing/` — the shared "how we write API tests here" playbook the agents load.
 
-**What each consumer repo puts in `.claude/second-shift.config.json`** — the two seams of the
-tier that still dispatch, registered and auditable. This block is valid config; paste it and
-`config-lint` passes:
+**What each consumer repo copies** (§4.2): the pack's `agents/api-test-reviewer.md` to
+`.claude/agents/api-test-reviewer.md`. The other two agents have no config seam today. If you copy
+`api-test-plan-reviewer.md` so that a session can dispatch it by choice, tag it
+`<!-- review-lead-skip: plan reviewer, not a panel reviewer -->`; otherwise
+`check-reviewer-references.sh` reports it `ORPHAN`, because its name ends in `-reviewer` and
+`reviewers.add` does not register it.
 
-```jsonc
+**What each consumer repo puts in `.claude/second-shift.config.json`** — the two seams of the
+tier that still dispatch, registered and auditable. This block is a complete config: paste it
+into a repo that has `.claude/agents/api-test-reviewer.md`, and both `config-lint` and
+`check-reviewer-references.sh` pass. In your repo, keep your own `tracker` and `commands`
+entries and merge in the `extraLanes` entry and the `reviewers` block.
+
+```json
 {
-  // RUN the suite — LIVE: run by the scheduler after every build. A blocking check,
-  // gated to when API surface changed.
+  "configVersion": 3,
+  "tracker": { "type": "github" },
   "commands": {
-    "<repo-id>": {
+    "app": {
       "extraLanes": [
         { "name": "api-tests", "when": ["src/**", "tests/api/**"],
-          "commands": ["<the repo's API-test command, e.g. yarn test:api>"], "failureClass": "TEST_FAILURE" }
+          "commands": ["yarn test:api"], "failureClass": "TEST_FAILURE" }
       ]
     }
   },
-  // REVIEW the tests — LIVE in the ad hoc review-lead: read when it selects the panel. The
-  // written tests get a domain code review there; the lane's one-session review does not dispatch it.
   "reviewers": {
-    "add": [{ "name": "acme-qa-pack:api-test-reviewer", "dimensions": ["api-testing"] }]
+    "add": [{ "name": "api-test-reviewer", "dimensions": ["api-testing"] }]
   }
 }
 ```
+
+- **Run the suite** (`extraLanes`) — live: the scheduler runs it after every build as a blocking
+  check, only when the branch changes API surface (`when`).
+- **Review the tests** (`reviewers.add`) — live in the ad hoc review-lead, which reads it when it
+  selects the panel. The written tests get a domain code review there; the lane's one-session
+  review does not dispatch it. The name is bare: the reviewer is the copy in `.claude/agents/`.
 
 **And the two seams that are gone.** The block below is **not valid config** — `config-lint`
 rejects all three of these keys by name. It is reproduced because the tier's *shape*
@@ -359,7 +372,7 @@ api-testing/*.md
 
 Every one of these **adds** a gate or a unit of work; not one can waive a shipped check — an API-test tier can only make a green run *red* (a bad plan, a failing suite, a rejected review), which is exactly the fork-vs-extend line from §1. And because the wiring lives in the consumer's config, anyone auditing the repo sees the whole tier in one file — while the *implementation* (agents, skill) is versioned and pinned in the pack, bumped independently.
 
-> **Two-pin note (phase 1 vs phase 2).** Under the phase-1 vendoring model, the pack's agents/skill are copied by hand into the repo's `.claude/agents/` and `.claude/skills/` (referenced **bare** — `api-test-plan-reviewer`, not `acme-qa-pack:api-test-plan-reviewer`), so every byte influencing a run is visible in the repo's own history; there is no sync command — the copy step belongs in the pack's install notes. The namespaced `acme-qa-pack:…` form shown above is the phase-2 live-resolution target. Either way the *config shape* is identical; only the reference form differs.
+> **Copy, then register bare.** The pack's agents and skill are copied by hand into the repo's `.claude/agents/` and `.claude/skills/` and referenced **bare** — `api-test-reviewer`, not `acme-qa-pack:api-test-reviewer` — so every byte influencing a run is visible in the repo's own history. There is no sync command; the copy step belongs in the pack's install notes. This is the only form `reviewers.add` accepts today. The qualified `acme-qa-pack:…` names appear only in the retired block above, where they were the designed form for keys that no longer exist.
 
 ---
 
