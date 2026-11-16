@@ -2,9 +2,9 @@
 # second-shift-unclaim-selftest.sh — hermetic selftest for the run-state label release.
 #
 # Contract pinned here: both role labels resolve live from a readable config and fall
-# through to their shipped defaults otherwise; a tracker that takes no writes and a tracker
-# that is not github are STATED no-ops with zero API calls; a label the item never carried
-# is a no-op with zero WRITES; a label lost to a race is still success; a real API failure
+# through to their shipped defaults otherwise; a github tracker releases them whatever
+# tracker.writes says; a tracker that is not github is a STATED no-op with zero API calls;
+# a label the item never carried is a no-op with zero WRITES; a label lost to a race is still success; a real API failure
 # is a real failure rather than a quiet green; and a failure on one label never skips the
 # other.
 #
@@ -121,15 +121,14 @@ run "$CFG_BROKEN" "$CARRIES_BOTH_DEFAULT" 7
 check "C4 unparseable config: DELETEs both defaults" \
       "$(grep -q 'labels/in-progress' <<<"$CALLS" && grep -q 'labels/ready-for-dev' <<<"$CALLS" && echo 0 || echo 1)"
 
-# (5) tracker.writes false -> stated no-op, ZERO api calls.
+# (5) github with tracker.writes false -> both labels still released. The scheduler swaps
+#     the claim labels on github whatever writes says, so the release must not skip.
 run "$CFG_NOWRITES" "$CARRIES_BOTH_DEFAULT" 42
-check "C5 writes:false: exit 0"                        "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
-# The count and the message die together under every mutant either catches, so they are
-# one assertion: the silence is only meaningful if the log says why it was silent.
-check "C5 writes:false: zero api calls, arm named" \
-      "$([ "$NCALLS" -eq 0 ] && grep -q 'tracker.writes is false' <<<"$OUT" && echo 0 || echo 1)"
+check "C5 github writes:false: exit 0, DELETEs both defaults" \
+      "$([ "$RC" -eq 0 ] && grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/in-progress' <<<"$CALLS" \
+         && grep -q 'DELETE repos/{owner}/{repo}/issues/42/labels/ready-for-dev' <<<"$CALLS" && echo 0 || echo 1)"
 
-# (6) non-github tracker, writes NOT declared -> isolates the type arm from the writes arm.
+# (6) non-github tracker -> stated no-op, ZERO api calls.
 run "$CFG_JIRA" "$CARRIES_BOTH_DEFAULT" 42
 check "C6 jira tracker: exit 0"                        "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
 check "C6 jira tracker: zero api calls, arm named" \
@@ -190,7 +189,7 @@ check "C15 non-numeric issue number: exit 2, zero api calls" \
       "$([ "$RC" -eq 2 ] && [ "$NCALLS" -eq 0 ] && echo 0 || echo 1)"
 
 # (16) a missing prerequisite is a loud failure, never a silent skip: guessing the tracker
-#      vocabulary could write to a tracker that declares it takes no writes. PATH holds the
+#      vocabulary could write github labels on a non-github tracker. PATH holds the
 #      gh stub and nothing else, so jq is genuinely absent — which is also why the
 #      interpreter is invoked by absolute path here (PATH would not resolve `bash` either).
 #      One assertion, deliberately: a script with the preflight deleted also exits non-zero
