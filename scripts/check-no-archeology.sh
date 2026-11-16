@@ -14,6 +14,16 @@
 # A file over its count fails, and so does a row whose file has no hits left, so a count only goes
 # down. A file under its count passes and the summary says the row can be lowered.
 #
+# Sample record data is not a hit. These shapes are the ones ledger-lint.sh, plan-coverage.sh and
+# verdict-check.sh parse, at the start of a line, of a quoted string or after a literal \n:
+#
+#   | D-1 | … |          a table row whose first cell is a D, OR, S, RS, PM or F id, to the end of the row
+#   AC-1: …   - AC-1      an acceptance-criterion line
+#   ACs: AC-1 AC-2        the id list
+#
+# and anywhere in a line: an [AC-1] tag and `decided (D-1)`. A line that calls ok, bad, pass or fail
+# with a string is a test title and is read whole, so an id in a title is a hit whatever its shape.
+#
 # The patterns cannot tell `#333` the color from `#333` the issue, or an ordinal `#2` from a ticket:
 # those are `data` rows or get reworded. Tracker keys of other shapes, and an origin story that names
 # no id, are not read.
@@ -62,14 +72,38 @@ if [[ -z "$FILES" ]]; then
   exit "$violations"
 fi
 
+# hits <list|count> — `file:line:text` per hit, or `path<TAB>hits` per file with at least one.
+# grep narrows to text files that carry an id at all (-I skips a binary file whatever its name);
+# awk then drops the sample-data shapes before it tests a line. \047 is a single quote.
+hits() {
+  local cand
+  cand="$(cd "$ROOT" && printf '%s\n' "$FILES" | tr '\n' '\0' | xargs -0 grep -IlE -- "$HIT" /dev/null)"
+  [[ -n "$cand" ]] || return 0
+  # shellcheck disable=SC2016
+  (cd "$ROOT" && printf '%s\n' "$cand" | tr '\n' '\0' | NA_HIT="$HIT" NA_MODE="$1" xargs -0 awk '
+    BEGIN { hit = ENVIRON["NA_HIT"]; list = (ENVIRON["NA_MODE"] == "list") }
+    FNR == 1 && prev != "" && !list && n > 0 { print prev "\t" n }
+    FNR == 1 { prev = FILENAME; n = 0 }
+    {
+      t = $0
+      if (t !~ /(^|[^[:alnum:]_-])(ok|bad|pass|fail)[ \t]+["\047]/) {
+        gsub(/(^|["\047]|\\n)[ \t]*\|[ \t]*(D|OR|S|RS|PM|F)-[0-9]+[ \t]*\|[^"\047\\]*/, " ", t)
+        gsub(/(^|["\047]|\\n)[ \t]*(- AC-[0-9]+|AC-[0-9]+:)/, " ", t)
+        gsub(/ACs:([ \t]+AC-[0-9]+)+/, " ", t)
+        gsub(/\[AC-[0-9]+\]/, " ", t)
+        gsub(/decided[ \t]*\(D-[0-9]+\)/, " ", t)
+      }
+      if (t ~ hit) { if (list) print FILENAME ":" FNR ":" $0; else n++ }
+    }
+    END { if (!list && n > 0) print prev "\t" n }')
+}
+
 if [[ $LIST_ONLY -eq 1 ]]; then
-  (cd "$ROOT" && printf '%s\n' "$FILES" | tr '\n' '\0' | xargs -0 grep -InE -- "$HIT" /dev/null) || true
+  hits list
   exit 0
 fi
 
-# `path<TAB>hits`, files with at least one hit. -I skips a binary file whatever its name.
-COUNTS="$(cd "$ROOT" && printf '%s\n' "$FILES" | tr '\n' '\0' | xargs -0 grep -IcE -- "$HIT" /dev/null \
-  | sed -E 's/^(.*):([0-9]+)$/\1'"$(printf '\t')"'\2/' | awk -F'\t' '$2 > 0')"
+COUNTS="$(hits count)"
 
 if [[ ! -f "$BASELINE" ]]; then
   fail "the baseline is missing: $BASELINE_REL"

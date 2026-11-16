@@ -108,6 +108,55 @@ expect_green "(s2) docs/plans, docs/migrations, the changelog, json and root mar
 D="$(new_fixture binary)"; printf '#!/bin/sh\n\000\001 # (#412)\n' > "$D/tools/blob.sh"
 expect_green "(s3) a binary file is skipped whatever its name" "$D"
 
+echo "== sample record data is not a hit; the same id anywhere else is =="
+
+D="$(new_fixture heredoc)"
+cat >> "$D/tools/probe.sh" <<'EOF'
+cat > "$R/record.md" <<'REC'
+| D-1 | which index | partial unique index, see D-2 | codebase-derived | decision |
+| OR-1 | open region | the retry budget |
+| S-1 | Empty state | decided (D-3) |
+| RS-1 | /orders | empty | frame 12 | No orders yet |
+| PM-1 | the cache goes stale | D-1 |
+| F-2 | lens finding | became D-4 |
+ACs: AC-1 AC-2
+AC-1: the retry is bounded
+AC-2: exempt — covered upstream
+- AC-3 the list form
+- [ ] 1.1 Write the test (tests/a.test.js) [AC-1] [AC-2]
+REC
+EOF
+expect_green "(f1) record rows, AC lines, the id list and AC tags in a heredoc are data" "$D"
+
+D="$(new_fixture quoted)"
+cat >> "$D/tools/probe.sh" <<'EOF'
+printf '# Record\n\n| D-1 | a | b | user-answered |\n| D-2 | c | d | deferred |\n' > "$R/record.md"
+echo '| D-1 | secret-record-row |' > "$R/plan.md"
+printf 'ACs: AC-1\nAC-1: holds — the old behavior\n' >> "$R/record.md"
+echo "AC-2: unchecked — manual tier" >> "$R/record.md"
+EOF
+expect_green "(f2) the same shapes inside a quoted fixture string are data" "$D"
+
+D="$(new_fixture row-comment)"; echo '# D-1 chose the partial index' >> "$D/tools/probe.sh"
+expect_red "(f3) a decision id in a comment still reds" "$D" "tools/probe.sh: 1 line(s)"
+
+D="$(new_fixture ac-comment)"; echo '# AC-1: the retry is bounded' >> "$D/tools/probe.sh"
+expect_red "(f4) an AC line behind a comment marker still reds" "$D" "tools/probe.sh: 1 line(s)"
+
+D="$(new_fixture title)"
+printf '%s\n' 'true && ok "AC-1: the retry is bounded" || bad "(t1) [AC-2] the retry ran twice"' >> "$D/tools/probe.sh"
+printf '%s\n' 'pass "the row | D-1 | is honored"' 'fail "decided (D-3) was not read"' >> "$D/tools/probe.sh"
+expect_red "(f5) an id in an ok, bad, pass or fail title reds whatever its shape" "$D" "tools/probe.sh: 3 line(s)"
+
+D="$(new_fixture message)"; echo 'echo "the screen names no must-show value (D-4)" >&2' >> "$D/tools/probe.sh"
+expect_red "(f6) an id in an echoed runtime message still reds" "$D" "tools/probe.sh: 1 line(s)"
+
+D="$(new_fixture row-tail)"; echo "echo '| D-1 | a |' > \"\$R/record.md\"   # the row D-2 supersedes" >> "$D/tools/probe.sh"
+expect_red "(f7) an id after the fixture row's closing quote still reds" "$D" "tools/probe.sh: 1 line(s)"
+
+D="$(new_fixture mid)"; echo 'note="see AC-1: and the row | D-1 | in the record"' >> "$D/tools/probe.sh"
+expect_red "(f8) the shapes are data only at the start of a line or string" "$D" "tools/probe.sh: 1 line(s)"
+
 echo "== the baseline only goes down =="
 
 D="$(new_fixture at)"; printf '# (#1)\n# (#2)\n' >> "$D/tools/probe.sh"; row "$D" tools/probe.sh 2 debt "fixture"
