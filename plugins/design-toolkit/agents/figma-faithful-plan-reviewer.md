@@ -41,18 +41,15 @@ agent that returns `N/A` on the input in front of you is not a hand-off, it is a
 that is exactly how per-node sizing and component suitability came to be owned by nobody. Where a
 check genuinely has no owner on this lane, it says so in as many words instead of naming one.
 
-- **Component _identity_** (does a real repo component exist at that import, and did the spec
-  resolve one at all?) → `design-toolkit:figma-faithful-spec-reviewer`. Its `N/A` is narrowed to
-  an input that is not a design artifact at all, so a plan-bearing spec reaches it. Its _suitability_ half stays yours as well (above); that overlap
-  is deliberate, because a check two agents run is cheaper than one neither does.
-- **Import-path existence** in the repo → `design-toolkit:figma-faithful-reviewer` (post-build
-  grep).
+- **Import-path existence** in the repo (does a real repo component exist at that import?) →
+  `design-toolkit:figma-faithful-reviewer` (post-build grep). Whether the plan resolved a
+  component for a node at all is yours: you are the one reader of the resolved-component list, so
+  a node the plan renders with no resolution is a finding here, alongside its suitability.
 - **Copy drift** against a discoverable spec → `design-toolkit:figma-faithful-reviewer`. Copy
-  _capture_ (is this the string the design shows?) has an owner only where the
-  spec recorded the strings: `design-toolkit:figma-faithful-spec-reviewer` reviews a plan-bearing
-  spec, but it cannot check copy an artifact never carried, and neither can you. Where the spec
-  records no copy, that gap has no owner — say it exists; do not fill it with findings about
-  strings you cannot see.
+  _capture_ (is this the string the design shows?) has no blind reviewer: only
+  `figma-faithful-spec`, which has Figma access, can record it, and its step-7 self-check is the
+  check. Where the spec records no copy, that gap has no owner — say it exists; do not fill it
+  with findings about strings you cannot see.
 - **Code style, style-prop shape, hand-rolled primitives** → `design-toolkit:figma-faithful-reviewer`.
 - **Whether a recorded Figma value is itself correct** → the REVIEW session, which
   renders every screen at the head and compares it with its frame. That is the reader that sees both sides. It is **not** a pixel-diff — no such gate
@@ -168,8 +165,12 @@ If every token row checks out, the analog fits, every transition is wired, and f
 
 ## Reviewer baseline
 
-<!-- LOCKSTEP: held verbatim to figma-faithful-spec-reviewer.md, the canonical side; the
-     reasoning lives there. -->
+<!-- LOCKSTEP, canonical side. The two plan reviewers adopt review-toolkit:reviewer-baseline
+     but must override the same two things the same way: the merge-gating severity ladder, which
+     means nothing for an artifact graded before implementation, and the block they end with,
+     which has its own keys. Live copies rather than a cross-reference: each agent is loaded
+     alone, into a context that has not read the other, so a pointer would resolve to nothing at
+     the moment the override is needed. -->
 <!-- LOCKSTEP-BEGIN artifact-reviewer-baseline-deltas -->
 `review-toolkit:reviewer-baseline` loads automatically via the `skills:` frontmatter (by name, not path — no relative path resolves in both the repo and installed-cache layouts). Take its **Grounding Verdicts**, **Confidence Scoring**, **Tool Discipline**, and per-finding evidence discipline. Two deltas apply, because this agent grades an **artifact before implementation**, not a diff before merge:
 
