@@ -108,7 +108,7 @@ Domain-specific fields (e.g., `Impact:` for performance findings) may be added b
 
 ### Severity vocabulary mapping (`REVIEW_RESULT` block)
 
-The `REVIEW_RESULT` block's `severity` takes `blocker`, `major`, `minor` or `nit` — not the prose vocabulary above. Map your finding to the block as:
+This mapping is for a `code-review.mjs` dispatch, whose `REVIEW_RESULT` block's `severity` takes `blocker`, `major`, `minor` or `nit` — not the prose vocabulary above. An `intake-review.mjs` dispatch uses the severity values its dispatch prompt names instead. Map a `code-review.mjs` finding to the block as:
 
 | Prose severity | Block `severity`                              |
 | -------------- | --------------------------------------------- |
