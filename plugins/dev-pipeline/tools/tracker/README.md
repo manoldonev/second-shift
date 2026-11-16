@@ -60,9 +60,10 @@ The **draft-PR** hold is adapter-independent: on either adapter only the operato
 ## Config that drives the adapter (all layer 1)
 
 - `tracker.type` — selects the adapter (`github` | `jira`).
-- `tracker.writes` — whether tracker-write operations fire (`true` for github’s
-  queue/comment model; `false` for the read-only JIRA model). A `false` value
-  turns *post-status-comment* / *set-status* / *close-out* into no-ops.
+- `tracker.writes` — `true` for github’s queue/comment model, `false` for the read-only
+  JIRA model (the defaults). The scheduler reads it only
+  to withhold the Atlassian write tools from its sessions when `false`; on github it still
+  swaps the claim labels and posts the claim marker and the closing comment.
 - `tracker.keyPattern` — anchored regex the ticket key must match (`[0-9]+` github,
   `[A-Z]+-[0-9]+` jira). The scheduler refuses a key that does not match it, and the branch
   derivation reads it.

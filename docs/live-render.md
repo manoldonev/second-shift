@@ -89,8 +89,8 @@ from the record's first commit on the branch, never the head):
 
 The render in steps 1–2 stays one default-scale render per row: `{textScale}` is substituted only
 in `smokeCommand` and reaches `command` literally. The scaled smoke doubles the smoke invocations
-per row (2N harness boots for the reference harness below), and like every lane command it has no
-wall-clock bound.
+per row (2N harness boots for the reference harness below). Like every lane command, each invocation
+is bounded by `run.laneTimeoutSeconds` (default 1800 s); one that runs past it is red.
 
 Any red spends one attempt on the checks-red counter (`run.checksRedMax`, default 3), never a build
 round; the smoke log goes to the next build session. A record that declares frames on a repo with
