@@ -454,11 +454,13 @@ FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shif
 printf 'build-pr-replace-record\nreview-needs-work\nbuild-push-only\nreview-approve-read-first\n' > "$FAKE_CLAUDE_PLAN"; RUN_JOINED_REVIEW=true run_case "$d"
 expect approved "(rr1) a build that replaces the record commit"
 rr_first="$(git -C "$d/main" replace -l | head -n 1)"
-[ -n "$rr_first" ] && git -C "$d/main" show "$rr_first:docs/plans/main-42-decisions.md" | grep -qF "$RR_FORGED" \
+rr_local="$(git -C "$d/main" show "$rr_first:docs/plans/main-42-decisions.md" 2>/dev/null)"
+[ -n "$rr_first" ] && grep -qF "$RR_FORGED" <<<"$rr_local" \
   && ok "(rr1) the checkout's own read of the record commit returns the forged row" || bad "(rr1) the fixture forged nothing: replace refs '$(git -C "$d/main" replace -l | tr '\n' ' ')'"
 grep -qF "$RR_PUSHED" "$FAKE_GH/prompt-3.txt" && ! grep -qF "$RR_FORGED" "$FAKE_GH/prompt-3.txt" \
   && ok "(rr1) the scheduler hands the next build the record as pushed" || bad "(rr1) the round-2 build prompt's D-1: $(grep -F '| D-1 |' "$FAKE_GH/prompt-3.txt" | tr '\n' '|')"
-awk '/^### Deleted or renamed test files/ { on = 1; next } /^###/ { on = 0 } on' "$(SD)/review-input-1.1.md" 2>/dev/null | grep -q 'src/a\.spec\.ts' \
+rr_deleted="$(awk '/^### Deleted or renamed test files/ { on = 1; next } /^###/ { on = 0 } on' "$(SD)/review-input-1.1.md" 2>/dev/null)"
+grep -q 'src/a\.spec\.ts' <<<"$rr_deleted" \
   && ok "(rr1) the review input lists the test the build deleted after the record commit" || bad "(rr1) review input: $(head -n 4 "$(SD)/review-input-1.1.md" 2>/dev/null | tr '\n' '|')"
 [ -e "$T/rr1-lane-ran" ] && ok "(rr1) the lane scoped to src/** ran on the changed-file list" || bad "(rr1) the src/** lane was skipped: $(grep -E 'lane|checks' <<<"$OUT" | head -n 4 | tr '\n' '|')"
 grep -qF "$RR_PUSHED" "$FAKE_GH/review-read-first-4.txt" 2>/dev/null && ! grep -qF "$RR_FORGED" "$FAKE_GH/review-read-first-4.txt" \
