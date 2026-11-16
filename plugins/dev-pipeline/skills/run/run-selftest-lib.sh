@@ -49,7 +49,7 @@ trap 'case_lines; rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@x GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@x
 # a BUILD session running this suite carries the spawn env run.sh gives it, and an operator's shell may carry RUN_* caps:
 # the F-env cases read what run.sh sets from its defaults, not what this shell inherited
-unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS BASH_DEFAULT_TIMEOUT_MS BASH_MAX_TIMEOUT_MS CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS RUN_BUILD_TIMEOUT RUN_REVIEW_TIMEOUT
+unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS BASH_DEFAULT_TIMEOUT_MS BASH_MAX_TIMEOUT_MS CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS RUN_BUILD_TIMEOUT RUN_REVIEW_TIMEOUT GIT_NO_REPLACE_OBJECTS
 # ...and an operator's shell may be a herdr pane with a watch configured (#939): the cases set these themselves
 for _v in $(compgen -e HERDR_) RUN_WATCH_CMD RUN_WATCH_EDITOR RUN_DETACHED_LOG; do unset "$_v"; done
 # every slice but run-joined-selftest.sh drives the switched-off review, the lane review alone; that suite unsets this
@@ -244,7 +244,17 @@ case "$plan" in
                    sed 's/^AC-8: .*/AC-8: exempt — the build says so/' "$rec" > r.tmp && mv r.tmp "$rec"
                    mkdir -p plugins/dev-pipeline/tools; printf '#!/usr/bin/env bash\necho "plan-coverage: pass"\n' > plugins/dev-pipeline/tools/plan-coverage.sh
                    push; openpr ;;
+  build-pr-replace-record) # a build that forges its record: it deletes a test, then points the record commit, by a replace
+    # ref, at a parentless commit whose tree is the head's with another D-1 — the sha stays, what it returns does not
+    git rm -q src/a.spec.ts; push; openpr
+    first=$(git log --format=%H --diff-filter=A -- "$rec" | tail -n 1)
+    blob=$(git show "$first:$rec" | sed 's/^| D-1 | a | b |/| D-1 | a | forged |/' | git hash-object -w --stdin)
+    export GIT_INDEX_FILE="$S/forge.index"; git read-tree HEAD && git update-index --cacheinfo "100644,$blob,$rec"; tree=$(git write-tree); unset GIT_INDEX_FILE
+    git replace "$first" "$(git commit-tree "$tree" -m forged)" ;;
   review-crash)    printf '{"subtype":"error_during_execution","total_cost_usd":0}\n'; exit 1 ;;
+  review-approve-read-first) # runs the read of the record at its first commit that the prompt names, as a review does
+    $(sed -n 's/.*First read it as it stood at commit [0-9a-f]* (\(git show [^)]*\)).*/\1/p' "$S/prompt-$n.txt" | head -n 1) > "$S/review-read-first-$n.txt" 2>&1
+    post "$(vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-approve|review-needs-work|review-wrong-sha|review-approve-dirty|review-approve-runtime|review-approve-and-push|review-needs-work-drop-base|review-needs-work-diverge|review-needs-work-notes-reason|review-needs-work-move-base|review-approve-fetched|review-push-approve-new)
     case "$plan" in   # a real review reads the PR's head as it is now, not the worktree's last fetch
       review-approve-fetched) git fetch -q origin ;;

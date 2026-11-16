@@ -447,6 +447,27 @@ expect approved "(fw9) [#1085] a head-added AC's tagged test fails on the record
 grep -q "ok: AC-9 — src/g.check.sh fails on the record commit's tree" "$(SD)/fails-without-1.1.log" \
   && ok "(fw9) the head-added AC's test is run on the record commit's tree" || bad "(fw9) $(grep -E 'fails without|terminal' <<<"$OUT" | tr '\n' '|') log=$(tr '\n' '|' < "$(SD)/fails-without-1.1.log" 2>/dev/null)"
 
+# (rr1) a build points the record commit at a forged commit by a replace ref: every read from that commit — the
+# scheduler's, the review session's and the blind review's diff — still returns the commit as pushed
+RR_FORGED='| D-1 | a | forged |'; RR_PUSHED='| D-1 | a | b | user-answered'
+FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"commands\":{\"main\":{\"extraLanes\":[{\"name\":\"unit\",\"when\":[\"src/**\"],\"commands\":[\"touch $T/rr1-lane-ran\"]}]}}}" fixture rr1
+printf 'build-pr-replace-record\nreview-needs-work\nbuild-push-only\nreview-approve-read-first\n' > "$FAKE_CLAUDE_PLAN"; RUN_JOINED_REVIEW=true run_case "$d"
+expect approved "(rr1) a build that replaces the record commit"
+rr_first="$(git -C "$d/main" replace -l | head -n 1)"
+rr_local="$(git -C "$d/main" show "$rr_first:docs/plans/main-42-decisions.md" 2>/dev/null)"
+[ -n "$rr_first" ] && grep -qF "$RR_FORGED" <<<"$rr_local" \
+  && ok "(rr1) the checkout's own read of the record commit returns the forged row" || bad "(rr1) the fixture forged nothing: replace refs '$(git -C "$d/main" replace -l | tr '\n' ' ')'"
+grep -qF "$RR_PUSHED" "$FAKE_GH/prompt-3.txt" && ! grep -qF "$RR_FORGED" "$FAKE_GH/prompt-3.txt" \
+  && ok "(rr1) the scheduler hands the next build the record as pushed" || bad "(rr1) the round-2 build prompt's D-1: $(grep -F '| D-1 |' "$FAKE_GH/prompt-3.txt" | tr '\n' '|')"
+rr_deleted="$(awk '/^### Deleted or renamed test files/ { on = 1; next } /^###/ { on = 0 } on' "$(SD)/review-input-1.1.md" 2>/dev/null)"
+grep -q 'src/a\.spec\.ts' <<<"$rr_deleted" \
+  && ok "(rr1) the review input lists the test the build deleted after the record commit" || bad "(rr1) review input: $(head -n 4 "$(SD)/review-input-1.1.md" 2>/dev/null | tr '\n' '|')"
+[ -e "$T/rr1-lane-ran" ] && ok "(rr1) the lane scoped to src/** ran on the changed-file list" || bad "(rr1) the src/** lane was skipped: $(grep -E 'lane|checks' <<<"$OUT" | head -n 4 | tr '\n' '|')"
+grep -qF "$RR_PUSHED" "$FAKE_GH/review-read-first-4.txt" 2>/dev/null && ! grep -qF "$RR_FORGED" "$FAKE_GH/review-read-first-4.txt" \
+  && ok "(rr1) the review session's own read of the record commit returns the record as pushed" || bad "(rr1) the review read: $(grep -F '| D-1 |' "$FAKE_GH/review-read-first-4.txt" 2>/dev/null | tr '\n' '|')"
+grep -q '^--- a/src/a\.spec\.ts' "$(SD)/plain-diff-1.1.diff" 2>/dev/null \
+  && ok "(rr1) the blind review's diff is the pushed branch against its base" || bad "(rr1) plain diff: $(grep -E 'plain review' <<<"$OUT" | head -n 3 | tr '\n' '|')"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 exit $?
