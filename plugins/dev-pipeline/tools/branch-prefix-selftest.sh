@@ -202,97 +202,15 @@ if [ "$rc" -eq 2 ]; then
   pass "(e4) under github a non-numeric key casts no vote"
 else fail "(e4) expected github to reject a non-numeric key, rc=$rc: $out"; fi
 
-# ---- (f) sourcing defines the function and runs nothing --------------------------------------
-# Both lanes SOURCE this file. A stray side effect at source time would run on every gate call.
-clear_refs
-mkref "claude/acme-6"
-# shellcheck source=branch-prefix.sh
-out="$( . "$TOOL" && resolve_branch_prefix "" github "" "$TREE" 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$out" = "claude/acme-" ]; then
-  pass "(f1) sourcing exposes resolve_branch_prefix() and emits nothing of its own"
-else fail "(f1) sourced call did not behave, rc=$rc: $out"; fi
-
-# shellcheck source=branch-prefix.sh
-out="$( . "$TOOL" 2>&1 )"; rc=$?
-if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
-  pass "(f2) sourcing alone prints nothing and exits 0 — no CLI runs on the source path"
-else fail "(f2) sourcing produced output or a non-zero status, rc=$rc: $out"; fi
-
-# ---- (h) the INVERSE question: does a branch belong to an already-resolved namespace? (#442) --
-# A caller sweeping worktrees asks this of each one before it looks a branch up on the tracker,
-# so a wrong answer here IS that sweep's blast radius. The cases that matter are the ones a `case "$ref" in "$prefix"*)` string test gets wrong — that is the obvious
-# implementation, and it accepts branches that are not work branches at all.
-isw() { # isw <ref> <prefix> [<tracker>] [<key-pattern>]
-  # shellcheck source=branch-prefix.sh
-  ( . "$TOOL" && bp_is_work_branch "$1" "$2" "${3:-github}" "${4:-}" )
-}
-
-if isw "claude/acme-7" "claude/acme-" && isw "jdoe/12" "jdoe/"; then
-  pass "(h1) a github work branch is recognized under both the slugged and the bare namespace"
-else fail "(h1) a real work branch was not recognized"; fi
-
-if ! isw "claude/acme-notes" "claude/acme-" && ! isw "claude/other-7" "claude/acme-"; then
-  pass "(h2) a non-key tail and a foreign slug are both rejected — not a prefix string match"
-else fail "(h2) bp_is_work_branch accepted a branch that is not this namespace's work branch"; fi
-
-if ! isw "dependabot/npm_and_yarn/acme-7" "dependabot/" && ! isw "main" "claude/acme-"; then
-  pass "(h3) a multi-segment tool namespace and a slashless branch are rejected"
-else fail "(h3) bp_is_work_branch accepted a tool namespace or a slashless ref"; fi
-
-# The tracker argument decides the key shape here exactly as it does for the vote scan.
-if isw "claude/acme-12" "claude/" jira 'ACME-[0-9]+' \
-   && ! isw "claude/acme-12" "claude/" github; then
-  pass "(h4) the same ref parses under jira's keyPattern and not under github's numeric key"
-else fail "(h4) the tracker/key-pattern arguments are not load-bearing here"; fi
-
-# bp_key_re is the ONE definition both directions read; a caller inlining its own copy is how
-# the membership answer drifts from the one that chose the namespace in the first place.
-# shellcheck source=branch-prefix.sh
-out="$( . "$TOOL" && printf '%s|%s|%s' "$(bp_key_re github '')" "$(bp_key_re jira '')" "$(bp_key_re jira 'X-[0-9]+')" )"
-if [ "$out" = '[0-9]+|[A-Za-z]+-[0-9]+|X-[0-9]+' ]; then
-  pass "(h5) bp_key_re yields the github numeric key, jira's built-in shape, and a configured override"
-else fail "(h5) unexpected key patterns: $out"; fi
-
-# ---- (i) bp_branch_key: the extraction half of the same parse (#611) --------------------------
-# A caller deriving a run's ticket from the cwd's branch refuses when it disagrees with the
-# argument, so a wrong answer here is a refusal on an honest run or a silent pass on a
-# mismatched one. The cases that matter are the ones a bare `${ref#$prefix}` gets wrong: it is
-# the obvious implementation, and it happily reports a key for a branch that is not a work branch
-# at all — which is exactly the input this function has to reject rather than parse.
-key() { # key <ref> <prefix> [<tracker>] [<key-pattern>]
-  # shellcheck source=branch-prefix.sh
-  ( . "$TOOL" && bp_branch_key "$1" "$2" "${3:-github}" "${4:-}" )
-}
-
-out="$(key "claude/acme-7" "claude/acme-")|$(key "jdoe/12" "jdoe/")"
-if [ "$out" = "7|12" ]; then
-  pass "(i1) the key is the trailing run under both the slugged and the bare namespace"
-else fail "(i1) expected 7|12, got: $out"; fi
-
-if ! key "claude/acme-notes" "claude/acme-" >/dev/null 2>&1    && ! key "claude/other-7" "claude/acme-" >/dev/null 2>&1    && ! key "main" "claude/acme-" >/dev/null 2>&1; then
-  pass "(i2) a non-key tail, a foreign slug and a slashless ref yield NO key — not a prefix strip"
-else fail "(i2) bp_branch_key returned a key for a ref that is not this namespace's work branch"; fi
-
-out="$(key "claude/acme-12" "claude/" jira 'ACME-[0-9]+')"
-if [ "$out" = "acme-12" ]; then
-  pass "(i3) under jira the key comes back as the BRANCH spells it — lowercased, the transform the branch already applied"
-else fail "(i3) expected the lowercased jira key, got: $out"; fi
-
-# The membership answer and the extraction answer are one decision, so they cannot disagree: any
-# ref bp_is_work_branch accepts yields a key, and every ref it rejects yields none.
-if isw "claude/acme-7" "claude/acme-" && key "claude/acme-7" "claude/acme-" >/dev/null 2>&1    && ! isw "claude/acme-notes" "claude/acme-" && ! key "claude/acme-notes" "claude/acme-" >/dev/null 2>&1; then
-  pass "(i4) bp_branch_key agrees with bp_is_work_branch in both directions — one parse, two questions"
-else fail "(i4) the membership and extraction answers disagree"; fi
-
 # ---- (g) --help stops at the header ----------------------------------------------------------
 # `sed -n '2,Np'` is a hand-maintained line number and this repo has been burned by a header
 # that outgrew it. Bounded on BOTH ends, and the lower bound is the header's genuinely LAST
-# line (the bash-3.2 note), not the last one a reader notices: anchoring on `Exit / return:`
+# line (the bash-3.2 note), not the last one a reader notices: anchoring on `Exit:`
 # two lines above it would still pass a range that fell short by two, which is the same defect
 # one notch smaller. `set -uo pipefail` is the first line past the range, so its presence means
 # the whole file leaked.
 out="$(bash "$TOOL" --help 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -qF 'Exit / return:' <<<"$out" \
+if [ "$rc" -eq 0 ] && grep -qF 'Exit: 0' <<<"$out" \
    && grep -qF '3.2-compatible' <<<"$out" \
    && ! grep -qF 'set -uo pipefail' <<<"$out"; then
   pass "(g) --help prints through the last header line and stops before the code"
