@@ -9,10 +9,10 @@ faithfully. Your job is to **capture what the design says**, verbatim and comple
 element, every string, every component, every state, every persisted field. Not to design, not
 to explore — the design is already decided in Figma.
 
-**You are the only agent with Figma access.** Every downstream reviewer
-([`design-toolkit:figma-faithful-spec-reviewer`](../../agents/figma-faithful-spec-reviewer.md),
+**You are the only agent with Figma access.** No reviewer reads the spec before it is
+implemented: your own step-7 self-check is the check. Every downstream reviewer (such as
 [`design-toolkit:figma-faithful-reviewer`](../../agents/figma-faithful-reviewer.md)) is blind to
-the design — they can only check the spec against itself, never against Figma. So **completeness
+the design — it can only check the build against the spec, never against Figma. So **completeness
 here is load-bearing**: anything you omit from the scene is invisible from this point on and
 silently never gets built. Be EXTRA careful at step 2b (Describe the Scene) — the failure that
 matters most is not a wrong value, it's a **dropped element**.
@@ -104,7 +104,7 @@ Rules that make it load-bearing:
   Copy Index entry (step 2), a resolved component (step 4), a **visual contract** (step 2c), and a
   state-presence (step 3). A node in the inventory with no downstream coverage is a dropped
   element — the exact failure this step exists to prevent. This table is what
-  `figma-faithful-spec-reviewer` diffs the rest of the spec against.
+  your step-7 self-check diffs the rest of the spec against.
 - **No silent drops.** If a node genuinely needs no spec coverage (pure visual spacer), say so
   explicitly in its row — don't omit it.
 
