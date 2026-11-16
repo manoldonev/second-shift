@@ -141,11 +141,17 @@ silently pass.
 
 Commit the change through dev-pipeline's `bot-commit.sh`, which owns the bot's git identity
 (config `tracker.bot`) and commits as the repo default when no bot is configured. Toolkits never
-hard-path into dev-pipeline's layout: resolve its install path, then find the helper by name under
-it:
+hard-path into dev-pipeline's layout: resolve the one install record that loads here (this repo's
+project-scope record, else the newest user- or local-scope one), then find the helper by name under
+its install path:
 
 ```bash
-DEV_PIPELINE_ROOT=$(claude plugin list --json | jq -r '.[] | select(.id == "dev-pipeline@second-shift") | .installPath')
+DEV_PIPELINE_ROOT=$(claude plugin list --json | jq -r --arg id dev-pipeline@second-shift \
+    --arg root "$(git -C "<repo or worktree>" rev-parse --show-toplevel)" \
+    '[.[] | select(.id==$id and ((.projectPath // "") == $root or .scope=="user" or .scope=="local"))]
+     | ((map(select(.scope=="project" and ((.projectPath // "") == $root))) | sort_by(.lastUpdated // "") | last)
+        // (sort_by(.lastUpdated // "") | last))
+     | .installPath // empty')
 BOT_COMMIT_SH=$(find "$DEV_PIPELINE_ROOT" -name bot-commit.sh | head -1)
 bash "$BOT_COMMIT_SH" -C "<repo or worktree>" \
     -m "feat(<fe-scope>): <screen> — faithful implementation of Claude Design handoff"
