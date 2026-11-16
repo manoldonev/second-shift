@@ -406,10 +406,10 @@ done < "$TMP/hits"
 
 cat <<'JUDGE'
 dup-scan: these are PROPOSALS, not a verdict. Read each candidate and decide:
-  - the same work            → do not queue this one; fold it into the candidate, and say so.
-  - overlapping but distinct → queue it, and sequence it against the candidate if they
-                               touch the same files (a CLAIMED candidate is already in flight).
-  - unrelated                → queue it.
+  - the same work            → fold this one into the candidate, and say so.
+  - overlapping but distinct → sequence it against the candidate if they touch the same
+                               files (a CLAIMED candidate is already in flight).
+  - unrelated                → record it as unrelated.
 Record one Decision Ledger row per candidate judged. Never close a ticket on this output.
 JUDGE
 exit 10
