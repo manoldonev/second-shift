@@ -40,8 +40,11 @@
 #   `plugins/**` is off the table above: matching it would fire on every merge that touches any
 #   plugin, which is the cron-frequency behavior this move exists to leave.
 #
-# ON RED: file-issue-on-red dedupes against an already-open issue by title rather than
-# filing one per push — a red state gets one tracked issue, not one per trigger.
+# ON RED: each guard job keeps its log and hands its `RED:` lines to file-issue-on-red as a job
+# output. Job outputs are evaluated when a job completes, failed or not, so they exist while
+# this run is still in progress; `gh run view --log-failed` does not (gh refuses logs until the
+# whole run is complete). file-issue-on-red files one issue per red state: when one is already
+# open it comments the new SHA, run and suites there instead of filing a duplicate.
 #
 # BOTH LANES. Several install-topology-known-red.tsv rows were explicitly environment-dependent
 # historically, so the bash-3.2 copy carries signal ubuntu does not. Splitting by lane costs
@@ -70,6 +73,8 @@ jobs:
       (github.head_ref == 'release/next' &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    outputs:
+      red: ${{ steps.red.outputs.lines }}
     steps:
       - uses: actions/checkout@v5
 
@@ -77,8 +82,22 @@ jobs:
       - name: install shellcheck + jq
         run: sudo apt-get update -q && sudo apt-get install -y shellcheck jq
 
+      # `shell: bash` runs with pipefail, so the guard's exit code survives the tee.
       - name: install-topology class guard
-        run: bash tools/install-topology-selftest.sh
+        shell: bash
+        run: bash tools/install-topology-selftest.sh | tee "$RUNNER_TEMP/install-topology.log"
+
+      - name: hand the RED lines to file-issue-on-red
+        id: red
+        if: failure()
+        shell: bash
+        run: |
+          delim="RED_$(openssl rand -hex 16)"
+          {
+            echo "lines<<$delim"
+            grep -E '^[[:space:]]*RED:' "$RUNNER_TEMP/install-topology.log" 2>/dev/null | sed -E 's/^[[:space:]]*//' || true
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
 
   install-topology-bash32:
     name: install-topology (macos, bash 3.2)
@@ -87,6 +106,8 @@ jobs:
       (github.head_ref == 'release/next' &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: macos-latest
+    outputs:
+      red: ${{ steps.red.outputs.lines }}
     steps:
       - uses: actions/checkout@v5
 
@@ -94,25 +115,36 @@ jobs:
       # runners put Homebrew bash 5 first on PATH — so shim PATH to force `#!/usr/bin/env bash`
       # back to the stock binary. Same idiom as ci.yml's selftests-bash32-shard job.
       - name: install-topology class guard under stock bash 3.2
+        shell: bash
         run: |
           mkdir -p /tmp/bash32
           ln -sf /bin/bash /tmp/bash32/bash
           export PATH="/tmp/bash32:$PATH"
           bash --version | head -1
-          bash tools/install-topology-selftest.sh
+          bash tools/install-topology-selftest.sh | tee "$RUNNER_TEMP/install-topology.log"
 
-  # A red run files a deduplicated issue; a green run files nothing. `needs` both guard
-  # jobs so it can name whichever lane(s) actually failed; `always()` because the default
-  # `needs` gate would otherwise skip this job the moment either upstream job fails.
+      - name: hand the RED lines to file-issue-on-red
+        id: red
+        if: failure()
+        shell: bash
+        run: |
+          delim="RED_$(openssl rand -hex 16)"
+          {
+            echo "lines<<$delim"
+            grep -E '^[[:space:]]*RED:' "$RUNNER_TEMP/install-topology.log" 2>/dev/null | sed -E 's/^[[:space:]]*//' || true
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+  # `always()` because the default `needs` gate would otherwise skip this job the moment either
+  # upstream job fails.
   file-issue-on-red:
     needs: [install-topology, install-topology-bash32]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:
       issues: write
-      actions: read   # gh run view --log-failed, to pull the failing suite name(s) below
     steps:
-      - name: dedupe against an already-open red, or file one
+      - name: comment on the open red, or file one
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -120,41 +152,44 @@ jobs:
           SHA: ${{ github.sha }}
           UBUNTU_RESULT: ${{ needs.install-topology.result }}
           BASH32_RESULT: ${{ needs.install-topology-bash32.result }}
+          UBUNTU_RED: ${{ needs.install-topology.outputs.red }}
+          BASH32_RED: ${{ needs.install-topology-bash32.outputs.red }}
         run: |
           set -euo pipefail
+
+          lane_section() {
+            local lane="$1" result="$2" red="$3"
+            [[ "$result" == "failure" ]] || return 0
+            echo "**$lane**"
+            echo
+            if [[ -n "$red" ]]; then
+              echo '```'
+              echo "$red"
+              echo '```'
+            else
+              echo "No \`RED:\` line: the lane failed before the guard reached a verdict. Read the run log."
+            fi
+            echo
+          }
+
+          BODY="$(mktemp)"
+          {
+            echo "The install-topology class guard failed on \`${SHA:0:12}\`."
+            echo
+            echo "Run: https://github.com/$GH_REPO/actions/runs/$RUN_ID"
+            echo
+            lane_section "install-topology (ubuntu)" "$UBUNTU_RESULT" "$UBUNTU_RED"
+            lane_section "install-topology-bash32 (macos, bash 3.2)" "$BASH32_RESULT" "$BASH32_RED"
+          } > "$BODY"
 
           # Dedup by title substring, not a label: a label has to pre-exist in the repo or
           # `gh issue create --label` errors outright, and the title is already the natural key.
           existing="$(gh issue list --search 'is:open "install-topology guard red" in:title' --json number --jq '.[0].number // empty')"
           if [[ -n "$existing" ]]; then
-            echo "install-topology is already red in open issue #$existing — not filing a duplicate."
+            gh issue comment "$existing" --body-file "$BODY"
             exit 0
           fi
 
-          FAILING=()
-          [[ "$UBUNTU_RESULT" == "failure" ]] && FAILING+=("install-topology (ubuntu)")
-          [[ "$BASH32_RESULT" == "failure" ]] && FAILING+=("install-topology-bash32 (macos, bash 3.2)")
-
-          # Best-effort: pull the guard's own `RED:` lines out of the run's captured logs so
-          # the issue names suites, not just lanes. Absence degrades to a pointer at the run.
-          SUITES="$(gh run view "$RUN_ID" --log-failed 2>/dev/null | grep -F 'RED:' | sed -E 's/^[^	]*	[^	]*	[[:space:]]*//' || true)"
-
-          BODY="$(mktemp)"
-          {
-            echo "The install-topology class guard failed on \`${SHA:0:12}\`, lane(s): ${FAILING[*]}."
-            echo
-            echo "Run: https://github.com/$GH_REPO/actions/runs/$RUN_ID"
-            echo
-            if [[ -n "$SUITES" ]]; then
-              echo "Failing suite(s):"
-              echo '```'
-              echo "$SUITES"
-              echo '```'
-            else
-              echo "Failing suite name(s) unavailable here — read the run log linked above."
-            fi
-          } > "$BODY"
-
-          gh issue create --repo "$GH_REPO" \
+          gh issue create \
             --title "install-topology guard red @ ${SHA:0:12}" \
             --body-file "$BODY"
