@@ -257,7 +257,8 @@ removal step is named (see Complexity).
 ### Extension surface
 
 Repo calibration lives in `.claude/second-shift/review-context.md` (shared) plus
-`.claude/second-shift/review-context/<reviewer-name>.md` per dimension. Load what is present; it
+`.claude/second-shift/review-context/<reviewer-name>.md` per dimension, and — for the security
+dimension — `.claude/second-shift/security-rules.md`. Load what is present; it
 is **additive** and never weakens a rule below. A section that exists as a heading but is empty or
 a TODO counts as **absent** — infer conservatively from the diff and say that you did. Never quote
 an empty section back as an exemption.
@@ -503,6 +504,10 @@ inferred from where existing tests live) and read them.
 
 **Run this section only when the security conditional did NOT fire.** When `security-reviewer` was
 spawned, it owns the dimension and this section is skipped — running both manufactures duplicates.
+
+**Repo security rules.** When `.claude/second-shift/security-rules.md` is present, check the diff
+against it: its tenancy predicate and owner-scoped table list are what rule 1 below checks, and
+its validation, upload and response-whitelist rules are additive to the generic ones here.
 
 **Diff-scope discipline.** Findings must be tied to code in the diff. Read siblings for pattern
 context, but a concern that exists only in unchanged code is out of scope: a missing owner filter
