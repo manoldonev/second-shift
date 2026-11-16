@@ -130,6 +130,16 @@ if [[ "$LINT_RAW" == *"--fix"* ]]; then
     if [[ -n "$v" && "$v" != *"--fix"* ]]; then LINT="$(script_cmd "$s")"; LINT_SRC="package.json scripts.$s (scripts.lint runs --fix)"; break; fi
   done
 fi
+# format is a blocking check under the same rule; prettier's --write and -w are the rewriting forms.
+FORMAT_WRITES='(^|[[:space:]])(--write|-w)([[:space:]=]|$)'
+FORMAT_RAW="$(jq -r '.scripts.format // ""' package.json 2>/dev/null || true)"
+if [[ "$FORMAT_RAW" =~ $FORMAT_WRITES ]]; then
+  FORMAT_SRC="package.json scripts.format — it runs --write; give format a non-mutating command"
+  for s in format:check format:ci; do
+    v="$(jq -r --arg s "$s" '.scripts[$s] // ""' package.json 2>/dev/null || true)"
+    if [[ -n "$v" && ! "$v" =~ $FORMAT_WRITES ]]; then FORMAT="$(script_cmd "$s")"; FORMAT_SRC="package.json scripts.$s (scripts.format runs --write)"; break; fi
+  done
+fi
 # Makefile fallback when no package.json at all
 if [[ ! -f package.json && -f Makefile ]]; then
   for t in lint test build typecheck format; do
