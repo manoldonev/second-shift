@@ -110,6 +110,9 @@ fixture j6; printf 'build-pr\nreview-bad-approve-blocker\nreview-approve\n' > "$
 run_case "$d"; expect approved "(j6) a rejected joined verdict, then a consistent one"
 [ "$(grep -c '^verdict: ' "$FAKE_GH/pr-comment-bodies")" -eq 1 ] && grep -qF -- '- approve with a blocker' "$FAKE_GH/prompt-3.txt" && [ "$(wc -l < "$FAKE_GH/statuses")" -eq 1 ] \
   && ok "(j6) only the verdict that passes the check is posted, and the re-spawn names the rule" || bad "(j6) posted $(grep -c '^verdict: ' "$FAKE_GH/pr-comment-bodies") verdicts"
+rb="$(sed -n '/^## Your previous verdict did not bind/,/^## Scheduler input/p' "$FAKE_GH/prompt-3.txt")"
+grep -qF 'rejected it before posting' <<<"$rb" && ! grep -qiE 'posted|never edit' <<<"$rb" \
+  && ok "(j6) the re-spawn is told its draft was rejected before posting, not that a verdict was posted" || bad "(j6) re-spawn block: $(tr '\n' '|' <<<"$rb" | cut -c1-400)"
 
 # (j7) switched off: the review is the lane review alone, as before the joined review
 FIXTURE_CONFIG="$OFFCFG" fixture j7; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"

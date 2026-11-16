@@ -124,6 +124,14 @@ expect env-no-checks "(ho4) a handoff with no check to hand over is refused"
 [ "$RC" -eq 2 ] && grep -qx ready-for-dev "$FAKE_GH/labels" && [ ! -s "$FAKE_GH/issue-comments" ] && [ ! -d "$d/wt" ] && ok "(ho4) refused before the claim: nothing written" || bad "(ho4) rc=$RC labels: $(tr '\n' ' ' < "$FAKE_GH/labels")"
 FIXTURE_CONFIG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"commands":{"main":{"allowUnverified":true}}}' fixture ho5 ""; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff
 expect build-handoff "(ho5) allowUnverified accepts a zero-check handoff"
+fixture ho6; run_case "$d" --handoff; expect build-handoff "(ho6) a handoff"
+hp="$(sed -n 's/^prompt: //p' <<<"$OUT")"; hw="$(sed -n 's/^worktree: //p' <<<"$OUT")"
+[ -n "$hw" ] && grep -qF "start each Bash call with 'cd $hw && '" "$hp" && ! grep -qF 'no cd (use git -C' "$hp" \
+  && ok "(ho6) the handoff prompt runs each command from the worktree, never forbids the cd" || bad "(ho6) shell line: $(grep -i 'shell command\|Bash call' "$hp" | head -n 2)"
+fixture ho7 ""; commit_record; printf -- '- true\n' >> "$d/main/.claude/pipeline-state/42-ledger.md"; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff
+expect env-no-checks "(ho7) a re-entered handoff reads the committed record's checks, not a receipt edited after the commit"
+fixture ho8; commit_record; rm "$d/main/.claude/pipeline-state/42-ledger.md"; printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff
+expect build-handoff "(ho8) a re-entered handoff with its receipt gone reads the committed record's checks"
 fixture ho2; OUT="$( cd "$d/main" && bash "$RUN" 42 --handoff --detach 2>&1 )"; RC=$?
 grep -q '^terminal: usage-handoff-detach$' <<<"$OUT" && [ "$RC" -eq 2 ] && ok "(ho2) --handoff with --detach is a usage refusal" || bad "(ho2) rc=$RC: $(tail -n 1 <<<"$OUT")"
 
