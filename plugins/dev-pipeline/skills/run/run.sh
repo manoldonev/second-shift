@@ -140,6 +140,9 @@ exit_code_for() { # the taxonomy a wrapper branches on
     *) echo 1 ;;
   esac
 }
+# A replace ref in the checkout changes what a sha returns without changing the sha. Every git call below, each tool's
+# and each session's reads the objects as pushed.
+export GIT_NO_REPLACE_OBJECTS=1
 # Run state the terminal reports on. Set as the run advances; empty until then.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; PR_DRAFT=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
@@ -1982,7 +1985,8 @@ spawn() { # spawn <role> <model> <id> <allowlist> <max-turns> <prompt-file> -> r
     sets="$(jq -cn --arg ms "$BUILD_BASH_MS" --arg hook "bash $(shquote "$TOOLS/lane-permission-hook.sh") $(shquote "$WT") $(shquote "$SCRATCH") $(shquote "$WT/$RECORD_REL") $(shquote "$WT/$PLAN_REL")" \
       '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms},hooks:{PermissionRequest:[{hooks:[{type:"command",command:$hook}]}]}}')" \
       || terminal env-session-settings "cannot write the build session's --settings JSON"
-  else sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms}}')" \
+  # the review loads the head's own settings.json, whose env could name the variable again: --settings sits above it
+  else sets="$(jq -cn --arg ms "$REVIEW_BASH_MS" '{env:{CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1",BASH_DEFAULT_TIMEOUT_MS:$ms,BASH_MAX_TIMEOUT_MS:$ms,GIT_NO_REPLACE_OBJECTS:"1"}}')" \
       || terminal env-session-settings "cannot write the review session's --settings JSON"; fi
   # the session reads a copy of the config, written afresh from the launch-time read before every spawn: the sessions
   # share the scratch dir, so a build's edit to its copy must not reach the review that follows it. After every -u:
