@@ -471,16 +471,18 @@ grep -q '^--- a/src/a\.spec\.ts' "$(SD)/plain-diff-1.1.diff" 2>/dev/null \
 # (sg) a grafts file or a shallow file in the checkout rewrites the parents a walk sees: the record commit is still the one
 # the pushed history shows, and a history whose parents are not local is refused, not read short
 SG_REC=docs/plans/main-42-decisions.md
-sg_edit() { # the lane branch gains, after its record commit, a commit that edits the record's D-1 row
+SG_ROW='| D-1 | a | b |'
+SG_EDITED='| D-1 | a | edited |'
+sg_edit() { # the lane branch gains, after its record commit, a commit that edits a row of the record
   git -C "$d/main" checkout -q -b second-shift/42 origin/second-shift/42
-  sed 's/^| D-1 | a | b |/| D-1 | a | edited |/' "$d/main/$SG_REC" > "$d/main/$SG_REC.tmp" && mv "$d/main/$SG_REC.tmp" "$d/main/$SG_REC"
+  sed "s/^$SG_ROW/$SG_EDITED/" "$d/main/$SG_REC" > "$d/main/$SG_REC.tmp" && mv "$d/main/$SG_REC.tmp" "$d/main/$SG_REC"
   git -C "$d/main" commit -qam "docs: edit the record"
 }
 sg_push() { git -C "$d/main" push -q origin second-shift/42 2>/dev/null; git -C "$d/main" checkout -q main; git -C "$d/main" branch -q -D second-shift/42; }
 sg_first() { git -C "$d/origin.git" log --format=%H --diff-filter=A second-shift/42 -- "$SG_REC" | tail -n 1; }
 sg_read() { # sg_read <case> <first as pushed>: the run's baseline and the record the build is handed are the pushed record commit's
-  grep -q "record baseline: $2" <<<"$OUT" && grep -qF '| D-1 | a | b |' "$FAKE_GH/prompt-1.txt" && ! grep -qF '| D-1 | a | edited |' "$FAKE_GH/prompt-1.txt" \
-    && ok "($1) the run reads the record commit as pushed" || bad "($1) want $2, got $(grep 'record baseline' <<<"$OUT"); D-1 handed to the build: $(grep -F '| D-1 |' "$FAKE_GH/prompt-1.txt" 2>/dev/null | tr '\n' '|')"
+  grep -q "record baseline: $2" <<<"$OUT" && grep -qF "$SG_ROW" "$FAKE_GH/prompt-1.txt" && ! grep -qF "$SG_EDITED" "$FAKE_GH/prompt-1.txt" \
+    && ok "($1) the run reads the record commit as pushed" || bad "($1) want $2, got $(grep 'record baseline' <<<"$OUT"); the row handed to the build: $(grep -F "${SG_ROW% b |}" "$FAKE_GH/prompt-1.txt" 2>/dev/null | tr '\n' '|')"
 }
 fixture sg1; commit_record; sg_edit; sg_push; sg1_first="$(sg_first)"
 printf '%s %s\n' "$(git -C "$d/main" rev-parse origin/second-shift/42)" "$(git -C "$d/main" rev-parse origin/main)" > "$d/main/.git/info/grafts"
