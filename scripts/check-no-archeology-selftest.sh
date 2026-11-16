@@ -113,12 +113,12 @@ echo "== sample record data is not a hit; the same id anywhere else is =="
 D="$(new_fixture heredoc)"
 cat >> "$D/tools/probe.sh" <<'EOF'
 cat > "$R/record.md" <<'REC'
-| D-1 | which index | partial unique index, see D-2 | codebase-derived | decision |
+| D-1 | which index | partial unique index | codebase-derived | decision |
 | OR-1 | open region | the retry budget |
 | S-1 | Empty state | decided (D-3) |
 | RS-1 | /orders | empty | frame 12 | No orders yet |
-| PM-1 | the cache goes stale | D-1 |
-| F-2 | lens finding | became D-4 |
+| PM-1 | the cache goes stale | mitigated |
+| F-2 | lens finding | dropped |
 ACs: AC-1 AC-2
 AC-1: the retry is bounded
 AC-2: exempt — covered upstream
@@ -153,6 +153,26 @@ expect_red "(f6) an id in an echoed runtime message still reds" "$D" "tools/prob
 
 D="$(new_fixture row-tail)"; echo "echo '| D-1 | a |' > \"\$R/record.md\"   # the row D-2 supersedes" >> "$D/tools/probe.sh"
 expect_red "(f7) an id after the fixture row's closing quote still reds" "$D" "tools/probe.sh: 1 line(s)"
+
+D="$(new_fixture tag-comment)"; echo '# [AC-3] is why the retry is bounded' >> "$D/tools/probe.sh"
+expect_red "(f9) an AC tag in a comment reds" "$D" "tools/probe.sh: 1 line(s)"
+
+D="$(new_fixture tag-message)"; echo 'echo "the plan tags [AC-3] twice" >&2' >> "$D/tools/probe.sh"
+expect_red "(f10) an AC tag outside a plan task line reds" "$D" "tools/probe.sh: 1 line(s)"
+
+D="$(new_fixture decided-message)"
+printf '%s\n' 'echo "decided (D-1) and nothing else"' '# decided (D-2)' >> "$D/tools/probe.sh"
+expect_red "(f11) decided (D-n) in an echoed message and in a comment reds" "$D" "tools/probe.sh: 2 line(s)"
+
+D="$(new_fixture later-cell)"
+cat >> "$D/tools/probe.sh" <<'EOF'
+cat > "$R/record.md" <<'REC'
+| D-1 | which index | fixes #123 |
+REC
+echo "| D-2 | removed per #124 |" > "$R/plan.md"
+printf '| PM-1 | the cache goes stale | D-3 |\n' >> "$R/record.md"
+EOF
+expect_red "(f12) an issue number or a second id in a later cell of a fixture row reds" "$D" "tools/probe.sh: 3 line(s)"
 
 D="$(new_fixture mid)"; echo 'note="see AC-1: and the row | D-1 | in the record"' >> "$D/tools/probe.sh"
 expect_red "(f8) the shapes are data only at the start of a line or string" "$D" "tools/probe.sh: 1 line(s)"

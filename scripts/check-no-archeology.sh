@@ -17,12 +17,15 @@
 # Sample record data is not a hit. These shapes are the ones ledger-lint.sh, plan-coverage.sh and
 # verdict-check.sh parse, at the start of a line, of a quoted string or after a literal \n:
 #
-#   | D-1 | … |          a table row whose first cell is a D, OR, S, RS, PM or F id, to the end of the row
+#   | D-1 |               the first cell of a table row, when it is a D, OR, S, RS, PM or F id
 #   AC-1: …   - AC-1      an acceptance-criterion line
 #   ACs: AC-1 AC-2        the id list
 #
-# and anywhere in a line: an [AC-1] tag and `decided (D-1)`. A line that calls ok, bad, pass or fail
-# with a string is a test title and is read whole, so an id in a title is a hit whatever its shape.
+# Only the id itself is dropped: an issue number or a second id later in the row or line is still a
+# hit. Two more forms are data only where they belong: `decided (D-1)` in a line that opens such a
+# table row, and an [AC-1] tag in a line that opens a plan task (`- [ ] 1.1 …`). A line that calls ok,
+# bad, pass or fail with a string is a test title and is read whole, so an id in a title is a hit
+# whatever its shape.
 #
 # The patterns cannot tell `#333` the color from `#333` the issue, or an ordinal `#2` from a ticket:
 # those are `data` rows or get reworded. Tracker keys of other shapes, and an origin story that names
@@ -87,11 +90,12 @@ hits() {
     {
       t = $0
       if (t !~ /(^|[^[:alnum:]_-])(ok|bad|pass|fail)[ \t]+["\047]/) {
-        gsub(/(^|["\047]|\\n)[ \t]*\|[ \t]*(D|OR|S|RS|PM|F)-[0-9]+[ \t]*\|[^"\047\\]*/, " ", t)
+        task = (t ~ /(^|["\047]|\\n)[ \t]*- \[[ xX]\] /)
+        row = gsub(/(^|["\047]|\\n)[ \t]*\|[ \t]*(D|OR|S|RS|PM|F)-[0-9]+[ \t]*\|/, " | ", t)
         gsub(/(^|["\047]|\\n)[ \t]*(- AC-[0-9]+|AC-[0-9]+:)/, " ", t)
-        gsub(/ACs:([ \t]+AC-[0-9]+)+/, " ", t)
-        gsub(/\[AC-[0-9]+\]/, " ", t)
-        gsub(/decided[ \t]*\(D-[0-9]+\)/, " ", t)
+        gsub(/(^|["\047]|\\n)[ \t]*\^?ACs:([ \t]+AC-[0-9]+)+/, " ", t)
+        if (task) gsub(/\[AC-[0-9]+\]/, " ", t)
+        if (row) gsub(/decided[ \t]*\(D-[0-9]+\)/, " ", t)
       }
       if (t ~ hit) { if (list) print FILENAME ":" FNR ":" $0; else n++ }
     }
