@@ -185,7 +185,7 @@ expect_green "(b1) a file at its count is green" "$D"
 D="$(new_fixture over)"; printf '# (#1)\n# (#2)\n# AC-3\n' >> "$D/tools/probe.sh"; row "$D" tools/probe.sh 2 debt "fixture"
 expect_red "(b2) a file over its count reds" "$D" "tools/probe.sh: 3 hit(s), the baseline allows 2"
 
-D="$(new_fixture under)"; printf '# (#1)\n' >> "$D/tools/probe.sh"; row "$D" tools/probe.sh 2 open-pr "fixture"
+D="$(new_fixture under)"; printf '# (#1)\n' >> "$D/tools/probe.sh"; row "$D" tools/probe.sh 2 debt "fixture"
 out="$(run_lint "$D")"; rc=$?
 [[ $rc -eq 0 ]] && printf '%s' "$out" | grep -qF "tools/probe.sh: 1 hit(s), the row allows 2 — lower it" \
   && ok "(b3) a file under its count is green and the row is named as lowerable" || bad "(b3) rc=$rc:

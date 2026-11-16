@@ -1,8 +1,7 @@
 # Files scripts/check-no-archeology.sh lets carry an issue number, AC id or decision id.
-# path<TAB>allowed hits<TAB>class<TAB>why. Classes: data (stays), debt (to sweep), open-pr (to sweep;
-# an open pull request was changing the file when the row was written). A count only goes down.
+# path<TAB>allowed hits<TAB>class<TAB>why. Classes: data (stays), debt (to sweep).
+# A count only goes down.
 docs/review-panel-yield.md	72	data	row keys: the pull requests the yield table measures
-docs/testing.md	2	open-pr	doc prose
 plugins/audit-toolkit/scripts/audit-selftest.sh	5	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/design-toolkit/skills/design-faithful/lib/emit-card.mjs	2	data	hex colors
 plugins/dev-pipeline/skills/run/herdr-adapter-selftest.sh	78	debt	selftest labels; fixture ids among them become data rows when swept
@@ -15,8 +14,8 @@ plugins/dev-pipeline/skills/run/run-detach-selftest.sh	27	debt	selftest labels; 
 plugins/dev-pipeline/skills/run/run-joined-selftest.sh	3	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-judge-selftest.sh	46	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-record-selftest.sh	102	debt	selftest labels; fixture ids among them become data rows when swept
-plugins/dev-pipeline/skills/run/run-rows-selftest.sh	27	open-pr	selftest labels and fixture ids
-plugins/dev-pipeline/skills/run/run-selftest-lib.sh	36	open-pr	selftest labels and fixture ids
+plugins/dev-pipeline/skills/run/run-rows-selftest.sh	3	data	fixture record rows and the verdict-check message a case asserts
+plugins/dev-pipeline/skills/run/run-selftest-lib.sh	14	data	fixture record rows, AC lines and the Closes keyword of the fake PR body
 plugins/dev-pipeline/skills/run/run-selftest.sh	27	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-verdict-selftest.sh	26	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/tools/bot-commit-selftest.sh	47	debt	selftest labels; fixture ids among them become data rows when swept
@@ -30,15 +29,14 @@ plugins/dev-pipeline/tools/plan-coverage-selftest.sh	85	debt	selftest labels; fi
 plugins/dev-pipeline/tools/plan-coverage.sh	3	data	the AC syntax the tool documents and prints
 plugins/dev-pipeline/tools/post-review-status-selftest.sh	11	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/tools/pre-commit-typecheck-selftest.sh	1	debt	selftest labels; fixture ids among them become data rows when swept
-plugins/dev-pipeline/tools/verdict-check-selftest.sh	44	open-pr	selftest labels and fixture ids
-plugins/dev-pipeline/tools/verdict-check.sh	2	open-pr	comments and runtime messages
+plugins/dev-pipeline/tools/verdict-check-selftest.sh	38	data	fixture record rows and the row ids verdict-check prints
 plugins/intake-toolkit/hooks/exitplan-ledger-gate-selftest.sh	5	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/intake-toolkit/skills/plan-interview/tools/dup-scan-selftest.sh	24	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/intake-toolkit/skills/plan-interview/tools/dup-scan.sh	4	data	the calibration table: the selftest's input pairs
 plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint-selftest.sh	64	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh	4	data	the AC and decision-row syntax the tool documents and prints
 plugins/review-toolkit/evals/code-review-bench-eval/planted/corpus-selftest.sh	6	data	fixture record rows and AC ids
-plugins/review-toolkit/evals/code-review-bench-eval/planted/render-selftest.sh	8	open-pr	selftest labels and fixture ids
+plugins/review-toolkit/evals/code-review-bench-eval/planted/render-selftest.sh	8	data	fixture record rows and AC ids, and the PR number the rendered prompt carries
 plugins/review-toolkit/evals/code-review-bench-eval/planted/score-selftest.sh	8	data	fixture record rows and AC ids
 plugins/review-toolkit/scripts/check-emit-deadline-selftest.sh	8	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/review-toolkit/scripts/check-model-tiers-selftest.sh	5	debt	selftest labels; fixture ids among them become data rows when swept
@@ -46,9 +44,7 @@ plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	48	debt
 plugins/review-toolkit/scripts/check-review-context-selftest.sh	1	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/review-toolkit/scripts/check-reviewer-references-selftest.sh	5	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/review-toolkit/scripts/post-pending-review-selftest.sh	5	data	the fixture PR number in asserted output
-plugins/review-toolkit/scripts/text-contract-selftest.sh	5	open-pr	selftest labels and fixture ids
-plugins/review-toolkit/workflows/intake-fanout.mjs	8	open-pr	workflow comments
-plugins/review-toolkit/workflows/runtime-shim-selftest.mjs	28	open-pr	selftest labels and fixture ids
+plugins/review-toolkit/workflows/runtime-shim-selftest.mjs	1	data	the fixture issue number a case asserts in the prompt
 plugins/review-toolkit/workflows/workflows-mjs-selftest.sh	2	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/second-shift/skills/doctor/tools/check-extensions-selftest.sh	5	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/second-shift/skills/doctor/tools/doctor-selftest.sh	1	debt	selftest labels; fixture ids among them become data rows when swept
