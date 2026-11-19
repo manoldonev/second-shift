@@ -18,7 +18,8 @@ specific to an intake ticket.
 
 - **Requirements' rows.** A rough input arrives with the rows its interview already settled
   (`user-answered`, `user-delegated`, `deferred`). They are settled: never re-ask one, and carry it
-  into the ledger as it stands.
+  into the ledger as it stands. The one exception is a row that contradicts a sentence of the
+  parent's text: it is asked again ("The parent ticket" below).
 - **Requirements' open gaps** — spec-reviewer findings only the operator can close. Each is a
   question here.
 - **Explore's snapshot and the pool items that pass the materiality bar.** Each surviving item is a

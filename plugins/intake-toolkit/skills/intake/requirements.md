@@ -25,7 +25,8 @@ source" below, its last act). Under `tracker.type: jira` it also holds the paren
    claims, never whether they are verified.
 
 Read the ticket with `gh issue view <issue> --json title,body,labels,comments` (jira: the
-`getJiraIssue` the skill's tracker delta names). Then take one route:
+`getJiraIssue` the skill's tracker delta names, then the parent read in "The parent ticket, under
+jira" below). Then take one route:
 
 | Input | Route | spec-reviewer |
 | --- | --- | --- |
@@ -153,8 +154,8 @@ the title and the body, and ask **one** question: file it now, or will they file
 
 - **Yes, file it** → file through the session's own tracker tool: on github
   `gh issue create --title <title> --body-file <file in the session scratchpad>`; under
-  `tracker.type: jira`, the Atlassian MCP's create tool (`createJiraIssue`, in whichever of the
-  three namespaces the session exposes) when the session has one. With no create tool, say so and
+  `tracker.type: jira`, the Atlassian MCP's create tool (`createJiraIssue`, found by its bare
+  name whatever its prefix) when the session has one. With no create tool, say so and
   take the other branch.
 - **No, they file it** → wait for the operator to paste the key.
 
@@ -192,9 +193,9 @@ Split.
 1. Fetch the issue with `getJiraIssue` and name `parent` in its `fields`. The default field set
    leaves `parent` out, so a default call always looks parentless.
 2. **A parent** → read the parent with `getJiraIssue` and keep its body. Then list the parent's
-   other children with `searchJiraIssuesUsingJql`, in whichever of the three namespaces the
-   session exposes (JQL `parent = <parent key>`). Rovo's `search` does not run JQL. Keep each
-   child's key and summary.
+   other children with `searchJiraIssuesUsingJql`, found by its bare name whatever its prefix
+   (`SKILL.md`, "Tracker delta"), with JQL `parent = <parent key>`. Rovo's `search` does not run
+   JQL. Keep each child's key and summary.
 3. **No parent** → nothing to read. Say so in the outcome (below). It is not a failure.
 
 These reads are read-only. Make no tracker write of any kind: no comment, link, edit or
