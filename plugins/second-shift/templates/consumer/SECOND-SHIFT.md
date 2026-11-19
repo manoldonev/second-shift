@@ -25,7 +25,7 @@ repo enables {{PLUGIN_LIST}}) — `/second-shift:doctor` verifies the install ag
 
 ### intake-toolkit
 - Skills: `intake` (the only way into intake — its stages are supporting files only it reads), `plan-interview` (plan-mode Decision Ledger), `grill-me`, `interviewing-baseline` — loaded only when invoked.
-- Agent: `implementability-probe` — dispatched only by `/intake-toolkit:intake`, at its Receipt stage: first with the ticket body alone, then with the finished decision record and the ticket body.
+- Agent: `implementability-probe` — dispatched only by `/intake-toolkit:intake`, at its Receipt stage: one round, with the finished decision record and the ticket body.
 - Hook: a PreToolUse gate on ExitPlanMode (checks a Decision Ledger exists when a plan is submitted).
 
 ### design-toolkit (only present if this repo enabled it)
