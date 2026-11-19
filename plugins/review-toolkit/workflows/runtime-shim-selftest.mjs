@@ -2,15 +2,15 @@
 // runtime-shim-selftest.mjs — execute WHOLE production Workflow `.mjs` bodies the way
 // the Workflow runtime does, and assert their real dispatch ladders behaviorally.
 //
-// WHY THIS EXISTS (#214, epic #213)
-// --------------------------------
+// WHY THIS EXISTS
+// ---------------
 // The suites this file replaces (the since-retired design-sync-selftest.mjs Cases A-F,
 // null-reviewer-selftest.mjs Cases A-E/G) were MIRROR HARNESSES: they re-implemented production's
 // dispatch logic inside the selftest and then tested the copy. That technique is
 // structurally incapable of failing on a production edit, and it rotted exactly as
-// you would predict — both suites still modelled the pre-#169 StructuredOutput-retry
+// you would predict — both suites still modelled the old StructuredOutput-retry
 // transport long after production moved to the text-contract + emitter ladder, and
-// stayed green the whole time. The #204 pathology, inside the tests built to prevent it.
+// stayed green the whole time. The same pathology, inside the tests built to prevent it.
 //
 // The blocker was believed to be structural: Workflow bodies carry a top-level `return`
 // and reference runtime-injected globals, so `node file.mjs` and even `node --check`
@@ -37,8 +37,8 @@
 // The meta-strip is a balanced-brace scan, not a parser. That is sound here because
 // Case R below lints every sibling workflow for meta-literal purity (no template
 // interpolation, no computed values), so a brace inside a string in the meta block
-// cannot ship. (The lint lived in design-sync-selftest.mjs Case I until #574 retired
-// that suite with its engine; it moved here because this file is what its soundness
+// cannot ship. (The lint lived in design-sync-selftest.mjs Case I until it retired
+// with its engine; it moved here because this file is what its soundness
 // underwrites.)
 //
 // The shim mechanics themselves (stripMeta / makeRunner / the injected fakes) live in
@@ -96,7 +96,7 @@ const runCodeReview = (behaviors, argsOverride = {}) => {
   const f = makeFakeAgent(behaviors)
   // log lines are captured rather than dropped: Case Q asserts that a name substitution
   // announces itself, and a silent normalization is the same invisibility class as the
-  // bug it fixes (#434).
+  // bug it fixes.
   const logs = []
   const args = {
     worktree: '/tmp/wt',
@@ -141,7 +141,7 @@ for (const [name, path] of [
 }
 
 // ---------------------------------------------------------------------------
-// Case B — code-review.mjs reviewer dispatch ladder (the real one, #169).
+// Case B — code-review.mjs reviewer dispatch ladder (the real one).
 // ---------------------------------------------------------------------------
 console.log('── Case B: code-review.mjs text-contract ladder')
 
@@ -153,7 +153,7 @@ const ESCALATED_MARK = 'YOUR PREVIOUS ATTEMPT AT THIS EXACT REVIEW DIED HAVING W
   eq('B1 success first try returns the parsed result', result.reviewers[0].result.verdict, 'approve')
   eq('B1 success first try dispatches exactly once', calls.length, 1)
   ok('B1 a first-try success carries no retried/failed flags', !result.reviewers[0].retried && !result.reviewers[0].failed)
-  eq('B1 range is the THREE-DOT form (#130)', result.range, 'aaa...bbb')
+  eq('B1 range is the THREE-DOT form', result.range, 'aaa...bbb')
   ok('B1 the reviewer is told to diff the three-dot range', calls[0].prompt.includes('diff aaa...bbb`'), calls[0].prompt)
   ok('B1 attempt 0 carries no escalated emit text', !calls[0].prompt.includes(ESCALATED_MARK))
   eq('B1 the return is exactly range, worktree, reviewers', Object.keys(result).sort(), ['range', 'reviewers', 'worktree'])
@@ -199,7 +199,7 @@ const ESCALATED_MARK = 'YOUR PREVIOUS ATTEMPT AT THIS EXACT REVIEW DIED HAVING W
 {
   // Empty text on both attempts = the maxTurns-cap death. Must be dark AND must carry
   // the turn-budget error signature, which is what points triage at an emit deadline
-  // rather than at the parser (#183).
+  // rather than at the parser.
   const { result, calls } = await runCodeReview(['', ''])
   const r = result.reviewers[0]
   eq('B4 turn-cap death dispatches twice then gives up', calls.length, 2)
@@ -220,7 +220,7 @@ const ESCALATED_MARK = 'YOUR PREVIOUS ATTEMPT AT THIS EXACT REVIEW DIED HAVING W
 
 {
   // Text produced, but never a sentinel -> dark with the OTHER error string. The two
-  // causes must stay distinguishable; conflating them cost real triage time (#183).
+  // causes must stay distinguishable; conflating them cost real triage time.
   const { result } = await runCodeReview(['prose only', 'prose only again'])
   ok('B5 sentinel-less text is dark via the text-contract string', String(result.reviewers[0].error).startsWith('text-contract:'))
   ok('B5 sentinel-less text still carries the twice-dead markers', result.reviewers[0].retried === true)
@@ -362,9 +362,9 @@ const dispatchedConfig = (() => {
 }
 
 // ---------------------------------------------------------------------------
-// Case M — intake-review.mjs's per-agent wall-clock ceiling (#283).
+// Case M — intake-review.mjs's per-agent wall-clock ceiling.
 //
-// AC-5: a leg that never emits must be declared dark by the CEILING'S TIMER, not by
+// A leg that never emits must be declared dark by the CEILING'S TIMER, not by
 // exhausting its turn cap. The fake agent behavior below is a function returning a
 // promise that never resolves — the turn-cap-exhaustion path (Case B4's analogue: two
 // '' attempts, calls.length === 2) cannot even be reached, since dispatchIntake's
@@ -377,7 +377,7 @@ const dispatchedConfig = (() => {
 // real timer id the patched setTimeout returns.
 
 // ---------------------------------------------------------------------------
-// Case T — the tier seam (#351). Dispatch tables now name an abstract tier, and a
+// Case T — the tier seam. Dispatch tables now name an abstract tier, and a
 // config-resolved map turns it into a vendor token. Every assertion here runs the REAL
 // code-review.mjs body through the shim, because this is a resolution ORDER contract
 // (override > table, then map) and the order is invisible to any static read.
@@ -389,7 +389,7 @@ const dispatchedConfig = (() => {
 // survives it. T5/T6 are the same pair for the site this ticket brings into the
 // governed set: its model was a hardcoded literal no consumer could reach.
 // ---------------------------------------------------------------------------
-console.log('── Case T: tier resolution through reviewers.tierMap (#351)')
+console.log('── Case T: tier resolution through reviewers.tierMap')
 {
   // T1 — no tierMap: the tier resolves to exactly the model dispatched before the seam.
   const { calls } = await runCodeReview([findingsBlock()], {
@@ -433,7 +433,7 @@ console.log('── Case T: tier resolution through reviewers.tierMap (#351)')
   eq('T5 an override naming a tier resolves through the map', calls[0]?.opts?.model, 'opus')
 }
 {
-  // T6 — the structured-emitter leg, which carried a hardcoded 'haiku' until #351.
+  // T6 — the structured-emitter leg, which carried a hardcoded 'haiku' before the tier seam.
   const bad = 'REVIEW_RESULT\n```json\n{not valid json,,,}\n```'
   const emitterObject = { verdict: 'approve', findings: [] }
   const { calls } = await runCodeReview([bad, bad, emitterObject], {
@@ -444,7 +444,7 @@ console.log('── Case T: tier resolution through reviewers.tierMap (#351)')
 }
 {
   // T7 — and it now HONORS an override, which is the bypass this ticket closes. Red
-  // against the pre-#351 body, whose literal ignored config entirely.
+  // against the pre-seam body, whose literal ignored config entirely.
   const bad = 'REVIEW_RESULT\n```json\n{not valid json,,,}\n```'
   const emitterObject = { verdict: 'approve', findings: [] }
   const { calls } = await runCodeReview([bad, bad, emitterObject], {
@@ -524,13 +524,13 @@ const runIntake = (behaviors, argsOverride = {}) => {
 }
 
 // ---------------------------------------------------------------------------
-// Case N — intake-review.mjs's referencedDocs content injection (#306).
+// Case N — intake-review.mjs's referencedDocs content injection.
 //
-// AC-1/AC-2/AC-3: `referencedDocs[].content` (documented in the args header, line 113)
+// `referencedDocs[].content` (documented in the args header, line 113)
 // used to reach neither dispatch prompt — only `.path` did, via `docsNote`'s "already
 // read — do not re-fetch" claim. That told sub-agents not to read files they were
 // never given. This case pins that the content now rides in BOTH prompts, and that an
-// empty `referencedDocs` (the pre-#306 default, every existing call site) is unaffected.
+// empty `referencedDocs` (the old default, every existing call site) is unaffected.
 // ---------------------------------------------------------------------------
 console.log('── Case N: intake-review.mjs referencedDocs content injection')
 
@@ -546,7 +546,7 @@ console.log('── Case N: intake-review.mjs referencedDocs content injection')
 
 {
   // N4: the default (no referencedDocs passed) must carry no doc note/block at all —
-  // proves the fix is additive and does not alter the pre-#306 no-docs prompt shape.
+  // proves the fix is additive and does not alter the old no-docs prompt shape.
   const { calls } = await runIntake([specBlock('implementable'), explorerBlock()])
   const noNote = calls.every((c) => !/Referenced docs|REFERENCED DOC/.test(c.prompt))
   ok('N4 an empty referencedDocs emits no docs note or block on either prompt', noNote)
@@ -567,7 +567,7 @@ console.log('── Case P: intake-review.mjs pins the read surface')
 }
 
 // ---------------------------------------------------------------------------
-// Case TI — the tier seam on the OTHER ladder (#351, round-1 review finding).
+// Case TI — the tier seam on the OTHER ladder.
 //
 // Case T proves the contract against code-review.mjs. intake-review.mjs carries a
 // byte-identical `tierMap` merge and `modelFor`, and that identity is exactly why it went
@@ -585,14 +585,14 @@ console.log('── Case P: intake-review.mjs pins the read surface')
 // silently no-op'd.
 //
 // TI1/TI2 are the T1/T2 pair for this ladder, and the pairing carries the same reason: TI1
-// alone survives BOTH mutations above, because the shipped default and the pre-#351 hardcoded
+// alone survives BOTH mutations above, because the shipped default and the pre-seam hardcoded
 // token are the same string by design. Only a retarget separates a live map read from a dead
 // one, so a default-only case here would be vacuous coverage.
 //
 // `args.agents` selects a single descriptor, which is what makes `calls[i]` positional here
 // the way `args.reviewers` does in Case T.
 // ---------------------------------------------------------------------------
-console.log('── Case TI: tier resolution on the intake ladder (#351)')
+console.log('── Case TI: tier resolution on the intake ladder')
 {
   // TI1 — no tierMap: `reasoning` resolves to exactly what spec-reviewer dispatched before.
   const { calls } = await runIntake([specBlock()], {
@@ -636,7 +636,7 @@ console.log('── Case TI: tier resolution on the intake ladder (#351)')
   eq('TI5 an intake override naming a tier resolves through the map', calls[0]?.opts?.model, 'haiku')
 }
 {
-  // TI6 — intake's emit leg, which carried the same hardcoded 'haiku' until #351. Two
+  // TI6 — intake's emit leg, which carried the same hardcoded 'haiku' before the tier seam. Two
   // sentinel-bearing but unparseable attempts drive the ladder into emitStructured.
   const bad = 'REVIEW_RESULT\n```json\n{not valid json,,,}\n```'
   const emitted = { verdict: 'implementable', findings: [] }
@@ -668,7 +668,7 @@ console.log('── Case TI: tier resolution on the intake ladder (#351)')
 }
 
 // ---------------------------------------------------------------------------
-// Case Q — code-review.mjs bare-name normalization (#434).
+// Case Q — code-review.mjs bare-name normalization.
 //
 // The bug: review-lead's panel named plugin reviewers BARE, code-review.mjs passed
 // agentType to agent() verbatim, and every dispatch died with `agent type not found`.
@@ -727,8 +727,8 @@ console.log('── Case Q: code-review.mjs bare-name normalization')
 
 // ---------------------------------------------------------------------------
 // Case R — Workflow meta literal-purity across every sibling workflows/*.mjs.
-// Relocated verbatim-in-substance from the retired design-sync-selftest.mjs Case I
-// (#574): the Workflow runtime requires `export const meta = {...}` to be a PURE
+// Relocated verbatim-in-substance from the retired design-sync-selftest.mjs Case I:
+// the Workflow runtime requires `export const meta = {...}` to be a PURE
 // LITERAL — a BinaryExpression (string concatenation), template literal, call,
 // spread, or identifier value makes the runtime reject the whole script at dispatch
 // ("non-literal node type in meta"). v2.0.0 shipped a workflow with a concatenated
@@ -803,7 +803,7 @@ console.log('── Case R: workflow meta literal-purity (relocated from design-
 }
 
 // ---------------------------------------------------------------------------
-// Case FO — intake-fanout.mjs (#916): the production body /intake's Explore stage
+// Case FO — intake-fanout.mjs: the production body /intake's Explore stage
 // dispatches, built as the consumer replay measured it. The angles alternate opus and fable,
 // the pre-mortem runs on fable, and every claim is refuted by the family that did not make it
 // (a lens retried onto the other family included). A refuted claim never reaches the pool and a
@@ -876,7 +876,7 @@ const byRole = (calls, re) => calls.filter((c) => re.test(c.opts.agentType))
   ok('FO B2 the lens writer gets build rule 2 whole, model diversity included', w && /Diversity of angle, then of model/.test(w.prompt))
 }
 
-// --- B3: the knowledge source reaches the lens writer only (#1032 D-11) ---
+// --- B3: the knowledge source reaches the lens writer only ---
 {
   const KS = 'Provider: <plugin>:<provider-agent>\n\n    Audit rows are retained.\n\n    Sources:\n    - <kb-page>'
   const { agent, calls } = fakeAgent()

@@ -1,4 +1,4 @@
-# Release the pipeline's run-state labels when a tracker item closes (#423).
+# Release the pipeline's run-state labels when a tracker item closes.
 #
 # The claimed label is added at claim and removed by no lane session: it goes stale at the
 # CLOSE, which is a moment no lane session is guaranteed to be present for. A hand-closed issue

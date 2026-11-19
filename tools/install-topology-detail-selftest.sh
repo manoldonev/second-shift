@@ -7,8 +7,8 @@
 # INVARIANT GUARDED: when a staged suite fails, the one line install-topology prints about it
 # names THAT SUITE'S OWN failure, not a line that merely contains the substring "fail".
 #
-# WHY THIS IS WORTH A SUITE (#664). install-topology ran nightly at the time (#666 later moved
-# it to event triggers), so its red line was usually the only thing a human read about a
+# WHY THIS IS WORTH A SUITE. install-topology ran nightly at the time (it later moved
+# to event triggers), so its red line was usually the only thing a human read about a
 # failure — the captured log is deleted with $BASE on exit and never leaves the runner. The
 # line composed the detail as `grep -iE 'FAIL|error|No such|not found' "$log" | head -1`, and
 # for pipeline-doctor-selftest.sh the first line matching that is a PASSING one:
@@ -23,8 +23,8 @@
 # suite has already exited non-zero. There is no verdict path to compose it onto.
 #
 # WHY NOT INSIDE install-topology-selftest.sh ITSELF: that file stages and runs every shipped
-# suite — ~5 to 10 minutes, excluded from the PR lane since #620 (nightly then; event-triggered
-# since #666). A guard for three lines of grep must not inherit that cost, or it runs late — at
+# suite — ~5 to 10 minutes, excluded from the PR lane (nightly once; event-triggered
+# now). A guard for three lines of grep must not inherit that cost, or it runs late — at
 # the next push to `main`, not on the branch that caused it: the red-detail block lives inside
 # install-topology-selftest.sh, the guard script itself, so an edit here is the push filter's
 # guard-script family, not its shipped-suite-content one. This suite stages nothing and needs no
@@ -77,7 +77,7 @@ detail() { # detail <rc> <log-body>
 }
 
 # ---------------------------------------------------------------------------
-# (t1) THE #664 REGRESSION. A passing line containing "failed" sits ABOVE the real FAIL line.
+# (t1) THE REGRESSION. A passing line containing "failed" sits ABOVE the real FAIL line.
 # This was pipeline-doctor-selftest.sh's actual output shape, trimmed to the two lines that
 # decide it: the whole defect is which of them the detail quotes.
 # ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ esac
 # (t6) the INFRA arms. 124, 125 and a signal death are not assertion failures — no case in
 # the suite decided anything — so each is named rather than described by whatever the log
 # happened to contain. The fixture log carries a PASS line on purpose: these arms must not
-# read it at all, and the whole #664 disease is a red quoting a line that had just succeeded.
+# read it at all, and the whole disease is a red quoting a line that had just succeeded.
 # ---------------------------------------------------------------------------
 t6_log='  PASS: milestone-1 fails when the lane spec is absent'
 

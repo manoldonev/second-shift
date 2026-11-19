@@ -77,9 +77,10 @@ Build the draft config from detection — the configVersion 3 shape, and only th
 - `commands.<key>` from detection: the emitted block contains EXACTLY these keys —
   `lint`, `typecheck`, `test`, `format` from detect.sh. **Undetected
   lanes are explicit `null`** — never omit, never invent. Each non-null `lint`, `typecheck`,
-  `test` and `format` is a blocking check the scheduler runs after each build, so `lint` must
-  not rewrite files: when detect's `lint` provenance says the script runs `--fix`, flag it on the
-  review screen and ask for the non-mutating command.
+  `test` and `format` is a blocking check the scheduler runs after each build, so neither `lint`
+  nor `format` may rewrite files: when detect's `lint` provenance says the script runs `--fix`, or
+  its `format` provenance says the script runs `--write`, flag it on the review screen and ask for
+  the non-mutating command.
   (Integration/API test tiers, and `build`, are NOT config command keys — ship them via
   `extraLanes`.)
   `lanes` (setup steps) is deliberately NOT in that key list — detection cannot prove a
@@ -294,7 +295,9 @@ Then the per-engineer file, from Step 3 item 2(b):
 
 ## Step 5 — Validate in a loop
 Resolve config-lint and the tier alphabet it reads (review-toolkit's `model-tiering.md`) from the
-same list: `claude plugin list --json | jq -r --arg id <id> '[.[] | select(.id==$id)] | sort_by(.lastUpdated) | last | .installPath // empty'`
+same list, taking the record that loads in this repo — its project-scope record when one exists,
+else the newest user- or local-scope one, never another repo's:
+`claude plugin list --json | jq -r --arg id <id> --arg root "$(git rev-parse --show-toplevel)" '[.[] | select(.id==$id and ((.projectPath // "") == $root or .scope=="user" or .scope=="local"))] | ((map(select(.scope=="project" and ((.projectPath // "") == $root))) | sort_by(.lastUpdated // "") | last) // (sort_by(.lastUpdated // "") | last)) | .installPath // empty'`
 with `dev-pipeline@second-shift`, then `review-toolkit@second-shift`.
 - Found → `SECOND_SHIFT_TIER_DOC="<review-toolkit installPath>/model-tiering.md" bash "<dev-pipeline installPath>/tools/config-lint.sh" .claude/second-shift.config.json`
   (review-toolkit not installed → fetch its `model-tiering.md` as below and point the variable at it.)

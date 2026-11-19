@@ -40,7 +40,7 @@
 set -uo pipefail
 
 ISSUE="${1:-}"; shift || true
-# Label vocabulary (config tracker.labels; #11) — the caller passes the resolved
+# Label vocabulary (config tracker.labels) — the caller passes the resolved
 # names, defaulting to the shipped queue/claimed labels when omitted.
 QUEUE_LABEL="ready-for-dev"
 CLAIMED_LABEL="in-progress"
@@ -57,7 +57,7 @@ if [[ -z "$ISSUE" ]]; then
   exit 2
 fi
 
-# Single resolver (#92) — no private ladder. Mock seam: set the env var named by
+# Single resolver — no private ladder. Mock seam: set the env var named by
 # tracker.bot.envVar (default GH_BOT) under a bot-enabled SECOND_SHIFT_CONFIG.
 _RESOLVER="$(cd "$(dirname "$0")" && pwd)/gh-bot.sh"
 if [[ ! -f "$_RESOLVER" ]]; then

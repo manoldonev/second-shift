@@ -48,7 +48,7 @@ The ledger records every decision an interview makes, and who made it. It is a m
 - `user-delegated` — the engineer said "your call"; the grounded recommendation is recorded as the resolution.
 - `codebase-derived` — grounded in code, an ADR, the repo's CLAUDE.md, the Product-Essence Brief, or the consumer's knowledge source; the Resolution cites the source. In a receipt it states its evidence in one of three forms: ``run: `<command>` → <decisive output>`` for a fact you checked, `cited (convention|adr): <path:line>` for one no command can check, or `cited (kb): <kb-page>` for one adopted from the knowledge source's answer (see "Evidence" under "The intake receipt"). A row that records a choice rather than a fact is not `codebase-derived`: ask it.
 - `deferred` — explicitly parked, with owner and when it must be resolved in the Resolution cell.
-- `ticket-sourced` — the operator resolved it **in a ticket comment** and the run adopted that resolution. The Resolution cell MUST cite the comment by URL (`https://…`) — an uncited row is an assumption wearing a label, and the lint rejects it.
+- `ticket-sourced` — the operator resolved it **in a ticket comment** and the run adopted that resolution; or, under a jira tracker, it is a fact the issue's **parent ticket** or a **sibling** under that parent states and the issue does not contradict (Kind `fact` in a receipt). The Resolution cell MUST cite the comment, or that ticket, by URL (`https://…`) — an uncited row is an assumption wearing a label, and the lint rejects it.
 
 `assumed` is **not** a legal value. An assumption either gets asked, grounded, or deferred explicitly — the ledger makes a silent assumption a lint error instead of a style problem.
 
@@ -56,7 +56,7 @@ The ledger records every decision an interview makes, and who made it. It is a m
 
 - IDs are stable `D-1..n` and never reused after retirement (same discipline as `AC-n` IDs).
 - Resolution is never empty. Write it as the answer: the chosen value first, then the reason. Use sentences of max 25 words. Never split one decision into several rows to make the cells shorter. Keep a cell to 40 words when no condition is lost. A cell can be longer only to keep a condition. Put each condition in its own sentence. Evidence does not count toward the 40 words. Write the options you weighed in an `Options weighed:` list under the table, not in the cell.
-- **Precedence when sources disagree:** a row hydrated from a pre-flight `.claude/pipeline-state/{issue}-ledger.md` wins over a ticket comment covering the same decision. Two comments that conflict, or one that is ambiguous, resolve to `deferred` naming the conflict in the Resolution cell — never to a `ticket-sourced` row that picks a side.
+- **Precedence when sources disagree:** a row hydrated from a pre-flight `.claude/pipeline-state/{issue}-ledger.md` wins over a ticket comment covering the same decision. Two comments that conflict, or one that is ambiguous, resolve to `deferred` naming the conflict in the Resolution cell — never to a `ticket-sourced` row that picks a side. The issue's own text ranks above its parent ticket's text. Where they conflict, recommend the issue's text and ask the operator, quoting the parent's sentence; never settle it with a `ticket-sourced` row.
 - **Explicit empty form** for trivial work — the section must still exist, containing exactly this line instead of a table:
 
   ```
@@ -86,7 +86,7 @@ Receipt rows therefore carry a fifth `Kind` cell:
 | Kind | Legal provenance | Meaning |
 | --- | --- | --- |
 | `intent` | `user-answered`, `user-delegated`, `ticket-sourced` | the human resolved it, in the session or in a cited ticket comment |
-| `fact` | `codebase-derived`, `ticket-sourced` | derived from code or a cited comment |
+| `fact` | `codebase-derived`, `ticket-sourced` | derived from code, a cited comment or a cited parent or sibling ticket |
 | `open` | `deferred` | parked, and mapped to a declared open region |
 
 The provenance enum is unchanged — this adds an axis, it does not fork the vocabulary. The Kind
@@ -466,10 +466,12 @@ AC-8: run.sh's checks phase runs the coverage check (a run-selftest case)
   holes (a slice keeps its parent's ids), and a `PM-n` item is never in it. A ticket with no AC
   block is `ACs: none — <reason>`. The harness never reads the ticket body; this line is what it
   holds the plan to.
-- **One line per id**, at the start of the line, in one of four forms: the observable behavior;
-  `exempt — <reason>` (no test can prove it); `holds — <the existing behavior its test keeps>`
-  (an AC like "X still works": its test passes without the change, so the scheduler keeps its
-  files off the fails-without-the-change check and the checks at the head prove it); or
+- **One line per id**, at the start of the line, keeping the ticket's meaning for that id unless
+  the operator chose a departure that a `D-n` row records, in one of four forms: the observable
+  behavior; `exempt — <reason>` (no test can prove it);
+  `holds — <the existing behavior its test keeps>` (an AC like "X still works": its test passes
+  without the change, so the scheduler keeps its files off the fails-without-the-change check and
+  the checks at the head prove it); or
   `unchecked — <tier and reason>` (its test sits on a tier the scheduler cannot run, such as a
   black-box API suite that needs the running app: its files are noted, not run). An exempt,
   holds or unchecked line is the operator's answer to a question, recorded as a `user-answered`
@@ -489,6 +491,11 @@ the unit. So a Test intent line states the behavior one named test proves, not w
 does. The holds and unchecked forms are additive inside v4: no receipt version names them.
 
 ### Departures
+
+A row that departs from a ticket criterion at intake (the operator chose a behavior that differs
+from the ticket's `AC-n`) ends its Resolution cell with one sentence that starts
+`Departs from AC-n:` and says how. The Receipt adds that sentence when the record round reports
+the departure and the row lacks it.
 
 A decision the receipt never covered will sometimes surface during BUILD. That is normal
 operation (P9), not a failure — what must not happen is the run quietly making the call. The
@@ -511,7 +518,7 @@ Each interviewing surface keeps its own purpose; what unifies them is the ledger
 | `/intake` Requirements stage | requirements from a reporter; the one spec-reviewer pass; the knowledge source's answer | requirement-level rows, held in memory for the Interview; the answer, for the receipt's `## Knowledge source` |
 | `/intake` Split stage | escalation-point choices on a decomposition | in the session → `user-answered`; in a ticket comment → `ticket-sourced`; open → `deferred` |
 | `/intake` Interview stage | the engineer's load-bearing design decisions | primary author of the receipt's ledger |
-| `/intake` Receipt stage | post-merge checks, duplicates, probe guess-points | the only writer of the receipt |
+| `/intake` Receipt stage | post-merge checks, duplicates, probe guess-points, the finished record's gaps against the ticket's criteria | the only writer of the receipt |
 | `plan-interview` | the engineer's design decisions for a plan | the in-plan ledger; never a receipt |
 | `grill-me` | challenges to an existing plan/design | resolutions recorded back into the ledger as `user-answered` |
 | `design-toolkit:design-faithful-spec`, `design-toolkit:figma-faithful-spec` | ambiguous states/transitions in a handoff (`/intake`'s Requirements on a handoff input) | Open Questions double as `deferred` rows |

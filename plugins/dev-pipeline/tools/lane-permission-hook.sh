@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2001,SC2016  # sed's '[^']*' has no ${//} form without extglob; '$(' and '`' are literal shapes looked for
-# lane-permission-hook.sh — the BUILD session's PermissionRequest hook (#1048 D-6): it turns an opaque "requires
+# lane-permission-hook.sh — the BUILD session's PermissionRequest hook: it turns an opaque "requires
 # approval" denial into a reason the session can act on.
 #
-# Usage (run.sh passes it in the build spawn's --settings, never the review's, never the plugin's hooks.json — D-8 D-18):
+# Usage (run.sh passes it in the build spawn's --settings, never the review's, never the plugin's hooks.json):
 #   lane-permission-hook.sh <worktree> [<scratch-dir> [<lane-file>...]]   < PermissionRequest input JSON on stdin
 #   (an empty <scratch-dir> means none; each <lane-file> is an absolute path: run.sh names the record and the plan)
 #
 # A PermissionRequest hook fires only on a call the allowlist would deny, so it can never block a granted command; the
-# allowlist stays the only grant. It denies with one reason, the first that applies (D-12):
+# allowlist stays the only grant. It denies with one reason, the first that applies:
 #   1. withheld   — a file-tool path (file_path, path), or an absolute-path word of a Bash command, that resolves (`..`
-#                   and symlinks) outside the worktree and the scratch dir (D-13); /dev/null and /dev/std* are no path
-#   2. compound   — a Bash command holding $( ), backticks, |, ;, &&, || or a newline, or led by cd (D-11)
-#   3. lookup     — a Bash grep, find, ls, wc, head, cat or tail: the Grep, Glob or Read tool does that (D-1 D-11)
+#                   and symlinks) outside the worktree and the scratch dir; /dev/null and /dev/std* are no path
+#   2. compound   — a Bash command holding $( ), backticks, |, ;, &&, || or a newline, or led by cd
+#   3. lookup     — a Bash grep, find, ls, wc, head, cat or tail: the Grep, Glob or Read tool does that
 #   4. not granted — anything else: skip it and name it in the PR body
-# Its one allow (D-7): Edit or Write to a file directly in <worktree>/.claude/, except settings.json and
+# Its one allow: Edit or Write to a file directly in <worktree>/.claude/, except settings.json and
 # settings.local.json, after the same resolution; those two and any file in a subdirectory of it (agents/, skills/,
-# commands/, hooks/, rules/ …), which a session loads, are denied by name. The lane files are the one exception (#1080):
+# commands/, hooks/, rules/ …), which a session loads, are denied by name. The lane files are the one exception:
 # Edit or Write to exactly a named <lane-file>, after the same resolution, is allowed wherever it sits in the worktree,
 # so a plansDir under .claude/ (say .claude/plans) can take the plan the scheduler requires and the record's row edits.
 # Its one Bash allow, once the withheld and compound checks pass: exactly `chmod +x <operand>...`, every operand a plain

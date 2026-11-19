@@ -2,7 +2,7 @@
 # check-eval-model-identity.sh — no vendor model identity in the RUNNABLE eval surface.
 #
 # WHY THIS EXISTS. The eval harnesses under `plugins/*/evals/**` ship inside two plugins, so a
-# model id checked in there is a vendor id in every consumer's tree (epic #350 asks that
+# model id checked in there is a vendor id in every consumer's tree (the rule is that
 # concrete backend targets stay with the operator). It is also an evidence defect: the runner's
 # `changelog.md` records `model=<reviewer_model>` as the key two eval rows are compared on, so a
 # default supplied by the repo attributes a score to whatever constant happened to be in the file

@@ -182,7 +182,7 @@ TRACKER_TYPE="$(cfg '.tracker.type' 'github')"
 QUEUE_LABEL="$(cfg '.tracker.labels.queue' 'ready-for-dev')"
 CLAIMED_LABEL="$(cfg '.tracker.labels.claimed' 'in-progress')"
 
-# D-6: the jira adapter has no queue and no labels, so there is no corpus to define.
+# The jira adapter has no queue and no labels, so there is no corpus to define.
 # Say so out loud rather than inventing a substitute one — an intake exit that reads a
 # silent 0 cannot tell "nothing matched" from "nothing was looked at".
 if [ "$TRACKER_TYPE" != "github" ]; then
@@ -406,10 +406,10 @@ done < "$TMP/hits"
 
 cat <<'JUDGE'
 dup-scan: these are PROPOSALS, not a verdict. Read each candidate and decide:
-  - the same work            → do not queue this one; fold it into the candidate, and say so.
-  - overlapping but distinct → queue it, and sequence it against the candidate if they
-                               touch the same files (a CLAIMED candidate is already in flight).
-  - unrelated                → queue it.
+  - the same work            → fold this one into the candidate, and say so.
+  - overlapping but distinct → sequence it against the candidate if they touch the same
+                               files (a CLAIMED candidate is already in flight).
+  - unrelated                → record it as unrelated.
 Record one Decision Ledger row per candidate judged. Never close a ticket on this output.
 JUDGE
 exit 10

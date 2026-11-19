@@ -79,7 +79,7 @@
 #         at its first commit could not be read as an AC set), baseline-unwritten (a clean rebase was pushed but
 #         the PR body's 'Record baseline:' line could not be moved to the new record commit)
 #       2 usage-* (the argv), env-* (the environment; most fire before anything is spawned, but
-#         env-not-ready, env-worktree*, env-remote-unreadable, env-tracker-unreadable,
+#         env-not-ready, env-worktree*, env-remote-unreadable, env-tracker-unreadable, env-shallow-history,
 #         env-smoke-unconfigured and env-state-dir can fire after a paid session; env-receipt-lint-unavailable: no
 #         trusted lint for the receipt), claimed-elsewhere
 #       3 RESUMABLE — not-queued, env-no-record, env-receipt-invalid: pay off intake and re-launch the same command
@@ -107,7 +107,7 @@ while [ $# -gt 0 ]; do
     --review-model)         REVIEW_MODEL="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --review-model-basis)   REVIEW_MODEL_BASIS="${2-}"; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
     --max-rounds)           MAX_ROUNDS="${2-}"; MAX_ROUNDS_SET=1; KEEP_ARGS+=("$1" "${2-}"); shift 2 ;;
-    --max-continuations)    usage_refusal usage-max-continuations "--max-continuations was removed in #718 along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
+    --max-continuations)    usage_refusal usage-max-continuations "--max-continuations was removed along with the continuation budget it bounded: BUILD is spawned once per round, and a spawn that leaves no PR ends the run for a human to read. There is no value of this flag to pass." ;;
     --dry-run)              usage_refusal usage-dry-run "--dry-run was removed: the real run makes the same preflight checks before it claims anything, and stops on the first one that fails." ;;
     --resume)               RESUME=1; KEEP_ARGS+=("$1"); shift ;;
     --detach)               DETACH=1; shift ;;
@@ -141,7 +141,8 @@ exit_code_for() { # the taxonomy a wrapper branches on
   esac
 }
 # A replace ref in the checkout changes what a sha returns without changing the sha. Every git call below, each tool's
-# and each session's ignores replace refs. Nothing else is claimed: a shallow file or info/grafts still rewrites parents.
+# and each session's ignores replace refs. A shallow file or info/grafts still rewrites parents for every walk but
+# record_first_commit's.
 export GIT_NO_REPLACE_OBJECTS=1
 # Run state the terminal reports on. Set as the run advances; empty until then.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -472,6 +473,16 @@ open_prs() { "$GH_READ" pr list --head "$BRANCH" --state open --json number --jq
 remote_head() { local out; out="$(git -C "$WT" ls-remote origin "refs/heads/$BRANCH" 2>/dev/null)" || return 1; printf '%s' "$out" | cut -f1; }
 
 # -- the record (rows G6, G7, H1-H4, H6, K6): read at its FIRST commit once one exists, before that at the pushed tip when origin carries it, else the receipt --
+# The record commit is walked over the parents each commit was pushed with: a shallow file or info/grafts in the checkout
+# rewrites the parents a walk sees. An empty GIT_SHALLOW_FILE is git's own "no shallow file" (fetch-pack passes it).
+# 2 when a parent is not local (a shallow clone), 1 when no commit adds the record.
+record_first_commit() {
+  local adds
+  adds="$(GIT_SHALLOW_FILE='' GIT_GRAFT_FILE=/dev/null git -C "$WT" log --format=%H --diff-filter=A -- "$RECORD_REL" 2>/dev/null)" || return 2
+  adds="$(tail -n 1 <<<"$adds")"; [ -n "$adds" ] || return 1
+  printf '%s\n' "$adds"
+}
+shallow_history() { echo "a parent of a commit on $BRANCH is not in $MAIN_ROOT (a shallow clone), so the record commit cannot be found in the history as pushed — run 'git -C $MAIN_ROOT fetch --unshallow origin', then re-launch"; }
 record_at_first() { git -C "$WT" show "$FIRST:$RECORD_REL" 2>/dev/null; }
 record_at_head() { git -C "$WT" show "$HEAD_SHA:$RECORD_REL" 2>/dev/null; }   # read by plan-coverage.sh --head for operator-added ACs only
 record_at_pushed_tip() { git -C "$MAIN_ROOT" show "$PUSHED_TIP:$RECORD_REL" 2>/dev/null; }
@@ -1022,7 +1033,7 @@ route_smoke() { # route_smoke <attempt> -> 0 ok, 1 red (log at $STATE/smoke-<att
     [ -z "$dup" ] || smoke_red "render states $dup and $rs hash identically — the harness rendered the same view for two declared states"
     seen="$seen$sha $rs
 "
-    [ -n "$must" ] || { smoke_red "$rs declares no must-show value — the record must name one per screen (D-4)"; continue; }
+    [ -n "$must" ] || { smoke_red "$rs declares no must-show value — the record must name one per screen"; continue; }
     if [ "$scales" = 1 ]; then
       c="$(subst "$SMOKE_CMD" '{route}' "$(shquote "$route")")"; c="$(subst "$c" '{mustShow}' "$(shquote "$must")")"
       if lane "$c" >> "$log" 2>&1 </dev/null; then echo "ok: $rs shows '$must'" >> "$log"; say "smoke: $rs rendered to $png and shows '$must'"; else smoke_red "$rs must-show '$must' not satisfied"; fi
@@ -1490,7 +1501,7 @@ rebase_onto_base() { # rebase_onto_base <base sha> <why>: a rebase git completes
   # leased push replaced it, and every way back is `reset --keep` onto that head. The record commit is rewritten with
   # the rest, so its blob is verified unchanged and the PR body's 'Record baseline:' line follows it — the review reads
   # a line naming a commit that is not the record's as a rewritten record (review/SKILL.md step 3).
-  local onto="$1" why="$2" old old_blob new_first conflicts dirty
+  local onto="$1" why="$2" old old_blob new_first first_rc conflicts dirty
   worktree_ready
   dirty="$(git -C "$WT" status --porcelain 2>/dev/null)" || terminal env-worktree "cannot read the status of $WT"
   [ -z "$dirty" ] || terminal staleness-expired "$why — not rebased: $WT carries uncommitted work"
@@ -1501,7 +1512,8 @@ rebase_onto_base() { # rebase_onto_base <base sha> <why>: a rebase git completes
     git -C "$WT" rebase --abort >/dev/null 2>&1 || terminal env-worktree "the rebase onto $onto stopped and could not be aborted — run 'git rebase --abort' in $WT"
     terminal staleness-expired "$why — the rebase onto $onto conflicts${conflicts:+ in: $conflicts}; rebase by hand, then re-launch"
   fi
-  new_first="$(git -C "$WT" log --format=%H --diff-filter=A -- "$RECORD_REL" 2>/dev/null | tail -n 1)"
+  new_first="$(record_first_commit)"; first_rc=$?
+  if [ "$first_rc" -eq 2 ]; then git -C "$WT" reset -q --keep "$old" 2>/dev/null; terminal env-shallow-history "$(shallow_history)"; fi
   if [ -z "$new_first" ] || [ "$(git -C "$WT" rev-parse -q --verify "$new_first:$RECORD_REL" 2>/dev/null)" != "$old_blob" ]; then
     git -C "$WT" reset -q --keep "$old" 2>/dev/null
     terminal staleness-expired "$why — not rebased: the rebased branch does not carry the record as committed at $FIRST"
@@ -1892,7 +1904,8 @@ if ! git -C "$WT" cat-file -e "HEAD:$RECORD_REL" 2>/dev/null; then # the record 
   else git -C "$WT" commit -q -m "docs: add the decision record" -- "$RECORD_REL" || terminal env-record-commit "could not commit the record"; fi
   git -C "$WT" push -q -u origin "$BRANCH" || terminal env-push "could not push $BRANCH"
 fi
-FIRST="$(git -C "$WT" log --format=%H --diff-filter=A -- "$RECORD_REL" 2>/dev/null | tail -n 1)"
+FIRST="$(record_first_commit)"; first_rc=$?
+[ "$first_rc" -ne 2 ] || terminal env-shallow-history "$(shallow_history)"
 [ -n "$FIRST" ] || terminal env-no-first-commit "the record has no adding commit on $BRANCH"
 say "record baseline: $FIRST"
 design_declared || terminal env-design-undeclared "the committed record at $FIRST carries neither RS rows nor a 'Design: none — <reason>' line in its design section — the receipt on disk is not what the run reads"

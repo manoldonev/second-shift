@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# branch-prefix.sh — the ONE resolver for the work-branch namespace (#413).
+# branch-prefix.sh — the ONE resolver for the work-branch namespace.
 #
 # WHY THIS EXISTS. `<branchPrefix><key>` is the branch formula both lanes use, and both used to
 # resolve `branchPrefix` themselves with a `cfg '.tracker.branchPrefix' 'claude/acme-'` fallback.

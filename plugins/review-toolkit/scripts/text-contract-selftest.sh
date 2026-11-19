@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # text-contract-selftest.sh — behavioral tests + lockstep guard for the explorer/emitter
 # text contract (parseReviewResult / validateShape), the load-bearing parsing logic the
-# #169 stall fix rests on.
+# stall fix rests on.
 #
 # WHY THIS EXISTS: Workflow scripts cannot be imported (runtime-injected globals, top-level
 # return), so the contract functions are re-stated per file and the earlier guards were
 # string-presence only. A bug in the sentinel regex, the last-match rule, or the shape
 # validator silently produces null (a dark reviewer) or accepts a malformed object — the
-# exact failure class #169 exists to eliminate. This selftest closes that gap with the
+# exact failure class the stall fix exists to eliminate. This selftest closes that gap with the
 # null-reviewer-selftest technique, strengthened:
 #   (A) LOCKSTEP — extract the two function bodies from EVERY carrier file and assert all
 #       copies are byte-identical. One drifted copy = one dispatcher parsing differently
@@ -41,8 +41,8 @@ command -v node >/dev/null 2>&1 || {
 TMP="$(mktemp -d -t text-contract-selftest.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
-# The plan dispatcher left both lists in #348 (deleted with the staged lane);
-# design-sync.mjs, figma.mjs and unit-tests.mjs left in #574 (retired with the
+# The plan dispatcher left both lists (deleted with the staged lane);
+# design-sync.mjs, figma.mjs and unit-tests.mjs left (retired with the
 # engine set). Each carried its own copy because the Workflow runtime gives these
 # scripts no import.
 PARSE_CARRIERS="code-review.mjs intake-review.mjs intake-fanout.mjs"
@@ -135,7 +135,7 @@ assert('B12 non-array where array required fails',
 assert('B13 absent optional field tolerated', validateShape({ verdict: 'pass', findings: [] }, SCHEMA) === true)
 assert('B14 null input fails closed', validateShape(null, SCHEMA) === false)
 assert('B15 non-object item fails', validateShape({ verdict: 'pass', findings: ['str'] }, SCHEMA) === false)
-// B16/B17: string-typed array items. Regression: run #165 declared security-reviewer dark
+// B16/B17: string-typed array items. Regression: a run declared security-reviewer dark
 // because a non-empty suppressed[] (strings) was rejected by the object-only item check.
 assert('B16 non-empty string-array passes',
   validateShape({ verdict: 'pass', findings: [], suppressed: ['sub-threshold: note'] }, SCHEMA) === true)

@@ -24,7 +24,7 @@
 # check can honestly decide:
 #
 #   pipeline       every command-producer `| grep -q` site is dispositioned in the TSV.
-#                  VARIABLE producers (`printf … | grep -q`) are excluded: #522 already
+#                  VARIABLE producers (`printf … | grep -q`) are excluded: an earlier sweep
 #                  converted that shape wholesale, and its hazard is SIGPIPE, not fail-open.
 #   tsv-integrity  every TSV row resolves — known disposition, anchor still present in its
 #                  file, and (for anything but `converted`) still covering a live site.
@@ -81,7 +81,7 @@ SCAN_EXCLUDE="^(docs/plans/|\\.claude/(pipeline-state|audit)/|$SELF_EXCLUDE)|^[^
 # A pipe (never `||`) into a grep whose option cluster contains `q`. Covers -q, -qi, -qiE,
 # -Eq, -Fxq, -qxF.
 PIPE_GREPQ='(^|[^|])\|[[:space:]]*grep[[:space:]]+-[A-Za-z]*q[A-Za-z]*'
-# The producer shape #522 already owns: a VARIABLE piped through printf/echo.
+# The excluded producer shape: a VARIABLE piped through printf/echo.
 VAR_PRODUCER='(printf|echo)[^|]*\|[[:space:]]*grep'
 
 violations=0

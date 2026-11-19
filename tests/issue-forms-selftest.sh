@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # issue-forms-selftest.sh — structural validation of the .github/ISSUE_TEMPLATE
-# feedback issue forms (#34). CI (.github/workflows/ci.yml, #299) validates the same forms
+# feedback issue forms. CI (.github/workflows/ci.yml) validates the same forms
 # against GitHub's real issue-forms/issue-config JSON Schema via check-jsonschema, which
 # catches an illegal `type:`, a misplaced key, a bad `render:` language, or a malformed
 # `id`. This selftest owns what that schema structurally cannot: `id` uniqueness (the
@@ -8,7 +8,7 @@
 # with `validations.required: true` (the schema has no `not` keyword) — plus the
 # load-bearing per-field evidence table below, which is a design decision no schema knows.
 #
-# WHAT CHANGED IN #214
+# PER-FIELD, NOT A FILE-WIDE GREP
 #   The old version grepped each form for `required:[[:space:]]*true` and for
 #   `--report` ANYWHERE in the file. Both tolerated the realistic regressions:
 #   every form carries several `required: true`, so flipping the load-bearing one
@@ -25,7 +25,7 @@
 #   its evidence contract rests on finding / code-under-dispute / why-fp instead.
 #   A blanket "doctor-report must be required" rule would be wrong for that form.
 #
-# WHAT CHANGED IN #299
+# DISCOVERY
 #   FORMS is now discovered by globbing .github/ISSUE_TEMPLATE/*.yml minus config.yml
 #   (previously a hardcoded list), so a new form is covered on arrival with no selftest
 #   edit — id uniqueness, render+required, YAML-parses, and doctor-report-field-present all

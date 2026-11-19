@@ -468,6 +468,43 @@ grep -qF "$RR_PUSHED" "$FAKE_GH/review-read-first-4.txt" 2>/dev/null && ! grep -
 grep -q '^--- a/src/a\.spec\.ts' "$(SD)/plain-diff-1.1.diff" 2>/dev/null \
   && ok "(rr1) the blind review's diff is the pushed branch against its base" || bad "(rr1) plain diff: $(grep -E 'plain review' <<<"$OUT" | head -n 3 | tr '\n' '|')"
 
+# (sg) a grafts file or a shallow file in the checkout rewrites the parents a walk sees: the record commit is still the one
+# the pushed history shows, and a history whose parents are not local is refused, not read short
+SG_REC=docs/plans/main-42-decisions.md
+SG_ROW='| D-1 | a | b |'
+SG_EDITED='| D-1 | a | edited |'
+sg_edit() { # the lane branch gains, after its record commit, a commit that edits a row of the record
+  git -C "$d/main" checkout -q -b second-shift/42 origin/second-shift/42
+  sed "s/^$SG_ROW/$SG_EDITED/" "$d/main/$SG_REC" > "$d/main/$SG_REC.tmp" && mv "$d/main/$SG_REC.tmp" "$d/main/$SG_REC"
+  git -C "$d/main" commit -qam "docs: edit the record"
+}
+sg_push() { git -C "$d/main" push -q origin second-shift/42 2>/dev/null; git -C "$d/main" checkout -q main; git -C "$d/main" branch -q -D second-shift/42; }
+sg_first() { git -C "$d/origin.git" log --format=%H --diff-filter=A second-shift/42 -- "$SG_REC" | tail -n 1; }
+sg_read() { # sg_read <case> <first as pushed>: the run's baseline and the record the build is handed are the pushed record commit's
+  grep -q "record baseline: $2" <<<"$OUT" && grep -qF "$SG_ROW" "$FAKE_GH/prompt-1.txt" && ! grep -qF "$SG_EDITED" "$FAKE_GH/prompt-1.txt" \
+    && ok "($1) the run reads the record commit as pushed" || bad "($1) want $2, got $(grep 'record baseline' <<<"$OUT"); the row handed to the build: $(grep -F "${SG_ROW% b |}" "$FAKE_GH/prompt-1.txt" 2>/dev/null | tr '\n' '|')"
+}
+fixture sg1; commit_record; sg_edit; sg_push; sg1_first="$(sg_first)"
+printf '%s %s\n' "$(git -C "$d/main" rev-parse origin/second-shift/42)" "$(git -C "$d/main" rev-parse origin/main)" > "$d/main/.git/info/grafts"
+[ "$(git -C "$d/main" log --format=%H --diff-filter=A origin/second-shift/42 -- "$SG_REC" 2>/dev/null | tail -n 1)" != "$sg1_first" ] \
+  && ok "(sg1) the checkout's own walk, under the grafts file, returns the edit as the record commit" || bad "(sg1) the fixture grafted nothing"
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; sg_read sg1 "$sg1_first"
+fixture sg2; commit_record
+echo moved > "$d/main/src/b.ts"; git -C "$d/main" add src/b.ts; git -C "$d/main" commit -qm "base moves"; git -C "$d/main" push -q origin main 2>/dev/null
+sg_edit; git -C "$d/main" merge -q --no-edit main; sg_push; sg2_first="$(sg_first)"
+git -C "$d/main" fetch -q --depth=2 origin second-shift/42
+[ -s "$d/main/.git/shallow" ] && [ "$(git -C "$d/main" log --format=%H --diff-filter=A origin/second-shift/42 -- "$SG_REC" 2>/dev/null | tail -n 1)" != "$sg2_first" ] \
+  && ok "(sg2) the checkout's own walk, after a depth-2 fetch of the branch, returns the edit as the record commit" || bad "(sg2) the fixture is not shallow above the record commit: $(cat "$d/main/.git/shallow" 2>/dev/null | tr '\n' ' ')"
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; sg_read sg2 "$sg2_first"
+fixture sg3; for z in 1 2; do echo "$z" > "$d/main/src/z.ts"; git -C "$d/main" add src/z.ts; git -C "$d/main" commit -qm "base $z"; done
+git -C "$d/main" push -q origin main 2>/dev/null; commit_record
+git clone -q --depth=2 --no-single-branch "file://$d/origin.git" "$d/shallow" 2>/dev/null && git -C "$d/shallow" remote set-url origin "$d/origin.git" \
+  && mv "$d/main/.claude" "$d/shallow/" && rm -rf "$d/main" && mv "$d/shallow" "$d/main"
+export SECOND_SHIFT_CONFIG="$d/main/.claude/second-shift.config.json"
+printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect env-shallow-history "(sg3) a shallow clone whose history below the record commit is not local"
+grep -q 'fetch --unshallow origin' <<<"$OUT" && [ ! -s "$FAKE_GH/calls" ] \
+  && ok "(sg3) the refusal names the fix, before any session" || bad "(sg3) $(grep -E 'terminal' <<<"$OUT" | tr '\n' '|') calls=$(cat "$FAKE_GH/calls" 2>/dev/null)"
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 exit $?

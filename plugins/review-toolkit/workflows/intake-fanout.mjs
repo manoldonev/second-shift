@@ -28,7 +28,7 @@ const FANOUT_MODEL = {
   'review-toolkit:intake-refuter': 'cross',
 }
 
-// The arm the consumer replay measured (#916): the four angles alternate the two model families,
+// The arm the consumer replay measured: the four angles alternate the two model families,
 // the pre-mortem runs on the second family, and every claim is refuted by the family that did
 // not make it. Mixing families is the variable under test (build rule 2), so it ships as measured.
 const ANGLE_TIERS = ['reasoning', 'cross', 'reasoning', 'cross']
@@ -36,7 +36,7 @@ const PREMORTEM_TIER = 'cross'
 
 const bare = (t) => (String(t).includes(':') ? String(t).split(':').pop() : String(t))
 
-// #914's build rules, as the measured lens writer read them. Given to the lens writer verbatim.
+// The build rules, as the measured lens writer read them. Given to the lens writer verbatim.
 const BUILD_RULES = [
   "Independence. Each agent works blind to the others' conclusions. No shared \"war room\" context; it reproduces the self-agreement the lane's never-resume-a-review rule exists to prevent.",
   'Diversity of angle, then of model. Each agent gets a different job or framing, never the same prompt N times. Mixing models (for example Opus with Fable) is a variable under test, not an assumption.',
@@ -50,7 +50,7 @@ const BUILD_RULES = [
 //   issueBody  — the full ticket text (lenses never re-fetch it); on a split, the parent's body
 //                plus its slice list, so the lenses see the seams
 //   knowledgeSource — optional: the consumer's knowledge provider's answer, as the receipt carries
-//                it (#1032). Threaded into the lens writer's prompt ONLY: the lenses and refuters
+//                it. Threaded into the lens writer's prompt ONLY: the lenses and refuters
 //                stay blind to it and check their claims against the code.
 //   readRoot   — optional ABSOLUTE path of the checkout the ticket targets
 //   checkouts  — optional [{ path, role }]: ABSOLUTE paths of other repos the change meets (a
@@ -59,7 +59,7 @@ const BUILD_RULES = [
 //                intake skill's files and interviewing-baseline's)
 //   probeDir   — optional ABSOLUTE path probes may write to (default: no file writes)
 //   config     — the consumer config (reviewers.modelOverrides / reviewers.tierMap)
-//   ceilingMs  — whole-run wall-clock ceiling (default 30 min, #916 D-9)
+//   ceilingMs  — whole-run wall-clock ceiling (default 30 min)
 const a = typeof args === 'string' ? JSON.parse(args) : args || {}
 const { issue, issueBody = '', knowledgeSource = '', readRoot = '', checkouts = [], protocol = [], probeDir = '', config = {}, ceilingMs = 30 * 60 * 1000 } = a
 if (!issue) throw new Error('intake-fanout workflow: args.issue is required')
@@ -113,7 +113,7 @@ const knowledgeBlock = String(knowledgeSource || '').trim()
     `lens as a conclusion: the lenses do not see it, and check against the code.\n\n${knowledgeSource}\n\n`
   : ''
 
-// --- text contract: a sentinel + fenced json block, parsed here (#169 explorer/emitter) ---
+// --- text contract: a sentinel + fenced json block, parsed here (explorer/emitter) ---
 const parseReviewResult = (text) => {
   const m = [...String(text ?? '').matchAll(/REVIEW_RESULT\s*```json\s*([\s\S]*?)```/g)]
   if (!m.length) return null
@@ -148,10 +148,10 @@ const tryAgent = async (prompt, opts) => {
   return t
 }
 
-// Dispatch with ONE retry (#916 D-5): a dead or unparseable first attempt is retried once on
+// Dispatch with ONE retry: a dead or unparseable first attempt is retried once on
 // `retryModel` (the other family when the run has one, else the same model). Each attempt picks
 // its model when it runs, so one the run has since found unreachable is skipped. A retry that
-// could not be dispatched at all (no access, dead) is not the retry D-5 promises: one more
+// could not be dispatched at all (no access, dead) is not that retry: one more
 // attempt follows, on the first attempt's model or, when that is the unreachable one, the other.
 const dispatch = async (prompt, valid, opts, retryModel) => {
   const plan = [opts.model, retryModel]
@@ -269,7 +269,7 @@ const run = async () => {
   }
 }
 
-// Whole-run wall-clock ceiling (#916 D-9), the same race intake-review.mjs uses per agent. agent()
+// Whole-run wall-clock ceiling, the same race intake-review.mjs uses per agent. agent()
 // has no abort, so agents past the ceiling keep running in the background; the caller simply
 // stops waiting and proceeds without the pool.
 let timer

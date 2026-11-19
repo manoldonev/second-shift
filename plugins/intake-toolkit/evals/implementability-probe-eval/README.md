@@ -18,14 +18,19 @@ changes, or when a model generation turns over.
    different class.
 4. Append the result to `BASELINE.md`: gaps reported / 5, class agreement, extra guess-points,
    and the dispatch shape used.
+5. The record round: dispatch the probe again, handing it `fixtures/underspecified-spec.md` and
+   `fixtures/planted-record.md`. It reads nothing else under this directory. Score the report
+   against `fixtures/planted-defects.md` (withheld) and append defects reported / 4 to
+   `BASELINE.md`.
 
 ## What a regression looks like
 
 - **Hit count drops.** The probe stopped finding forks it used to find.
 - **Extras balloon while hits fall.** Padding — the failure mode the agent doc names. A probe
   that reports thirty guess-points on a well-specified spec teaches its reader to skip it.
-- **Blindness leaks.** The report cites the ledger, the issue thread, or a decision record. The
-  number then means nothing, regardless of how good it looks.
+- **Blindness leaks.** The report cites the issue thread, the session's context, or a ledger or
+  decision record the probe was not handed. The number then means nothing, regardless of how good
+  it looks. A record the probe was handed is its input, not a leak.
 
 Class disagreement on its own is **not** a regression. `human` vs `codebase` turns on whether
 the repo actually settles the question, and the probe grounds that against live code while the

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# verdict-check.sh — a review verdict binds only when its own comment backs it (#991). Both paths that
+# verdict-check.sh — a review verdict binds only when its own comment backs it. Both paths that
 # set `second-shift/review` call it: run.sh on the body it bound, and the manual /dev-pipeline:review
 # on its draft and again, through post-review-status.sh, on the posted body.
 #
@@ -27,7 +27,7 @@
 #   `## Panel` (optional, not parsed: earlier verdicts carry one) and `## Notes` (optional, free prose).
 # `Ready to merge?` anywhere fails. An approve has no [blocker], no violated or undeterminable score
 # and no reason line; a needs-work has a [blocker], a violated or undeterminable score, or a reason
-# line. Every `D-n` row of either record version — only unindented lines `| D-n |` (#991 D-6) — is
+# line. Every `D-n` row of either record version — only unindented lines `| D-n |` — is
 # scored, except under a reason line. A row that was `deferred` at the first commit, citing an `OR-n`
 # its Open Regions table marks `pause-and-ask`, and is `user-delegated` at the head is scored
 # `violated` when it is scored: only the requester decides it.

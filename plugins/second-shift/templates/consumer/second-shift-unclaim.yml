@@ -8,8 +8,9 @@
 #
 # The committed check script resolves the label names from this repo's committed
 # .claude/second-shift.config.json at run time, so nothing here is substituted at install
-# and there is no rendered copy to drift. A tracker that declares it takes no writes, or
-# one that is not github, makes the script a stated no-op.
+# and there is no rendered copy to drift. A tracker that is not github makes the script a
+# stated no-op; tracker.writes does not, since the scheduler swaps the claim labels on github
+# whatever it says.
 #
 # This file and the marketplace repo's own .github/workflows/unclaim-on-close.yml are a
 # copy pair. The three blocks below that must not drift apart carry LOCKSTEP markers, which

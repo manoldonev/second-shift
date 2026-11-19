@@ -27,7 +27,7 @@
 # Candidate 3 is the load-bearing one: the consumer config is commonly gitignored, so it is
 # NEVER checked out into a pipeline worktree. The main checkout is anchored via
 # `--git-common-dir` → dirname — the same idiom as run.sh's MAIN_ROOT. Anchoring on `--show-toplevel` (the
-# pre-#110 behavior) resolves to the WORKTREE, so every candidate missed, the bot read as
+# earlier behavior) resolves to the WORKTREE, so every candidate missed, the bot read as
 # disabled, and pipeline commits silently landed under the operator's identity — recorded in
 # four separate pipeline retros before it was fixed.
 #
@@ -41,7 +41,7 @@
 #     `git init --separate-git-dir`). That only makes candidate 3 miss, which falls through to
 #     the existing repo-default path plus a WARN — never a wrong identity.
 #
-# APP KEYS (#1059): a repo that commits its config may keep `tracker.bot.app` out of it, in the
+# APP KEYS: a repo that commits its config may keep `tracker.bot.app` out of it, in the
 # per-engineer gitignored <main checkout>/.claude/second-shift.config.local.json. That file is read
 # WHICHEVER candidate wins, and always at the main checkout ($SECOND_SHIFT_REPO_ROOT when set):
 # once the config is tracked, candidate 2 (the worktree's committed copy) and candidate 1 (a
@@ -187,7 +187,7 @@ BOT_LOGIN="${APP_NAME}[bot]"
 # $DIR is not a repo — reachable via an explicit $SECOND_SHIFT_CONFIG — so the cache is simply
 # skipped rather than rooted at "/". The commit itself then fails on its own terms.
 #
-# NAME CACHE (#1068): the id file alone hid a changed appName — a warm id meant the configured name
+# NAME CACHE: the id file alone hid a changed appName — a warm id meant the configured name
 # was never looked up, so a renamed App kept committing under whatever id the old name had cached.
 # The name file beside it holds "<appName> <id>" and the cached id is trusted only when that file
 # equals "<configured appName> <id-file id>" as ONE string: appName is an unconstrained string, so
@@ -198,7 +198,7 @@ CACHE="${COMMON_DIR:+$COMMON_DIR/second-shift-bot-user-id}"
 NAME_CACHE="${COMMON_DIR:+$COMMON_DIR/second-shift-bot-user-name}"
 
 # A valid id is digits only. The lookup needs this as much as the id file does: for a 404, `gh api
-# --jq .id` exits 1 yet prints GitHub's error JSON on stdout, and the pre-#1068 code cached that JSON
+# --jq .id` exits 1 yet prints GitHub's error JSON on stdout, and the earlier code cached that JSON
 # as the id and committed with a junk noreply address.
 valid_id() { [[ "$1" =~ ^[0-9]+$ ]]; }
 

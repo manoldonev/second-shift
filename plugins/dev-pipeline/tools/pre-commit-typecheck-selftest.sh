@@ -90,10 +90,22 @@ git -C "$MAIN" worktree add -q "$TMP/wt" -b wt 2>/dev/null
 mkdir -p "$TMP/wt/.claude" "$TMP/wt/sub"
 cp "$MAIN/.claude/second-shift.config.json" "$TMP/wt/.claude/"
 : > "$TMP/wt/sub/a.ts"; git -C "$TMP/wt" add sub/a.ts
-run_hook() { jq -n --arg c "$2" '{cwd:$c}' | env -u SECOND_SHIFT_CONFIG bash "$HOOK" 2>/dev/null | grep -q '"permissionDecision": "deny"' && ok "$1 -> deny" || bad "$1: typecheck did not run or did not deny"; }
+hook_out() { jq -n --arg c "$1" --arg cmd "$2" '{cwd:$c, tool_input:{command:$cmd}}' | env -u SECOND_SHIFT_CONFIG bash "$HOOK" 2>/dev/null; }
+run_hook() { hook_out "$2" "git commit -m x" | grep -q '"permissionDecision": "deny"' && ok "$1 -> deny" || bad "$1: typecheck did not run or did not deny"; }
 run_hook "main checkout root cwd"      "$MAIN"
 run_hook "main checkout subdirectory"  "$MAIN/sub"
 run_hook "linked worktree subdirectory" "$TMP/wt/sub"
+
+echo "[self-test] command self-gate (staged .ts, failing typecheck)"
+allow_hook() {
+  local out
+  out=$(hook_out "$MAIN" "$2")
+  if [ -z "$out" ]; then ok "$1 -> allowed, no typecheck"; else bad "$1: hook ran the typecheck or denied: $out"; fi
+}
+allow_hook "non-commit heredoc command" $'cat > notes.txt <<\'EOF\'\ncommit later\nEOF'
+allow_hook "git subcommand other than commit" "git -C $MAIN rev-parse HEAD"
+deny_cmd() { hook_out "$MAIN" "$2" | grep -q '"permissionDecision": "deny"' && ok "$1 -> deny" || bad "$1: typecheck did not run or did not deny"; }
+deny_cmd "git -c k=v commit after a cd" "cd $MAIN && git -c user.name=t commit -m x"
 
 echo "[self-test] carve-out literal"
 

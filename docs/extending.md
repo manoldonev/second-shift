@@ -145,10 +145,10 @@ An opt-in axis, off unless the key is present:
 
 `figma` selects the figma-faithful skills and requires a Figma MCP connection; `claude-design` selects the design-faithful skills and requires DesignSync. With it set, every ticket's intake record must declare its screens (`## Design frames`) or disarm with a reason, or the run refuses. Absent key = a run behaves exactly like a non-design run. The design-system reference itself (component catalog, token roles) is knowledge — it lives in `.claude/second-shift/design-tokens/*.md`, an extension file per §3.4. To let the scheduler smoke each declared route and the sessions render what they built, add the `design.liveRender` block — see [`live-render.md`](live-render.md).
 
-### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6) — **RETIRED (#569)**
+### 3.6 `stageWorkflows` — a blocking gate owned by you (EP-6) — **RETIRED**
 
-> **Historical record — retired in #569. The config key does not exist.** This extension point
-> was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
+> **Historical record — retired. The config key does not exist.** This extension point
+> was dispatched by the staged lane, since deleted; the key was removed from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
 > shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
 > gates and delegate seams at all, and what would dispatch them on the pipeline, is an open
@@ -159,12 +159,12 @@ An opt-in axis, off unless the key is present:
 > Keeping the key instead was considered and rejected. A dead-but-legal key **silently disarms**
 > what a consumer registered: they upgrade, see no error, and believe their gate still runs. A
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
-> removing one is breaking — so the retirement happened in the window #348 already opened.
+> removing one is breaking — so the retirement happened in the window that deletion already opened.
 
 The need it answered: something heavier than a verify command — a real workflow that ran at a chosen stage and blocked completion. A schema-compatibility gate before implementation, a codegen-drift check, a license scan. (For that need today, reach for `extraLanes` (§3.2): it is a blocking check the scheduler runs after every build.)
 
 ```jsonc
-// NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
+// NOT VALID CONFIG — config-lint rejects this key by name. Shown as designed.
 {
   "stageWorkflows": [
     { "stage": 5, "name": "schema-compat", "workflow": "acme-platform:workflows/schema-compat.mjs" },
@@ -175,10 +175,10 @@ The need it answered: something heavier than a verify command — a real workflo
 
 The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4) or a repo-relative path. As designed, it was dispatched **after** the named stage's built-in sub-steps and **before** that stage's completion write, as a blocking sub-step — no advisory field, because advisory gates don't exist here. The result was recorded under `stageCheckpoint[N].extWorkflows[<name>]`; a failure produced the stage's standard fail-fast write with reason **`ext-workflow-failed`** (your name in the detail field), and the workflow could write state **only** via the staged lane's checkpoint payloads namespaced `ext:` — adding evidence, never reinterpreting what the pipeline had recorded. Two things are still true today: registration lives in *consumer config* (auditable, per-repo) rather than the plugin manifest, and an unresolvable reference is a config-lint failure.
 
-### 3.7 `implementDelegates` — route implementation work to a specialist (EP-7) — **RETIRED (#569)**
+### 3.7 `implementDelegates` — route implementation work to a specialist (EP-7) — **RETIRED**
 
-> **Historical record — retired in #569. The config key does not exist.** This extension point
-> was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
+> **Historical record — retired. The config key does not exist.** This extension point
+> was dispatched by the staged lane, since deleted; the key was removed from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
 > shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
 > gates and delegate seams at all, and what would dispatch them on the pipeline, is an open
@@ -189,12 +189,12 @@ The `workflow` was either `"<plugin>:<relpath>"` (a companion pack's script, §4
 > Keeping the key instead was considered and rejected. A dead-but-legal key **silently disarms**
 > what a consumer registered: they upgrade, see no error, and believe their gate still runs. A
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
-> removing one is breaking — so the retirement happened in the window #348 already opened.
+> removing one is breaking — so the retirement happened in the window that deletion already opened.
 
 The need it answered: certain implementation work done by a specialist agent instead of the inline implementer — a migrations specialist for schema changes, a codegen agent for a generated surface. (The pipeline is outcome-gated and silent on *how* a diff is produced, so a build session may still dispatch such an agent by choice. What has no home on the lane is the declared, config-routed, pre-flight-validated form.)
 
 ```jsonc
-// NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
+// NOT VALID CONFIG — config-lint rejects this key by name. Shown as designed.
 {
   "implementDelegates": [
     { "surface": "db/migrations/**", "agent": "acme-platform:migration-writer" },
@@ -203,12 +203,12 @@ The need it answered: certain implementation work done by a specialist agent ins
 }
 ```
 
-`surface` was a path glob or the reserved key `unit`; matching work items routed to the delegate. The delegate's output then passed through the **unchanged** scope-enforcement gate and every downstream gate — it *added work* (a different author) and *waived nothing*. `agent` was `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name, and an unresolvable one failed closed at pre-flight. That pre-flight arm went with the key in #569: `check-extensions.sh` had been enforcing referential integrity on behalf of a dispatcher that no longer existed, which could only ever block a run, never protect one.
+`surface` was a path glob or the reserved key `unit`; matching work items routed to the delegate. The delegate's output then passed through the **unchanged** scope-enforcement gate and every downstream gate — it *added work* (a different author) and *waived nothing*. `agent` was `"<plugin>:<agent>"` (a companion pack) or a bare repo-local agent name, and an unresolvable one failed closed at pre-flight. That pre-flight arm went with the key: `check-extensions.sh` had been enforcing referential integrity on behalf of a dispatcher that no longer existed, which could only ever block a run, never protect one.
 
-### 3.8 `planGates` — a blocking plan-review gate (EP-8) — **RETIRED (#569)**
+### 3.8 `planGates` — a blocking plan-review gate (EP-8) — **RETIRED**
 
-> **Historical record — retired in #569. The config key does not exist.** This extension point
-> was dispatched by the staged lane, deleted in #348; #569 removed the key from the schema and
+> **Historical record — retired. The config key does not exist.** This extension point
+> was dispatched by the staged lane, since deleted; the key was removed from the schema and
 > `config-lint` now rejects it by name. The section is kept, in the **past tense**, because the
 > shape argument is the legitimate part: whether second-shift keeps consumer-pluggable blocking
 > gates and delegate seams at all, and what would dispatch them on the pipeline, is an open
@@ -219,12 +219,12 @@ The need it answered: certain implementation work done by a specialist agent ins
 > Keeping the key instead was considered and rejected. A dead-but-legal key **silently disarms**
 > what a consumer registered: they upgrade, see no error, and believe their gate still runs. A
 > rejection is the only mechanism that reaches them. Re-adding a key later is a minor release;
-> removing one is breaking — so the retirement happened in the window #348 already opened.
+> removing one is breaking — so the retirement happened in the window that deletion already opened.
 
 The need it answered: an extra reviewer of the *plan itself* — a QA-tier review of the test strategy for a surface, an ADR-compliance check — able to block a bad plan before any code was written. The pipeline has no plan gate for one to be additive to; the intake record is judged by the review session, after the diff exists.
 
 ```jsonc
-// NOT VALID CONFIG — config-lint rejects this key by name (#569). Shown as designed.
+// NOT VALID CONFIG — config-lint rejects this key by name. Shown as designed.
 {
   "planGates": [
     { "name": "api-plan", "surface": "tests/api/**", "agent": "acme-qa-pack:api-test-plan-reviewer" }
@@ -242,7 +242,7 @@ When the extension files or reviewers above would be copied across many of your 
 
 A **companion pack** is your own private plugin — same distribution mechanics as second-shift, different visibility — that carries the org-wide half of your extension surface: shared domain reviewers and shared knowledge files. (It used to carry shared workflow scripts and delegate agents too — the EP-6/EP-7 targets — but the config keys that referenced them are retired; see §3.6–3.7.) It's the concrete form of the "org/platform overlay" (layer 2) named in [`context-model.md`](context-model.md): author org knowledge once, version it, pin it, instead of vendoring it into every repo.
 
-A consumer repo enables the companion pack alongside second-shift and then *references* its contents from `.claude/second-shift.config.json` — `reviewers.add` for its reviewers — and declares its knowledge files in `.known-extensions` (§4.3). The pack itself never edits a consumer's config; wiring is always the consumer's auditable choice.
+A consumer repo enables the companion pack alongside second-shift, copies the pack's reviewers into `.claude/agents/` and registers them **bare** in `reviewers.add` (§4.2), and declares its knowledge files in `.known-extensions` (§4.3). The pack itself never edits a consumer's config; wiring is always the consumer's auditable choice.
 
 ### 4.1 The two-pin model
 
@@ -255,12 +255,12 @@ They upgrade independently: bumping your org pack's domain rules is a companion-
 
 ### 4.2 Namespaced agents and workflows
 
-Everything a companion pack exposes is addressed `<pack>:<name>`, exactly like the shipped plugins ([`namespaces.md`](namespaces.md)):
+Inside the plugin system, everything a companion pack exposes is addressed `<pack>:<name>`, exactly like the shipped plugins ([`namespaces.md`](namespaces.md)). Config is the exception for reviewers:
 
-- **Agents** referenced from config carry the qualifier: a pack reviewer registered via `reviewers.add` is dispatched by its qualified name, `"acme-platform:api-test-reviewer"`. (A repo-*local* agent stays bare — that's the disambiguation between the two roots.)
+- **Reviewers** reach the review-lead registry only as repo-local agents. `reviewers.add` takes repo-local agents only: `check-reviewer-references.sh` resolves each name to `.claude/agents/<name>.md` in the consumer repo and has no companion-pack root. So the consumer copies the pack's reviewer into `.claude/agents/api-test-reviewer.md` and registers it bare, `"api-test-reviewer"`. A qualified name such as `"acme-platform:api-test-reviewer"` fails that check (`DANGLING` and `QUALIFY`), and the review-toolkit hook runs the check on every `git commit` and denies the commit. The copy is a plain file in the repo's history; refresh it from the pinned pack release when you bump the pack.
 - **Workflows** a pack ships use the same `"<pack>:<relpath>"` form in references. The Workflow tool resolves neither a bare filename nor a plugin-cache path, so a caller resolves the pack's install path and stages the script into its session scratchpad before dispatching it (as `review-lead`'s pre-flight does); never hard-code a filesystem path into another plugin. No *config* key points at one any more — the two that did (`stageWorkflows`, `implementDelegates`) are retired.
 
-The qualifier is what lets `check-reviewer-references.sh` tell "shipped", "companion", and "repo-local" apart, and what keeps a pack from silently shadowing a shipped name.
+Bare against qualified is how `check-reviewer-references.sh` tells a repo-local reviewer from a plugin-shipped one ([`namespaces.md`](namespaces.md) rule 2). Its `SHADOW` check refuses a copied file whose name equals a shipped agent's name, so give pack reviewers names the shipped plugins do not use.
 
 ### 4.3 Vendoring the pack's knowledge files: `.known-extensions`
 
@@ -295,29 +295,42 @@ The single snippets above each touch one seam. Real capabilities compose several
 - `agents/api-test-reviewer.md` — reviews the written test code.
 - `skills/api-testing/` — the shared "how we write API tests here" playbook the agents load.
 
-**What each consumer repo puts in `.claude/second-shift.config.json`** — the two seams of the
-tier that still dispatch, registered and auditable. This block is valid config; paste it and
-`config-lint` passes:
+**What each consumer repo copies** (§4.2): the pack's `agents/api-test-reviewer.md` to
+`.claude/agents/api-test-reviewer.md`. The other two agents have no config seam today. If you copy
+`api-test-plan-reviewer.md` so that a session can dispatch it by choice, tag it
+`<!-- review-lead-skip: plan reviewer, not a panel reviewer -->`; otherwise
+`check-reviewer-references.sh` reports it `ORPHAN`, because its name ends in `-reviewer` and
+`reviewers.add` does not register it.
 
-```jsonc
+**What each consumer repo puts in `.claude/second-shift.config.json`** — the two seams of the
+tier that still dispatch, registered and auditable. This block is a complete config: paste it
+into a repo that has `.claude/agents/api-test-reviewer.md`, and both `config-lint` and
+`check-reviewer-references.sh` pass. In your repo, keep your own `tracker` and `commands`
+entries and merge in the `extraLanes` entry and the `reviewers` block.
+
+```json
 {
-  // RUN the suite — LIVE: run by the scheduler after every build. A blocking check,
-  // gated to when API surface changed.
+  "configVersion": 3,
+  "tracker": { "type": "github" },
   "commands": {
-    "<repo-id>": {
+    "app": {
       "extraLanes": [
         { "name": "api-tests", "when": ["src/**", "tests/api/**"],
-          "commands": ["<the repo's API-test command, e.g. yarn test:api>"], "failureClass": "TEST_FAILURE" }
+          "commands": ["yarn test:api"], "failureClass": "TEST_FAILURE" }
       ]
     }
   },
-  // REVIEW the tests — LIVE in the ad hoc review-lead: read when it selects the panel. The
-  // written tests get a domain code review there; the lane's one-session review does not dispatch it.
   "reviewers": {
-    "add": [{ "name": "acme-qa-pack:api-test-reviewer", "dimensions": ["api-testing"] }]
+    "add": [{ "name": "api-test-reviewer", "dimensions": ["api-testing"] }]
   }
 }
 ```
+
+- **Run the suite** (`extraLanes`) — live: the scheduler runs it after every build as a blocking
+  check, only when the branch changes API surface (`when`).
+- **Review the tests** (`reviewers.add`) — live in the ad hoc review-lead, which reads it when it
+  selects the panel. The written tests get a domain code review there; the lane's one-session
+  review does not dispatch it. The name is bare: the reviewer is the copy in `.claude/agents/`.
 
 **And the two seams that are gone.** The block below is **not valid config** — `config-lint`
 rejects all three of these keys by name. It is reproduced because the tier's *shape*
@@ -359,7 +372,7 @@ api-testing/*.md
 
 Every one of these **adds** a gate or a unit of work; not one can waive a shipped check — an API-test tier can only make a green run *red* (a bad plan, a failing suite, a rejected review), which is exactly the fork-vs-extend line from §1. And because the wiring lives in the consumer's config, anyone auditing the repo sees the whole tier in one file — while the *implementation* (agents, skill) is versioned and pinned in the pack, bumped independently.
 
-> **Two-pin note (phase 1 vs phase 2).** Under the phase-1 vendoring model, the pack's agents/skill are copied by hand into the repo's `.claude/agents/` and `.claude/skills/` (referenced **bare** — `api-test-plan-reviewer`, not `acme-qa-pack:api-test-plan-reviewer`), so every byte influencing a run is visible in the repo's own history; there is no sync command — the copy step belongs in the pack's install notes. The namespaced `acme-qa-pack:…` form shown above is the phase-2 live-resolution target. Either way the *config shape* is identical; only the reference form differs.
+> **Copy, then register bare.** The pack's agents and skill are copied by hand into the repo's `.claude/agents/` and `.claude/skills/` and referenced **bare** — `api-test-reviewer`, not `acme-qa-pack:api-test-reviewer` — so every byte influencing a run is visible in the repo's own history. There is no sync command; the copy step belongs in the pack's install notes. This is the only form `reviewers.add` accepts today. The qualified `acme-qa-pack:…` names appear only in the retired block above, where they were the designed form for keys that no longer exist.
 
 ---
 

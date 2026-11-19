@@ -13,7 +13,8 @@ in this same plugin.
 
 ## The exit gates, in order
 
-Run these before writing, in this order. Each runs once per ticket or slice.
+Run these before writing, in this order. Each runs once per ticket or slice. The probe has one
+more round after the write ("Probe the record").
 
 ### 1. Post-merge scan
 
@@ -63,10 +64,11 @@ returns:
 - the answer is knowable from code → resolve it and record a `fact` row;
 - the answer is genuinely undecided → a declared `OR-n` with a disposition.
 
-Two probe rounds at most; after that, the remaining guess-points become declared open regions. Skip
-it only on a bug or chore, or on genuinely small scope, and **say so and why** in the receipt's
-outcome; a silent skip is the failure this rung exists to catch. No `Task` tool → say it was skipped
-and why; never inline it.
+Two probe rounds at most: this one, and the record round before the lint. Skip the probe only on a
+bug or chore, or on genuinely small scope, and **say so and why** in the receipt's outcome. A skip
+covers this round only: the record round runs whenever the ticket has an AC block. A silent skip
+is the failure this rung exists to catch. No `Task` tool → say it was skipped and why; never
+inline it.
 
 ## Write the receipt
 
@@ -84,7 +86,7 @@ Receipt: v4
 
 Open regions: <each OR-n and its default, in a few words; or "none">.
 
-Provenance legend: `user-answered` = the operator chose. `user-delegated` = the operator gave the choice to the agent. `codebase-derived` = a fact from the code or the docs, with its proof. `deferred` = not decided yet, under an open region. `ticket-sourced` = the operator decided in a linked ticket comment.
+Provenance legend: `user-answered` = the operator chose. `user-delegated` = the operator gave the choice to the agent. `codebase-derived` = a fact from the code or the docs, with its proof. `deferred` = not decided yet, under an open region. `ticket-sourced` = the operator decided in a linked ticket comment, or the linked parent or sibling ticket states it.
 
 Open region legend: `pause-and-ask` = the build stops and asks. `reversible-default-and-flag` = the build uses the stated default.
 
@@ -184,16 +186,48 @@ The interview resolved 2 gaps."
 - **Test intent** — transcribe the ticket's AC ids onto one `ACs: AC-1 AC-2 …` line, exactly as
   labeled (holes stay holes; a `PM-n` item is never one), or `ACs: none — <reason>` when the ticket
   has no AC block. Under it, one line per id: draft `AC-n: <the observable behavior its test must
-  prove>` from the AC's own text. An AC no test can prove (docs, config) is an exemption, and
-  **every exemption is the operator's**: put it to them as a question, record the answer as a
-  `user-answered` row, and only then write `AC-n: exempt — <reason>`. Never exempt one silently.
-  Two more forms are the operator's the same way, each asked and recorded as its own
-  `user-answered` row: `AC-n: holds — <the existing behavior its test keeps>` for an AC about
-  behavior that already exists ("X still works": its test passes without the change, so the
-  scheduler keeps it off the fails-without-the-change check), and `AC-n: unchecked — <tier and
+  prove>` from the AC's own text. Each `AC-n` line keeps the meaning of the ticket's criterion with
+  that id, unless the operator chose a departure that a `D-n` row records. An AC no test can prove
+  (docs, config) is an exemption, and **every exemption is the operator's**: put it to them as a
+  question, record the answer as a `user-answered` row, and only then write
+  `AC-n: exempt — <reason>`. Never exempt one silently. Two more forms are the operator's the same
+  way, each asked and recorded as its own `user-answered` row:
+  `AC-n: holds — <the existing behavior its test keeps>` for an AC about behavior that already
+  exists ("X still works": its test passes without the change, so the scheduler keeps it off the
+  fails-without-the-change check), and `AC-n: unchecked — <tier and
   reason>` for one whose test sits on a tier the scheduler cannot run (a black-box API suite that
   needs the running app). Both must still be tagged on a test task.
   The build's test-first plan is held to these ids (`interviewing-baseline`, "Test intent").
+
+## Probe the record
+
+The build reads the record, not your context. So the probe's last round reads what the build reads.
+Dispatch `intake-toolkit:implementability-probe` via `Task`. Hand it the path of the finished
+record and the ticket body. Hand it nothing else: no interview, no findings from this session, no
+issue thread. It returns guess-points, and it reports the record against the ticket's criteria.
+
+Act on its output before the lint runs. The operator chose a change or a departure when an
+`intent` row records it: `user-answered`, `user-delegated` or `ticket-sourced`.
+
+- A build-blocking guess-point → ask the operator and record the answer as a row, or declare an
+  `OR-n`.
+- A criterion reported absent → ask the operator. Recommend an `AC-n` line drafted from the
+  ticket's text ("Test intent" above). Record the answer: the id on the `ACs:` line with its
+  `AC-n` line, and a row for any decision it needs. Or declare an `OR-n`.
+- An `AC-n` whose meaning changed and the operator did not choose the change → ask the operator,
+  recommending the ticket's meaning. Record the answer as a row and write the `AC-n` line to match
+  it, or declare an `OR-n`.
+- An `AC-n` whose meaning the operator changed → its Test intent line states the chosen behavior
+  under the ticket's id, and its row is marked as a departure.
+- Any other guess-point → route it as in the first round.
+- A reported departure that the operator chose → mark its row as a departure if it is not marked
+  yet. Nothing else.
+- A reported departure that the operator did not choose → ask the operator, or declare an `OR-n`.
+
+A row is marked as a departure when its Resolution ends with a `Departs from AC-n:` sentence
+(`interviewing-baseline`, "Departures").
+
+The record round runs once. It never loops. It never blocks without an operator question.
 
 ## Lint it
 

@@ -11,7 +11,7 @@
 # (the very first release) → nothing to compare, pass. Runs in marketplace CI
 # (model-free). Exit 0 = all good; 1 = a plugin changed without a version bump.
 #
-# CALL SITE (#119): runs ONLY on the release PR (ci.yml release-pr-gates, branch
+# CALL SITE: runs ONLY on the release PR (ci.yml release-pr-gates, branch
 # release/next) — feature PRs no longer bump versions (scripts/check-frozen-files.sh
 # enforces the inverse there). It checks only that each changed plugin's version string
 # changed, not that the level matches what scripts/derive-release.sh derived.

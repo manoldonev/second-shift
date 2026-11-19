@@ -37,10 +37,15 @@ is a file another session reads, and no stage hands control to another skill and
 > `tracker.type: jira` it is a **JIRA key** read with the Atlassian MCP's `getJiraIssue`, never
 > `gh issue view`. Do not assume one MCP namespace: the tool is `mcp__atlassian__getJiraIssue`,
 > `mcp__plugin_atlassian_atlassian__getJiraIssue` or `mcp__claude_ai_Atlassian_Rovo__getJiraIssue`
-> depending on how the session registered it (`ToolSearch` to discover a deferred tool). The
+> depending on how the session registered it (`ToolSearch` to discover a deferred tool). Those three
+> are the common prefixes, not the only ones: a server registered under another key gets
+> `mcp__<key>__`. So find every Atlassian tool the stage files name by its bare name (`ToolSearch`
+> with `getJiraIssue`, for example), whatever its prefix. The
 > jira adapter has no labels and makes no tracker writes besides the filing the operator says yes
 > to (`requirements.md`, "Filing"); every other write the stage files name is **presented** to the
-> operator instead.
+> operator instead. Requirements also reads the issue's parent ticket and the parent's other
+> children, read-only, as context (`requirements.md`, "The parent ticket, under jira"). Under
+> `tracker.type: github` Requirements reads no parent ticket.
 
 ## When Split runs
 
@@ -64,7 +69,7 @@ A skipped Split is still an outcome: the receipt's `Split:` line says why it did
 | the consumer's knowledge provider (`.claude/second-shift/intake-context.md`, `## Knowledge source`) | Requirements, its last act | once per intake, before Split, `codebase-explorer`, the fan-out and any Interview question; on a split, once on the parent, and every slice receipt carries the whole answer |
 | `review-toolkit:codebase-explorer` | Split | at most once per intake, and only there; Split's review of the slices as a set reads its map |
 | the intake fan-out (`intake-fanout.mjs`) | Explore | once per ticket, or once per split (a split the Interview sends back adds the split's one run, which supersedes the first) |
-| `intake-toolkit:implementability-probe` | Receipt | per ticket, or per slice |
+| `intake-toolkit:implementability-probe` | Receipt | per ticket, or per slice: two rounds at most, on the ticket body before the record is written and on the finished record before the lint |
 | `dup-scan.sh` | Receipt | per ticket, or per slice |
 | sizing | Receipt | per ticket, or per slice |
 
