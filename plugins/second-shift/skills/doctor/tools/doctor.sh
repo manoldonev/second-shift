@@ -90,6 +90,19 @@ state_excerpt() {
   fi
 }
 
+# RESOLVE_RECORD — the install record that actually loads for `$id` at `$root`. A PROJECT-scope
+# record here wins when one exists: docs/team-rollout.md gives the project level precedence in
+# this harness, so the verdict then describes what is served. `sort_by(.lastUpdated) | last`
+# alone decided it by which record was touched most recently, which on a machine carrying both
+# is reliably the freshly-minted stale project one — so doctor could FAIL "behind" against a
+# record while grading the wrong artifact. Used for the version verdict AND for every installPath
+# lookup, --report's included, so the shadow scan and config-lint read the same record the
+# verdict describes.
+# shellcheck disable=SC2016 # a jq program — $id/$root are jq's --arg bindings, not shell vars
+RESOLVE_RECORD='[.[] | select(.id==$id and ((.projectPath // "") == $root or .scope=="user" or .scope=="local"))]
+  | ((map(select(.scope=="project" and ((.projectPath // "") == $root))) | sort_by(.lastUpdated // "") | last)
+     // (sort_by(.lastUpdated // "") | last))
+  // empty'
 emit_report() {
   # Re-entry guard. This function re-invokes THIS script below for its nested check run,
   # so reaching it from that nested run is not a wrong report — it is unbounded recursion,
@@ -134,7 +147,7 @@ emit_report() {
   # Never affects doctor's exit code (this is --report mode, which always exits 0).
   local rt_root="${SECOND_SHIFT_REVIEW_TOOLKIT_ROOT:-}"
   if [[ -z "$rt_root" ]] && command -v jq >/dev/null 2>&1; then
-    rt_root="$(jq -r '[.[] | select(.id=="review-toolkit@second-shift")] | (sort_by(.lastUpdated // "") | last | .installPath) // empty' <<< "$pluglist" 2>/dev/null || true)"
+    rt_root="$(jq -r --arg id "review-toolkit@$MKT" --arg root "$ROOT" "$RESOLVE_RECORD | .installPath // empty" <<< "$pluglist" 2>/dev/null || true)"
   fi
   if [[ -n "$rt_root" && -x "$rt_root/scripts/check-review-context-sections.sh" ]]; then
     bash "$rt_root/scripts/check-review-context-sections.sh" --report "$ROOT" 2>&1 || true
@@ -212,18 +225,6 @@ semver_lt() { # $1 < $2 ?
   local first; first="$(printf '%s\n%s\n' "${1#v}" "${2#v}" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)"
   [[ "$first" == "${1#v}" ]]
 }
-# RESOLVE_RECORD — the install record that actually loads for `$id` at `$root`. A PROJECT-scope
-# record here wins when one exists: docs/team-rollout.md gives the project level precedence in
-# this harness, so the verdict then describes what is served. `sort_by(.lastUpdated) | last`
-# alone decided it by which record was touched most recently, which on a machine carrying both
-# is reliably the freshly-minted stale project one — so doctor could FAIL "behind" against a
-# record while grading the wrong artifact. Used for the version verdict AND for every installPath
-# lookup below, so the shadow scan and config-lint read the same record the verdict describes.
-# shellcheck disable=SC2016 # a jq program — $id/$root are jq's --arg bindings, not shell vars
-RESOLVE_RECORD='[.[] | select(.id==$id and ((.projectPath // "") == $root or .scope=="user" or .scope=="local"))]
-  | ((map(select(.scope=="project" and ((.projectPath // "") == $root))) | sort_by(.lastUpdated // "") | last)
-     // (sort_by(.lastUpdated // "") | last))
-  // empty'
 # Redundant-record classification, computed once for every plugin (the helper groups by id
 # itself). Its rows drive the WARNs after this loop; its scope answer is what makes the two
 # drift remediations below adaptive.

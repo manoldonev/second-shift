@@ -35,6 +35,8 @@ expect "lint cmd"              "$OUT" '.commands.lint.value' "yarn lint"
 expect "typecheck null"        "$OUT" '.commands.typecheck.value' null
 expect "mutating lint named"   "$OUT" '.commands.lint.source | test("runs --fix; give lint a non-mutating command")' true
 expect "no lintAutofixes"      "$OUT" '.commands | has("lintAutofixes")' false
+expect "rewriting format kept" "$OUT" '.commands.format.value' "yarn format"
+expect "rewriting format named" "$OUT" '.commands.format.source | test("runs --write; give format a non-mutating command")' true
 expect "topology standalone"   "$OUT" '.topology.value' standalone
 
 # Case 1b: scripts.lint runs --fix and a non-mutating lint:check exists ⇒ lint is lint:check
@@ -43,6 +45,13 @@ cp "$FIX/package-lint-fix-check.json" "$R1B/package.json"; touch "$R1B/yarn.lock
 OUT="$("$DETECT" "$R1B")"
 expect "lint prefers lint:check" "$OUT" '.commands.lint.value' "yarn lint:check"
 expect "lint:check provenance"   "$OUT" '.commands.lint.source' "package.json scripts.lint:check (scripts.lint runs --fix)"
+
+# Case 1c: scripts.format runs --write and a non-mutating format:check exists ⇒ format is format:check
+R1C="$TMP/widget-site"; mkdir -p "$R1C"; mkrepo "$R1C" "git@github.com:acme/widget-site.git" main
+cp "$FIX/package-format-write-check.json" "$R1C/package.json"; touch "$R1C/yarn.lock"
+OUT="$("$DETECT" "$R1C")"
+expect "format prefers format:check" "$OUT" '.commands.format.value' "yarn format:check"
+expect "format:check provenance"     "$OUT" '.commands.format.source' "package.json scripts.format:check (scripts.format runs --write)"
 
 # Case 2: monorepo (workspaces), npm, non-github origin ⇒ ambiguous tracker
 R2="$TMP/platform"; mkdir -p "$R2"; mkrepo "$R2" "git@git.acme-corp.example:platform/platform.git" develop
