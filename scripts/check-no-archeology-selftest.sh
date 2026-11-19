@@ -116,6 +116,7 @@ cat > "$R/record.md" <<'REC'
 | D-1 | which index | partial unique index | codebase-derived | decision |
 | OR-1 | open region | the retry budget |
 | S-1 | Empty state | decided (D-3) |
+| S-2 | Import endpoint | contract (D-4) |
 | RS-1 | /orders | empty | frame 12 | No orders yet |
 | PM-1 | the cache goes stale | mitigated |
 | F-2 | lens finding | dropped |
@@ -161,8 +162,8 @@ D="$(new_fixture tag-message)"; echo 'echo "the plan tags [AC-3] twice" >&2' >> 
 expect_red "(f10) an AC tag outside a plan task line reds" "$D" "tools/probe.sh: 1 line(s)"
 
 D="$(new_fixture decided-message)"
-printf '%s\n' 'echo "decided (D-1) and nothing else"' '# decided (D-2)' >> "$D/tools/probe.sh"
-expect_red "(f11) decided (D-n) in an echoed message and in a comment reds" "$D" "tools/probe.sh: 2 line(s)"
+printf '%s\n' 'echo "decided (D-1) and nothing else"' '# decided (D-2)' '# contract (D-3)' >> "$D/tools/probe.sh"
+expect_red "(f11) decided (D-n) or contract (D-n) in an echoed message or a comment reds" "$D" "tools/probe.sh: 3 line(s)"
 
 D="$(new_fixture later-cell)"
 cat >> "$D/tools/probe.sh" <<'EOF'

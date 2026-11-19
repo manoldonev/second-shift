@@ -101,5 +101,6 @@ a ticket comment**, because the operator chose to answer later and the question 
 
 The Interview is done when the register is empty **and** every surface is accounted for — each
 material decision carrying a non-`assumed` provenance, each surface decided by a row or out of
-scope with a reason. Trivial work exits at once with both explicit empty forms. Nothing is written
+scope with a reason. A surface that other code calls or parses is a `contract`: its row states the
+inputs, the outputs and the errors (`interviewing-baseline`, "The Surface Inventory"). Trivial work exits at once with both explicit empty forms. Nothing is written
 to disk here: the Receipt writes the record.

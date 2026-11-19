@@ -71,6 +71,8 @@ product-level non-functional constraints.
 
 **QUARANTINE — PM-technical (advisory, never binding):** suggested sub-issue lists, endpoints,
 routes, schema and field names, dependency graphs, stack and library choices, estimates — any "how".
+The quarantine decides only whether the ticket author may dictate a shape: a caller-facing
+interface still gets a `contract` row, and the Interview decides its shape.
 
 Write the **Product-Essence Brief** (the KEEP bucket restated) and the quarantine list as
 "PM-technical claims (advisory — verify against codebase)". After Step 3, tag each claim
