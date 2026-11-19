@@ -7,7 +7,7 @@ All four ACs are exempt in the record's Test intent (D-14). Selftest case B1 of
 
 - [ ] 1.1 Raise the cap to 30 and the deadline to turn 20 (plugins/intake-toolkit/agents/implementability-probe.md)
 - [ ] 1.2 Add the `unverified` status for an AC line and a guess-point, and replace the `[human]` deadline fallback (plugins/intake-toolkit/agents/implementability-probe.md)
-- [ ] 1.3 Add the resume rule: the deadline counts from the resume, and the probe works only the named items (plugins/intake-toolkit/agents/implementability-probe.md)
+- [ ] 1.3 Add the resume rule: the deadline counts from the resume, and the probe finishes a cut-short report whole or works only the named items (plugins/intake-toolkit/agents/implementability-probe.md)
 - [ ] 1.4 Remove the body-only mode from the description and the body (plugins/intake-toolkit/agents/implementability-probe.md)
 
 ## 2. The Receipt stage

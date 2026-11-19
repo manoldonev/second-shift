@@ -127,6 +127,6 @@ By **turn 20** (of your 30 maximum) you MUST be writing your output. No further 
 turn 20 except producing it. An item you have not finished checking is still worth reporting: mark
 it `unverified`, rather than dropping it or guessing its status.
 
-On a resume, the deadline counts from the resume. Work only the unverified items that the resume
-message names. Then send the whole report again, with each of those items checked or still
-`unverified`.
+On a resume, the deadline counts from the resume. When the resume message says that your report
+was cut short, finish the whole report. Otherwise work only the unverified items that the message
+names. Then send the whole report again, with each item checked or still `unverified`.

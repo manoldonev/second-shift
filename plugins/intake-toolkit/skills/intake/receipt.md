@@ -204,14 +204,16 @@ skipped and why. Never inline it.
 ### A partial report
 
 The report is not final while the harness marks it partial or it holds an `unverified` item.
-Resume the same probe with SendMessage. Name each unverified item in the message and tell the
-probe to finish those items. Resume at most 2 times. Then ask the operator to accept the report as
+Resume the same probe with SendMessage. When the harness marked the report partial, tell the probe
+that its report was cut short and to finish the whole report. Otherwise name each unverified item
+in the message and tell the probe to finish those items. Resume at most 2 times. Then ask the operator to accept the report as
 partial or to resume again, and recommend a resume. A session with no SendMessage makes no resume
 and asks the operator at once.
 
 Record a partial round only on the operator's word, on the `Requirements:` step line. Each item
 still `unverified` in a report the operator accepts becomes its own `OR-n` with disposition
-`pause-and-ask`. Never guess the status of an unchecked AC line or guess-point.
+`pause-and-ask`. A ticket AC that the accepted report does not list counts as `unverified`. Never
+guess the status of an unchecked AC line or guess-point.
 
 ### Act on the report
 
