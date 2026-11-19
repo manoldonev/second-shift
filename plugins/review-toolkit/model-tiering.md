@@ -54,7 +54,7 @@ Where it ships today: the intake fan-out (#916) runs its four angles alternating
 the arm its consumer replay measured. Without Fable it runs every lens and refuter at `reasoning`
 after two failed `cross` dispatches and records `same-family (fable unavailable)`.
 
-A repo still retargets per agent through `reviewers.modelOverrides` (e.g. `"plan-reviewer": "fable"`)
+A repo still retargets per agent through `reviewers.modelOverrides` (e.g. `"spec-reviewer": "fable"`)
 or per tier through `reviewers.tierMap` (`"cross": "opus"` turns Fable off). A tier the
 subscription cannot dispatch, set by override on an engine that does not degrade, produces a dead
 reviewer, reported as dead rather than quietly skipped.

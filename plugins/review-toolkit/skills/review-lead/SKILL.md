@@ -40,7 +40,7 @@ Do **not** simulate a dispatch. Writing a subagent's findings yourself and repor
 
 ## Caller model guidance
 
-For best synthesis quality, invoke this skill from a session running on an Opus-class model — or on a Fable-class model where the subscription includes one. Each specialist reviewer runs at the model tier declared in its own agent frontmatter (or the repo's `reviewers.modelOverrides` entry, which may name `fable`); the orchestration, the **lead pass**, and synthesis all run on the caller's model. Synthesis is where deduplication, triage, the Scope Completeness Gate, and the cross-reviewer self-check happen, and the lead pass is where four review dimensions are now judged outright — the work that benefits most from a strong model.
+For best synthesis quality, invoke this skill from a session running on an Opus-class model — or on a Fable-class model where the subscription includes one. Each plugin-shipped specialist reviewer runs at the model tier declared in its own agent frontmatter (or the repo's `reviewers.modelOverrides` entry, which may name `fable`); a repo-local `reviewers.add` reviewer runs at the `code` tier unless `reviewers.modelOverrides` names it, whatever its own frontmatter declares; the orchestration, the **lead pass**, and synthesis all run on the caller's model. Synthesis is where deduplication, triage, the Scope Completeness Gate, and the cross-reviewer self-check happen, and the lead pass is where four review dimensions are now judged outright — the work that benefits most from a strong model.
 
 ## Maturity calibration
 
@@ -285,6 +285,7 @@ calibration while every lint stays green. Before the pass, load from the repo un
 - `.claude/second-shift/review-context/complexity-reviewer.md`
 - `.claude/second-shift/review-context/test-coverage-reviewer.md`
 - `.claude/second-shift/review-context/security-reviewer.md` — only when the security conditional did **not** fire; when it did, the spawned reviewer loads it itself
+- `.claude/second-shift/security-rules.md` — the same condition; its tenancy predicates, owner-scoped table lists and response-whitelist mechanism are additive rules for the security section
 
 An empty or TODO-bodied section counts as ABSENT (the `reviewer-baseline` rule): infer
 conservatively and say that you did.
