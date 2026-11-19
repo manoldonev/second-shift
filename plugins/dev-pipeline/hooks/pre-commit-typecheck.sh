@@ -25,8 +25,16 @@ needs_typecheck() {
 # would otherwise block. Executed directly, BASH_SOURCE[0] == $0 and this is skipped.
 if [ "${BASH_SOURCE[0]}" != "${0}" ]; then return 0 2>/dev/null; fi
 
-CWD=$(jq -r '.cwd' < /dev/stdin)
+HOOK_INPUT=$(cat)
+CWD=$(printf '%s' "$HOOK_INPUT" | jq -r '.cwd')
 cd "$CWD" || exit 1
+
+# Claude Code runs the hook regardless of its matcher when it cannot split a Bash
+# command into subcommands, so allow anything that does not invoke `git ... commit`.
+CMD=$(printf '%s' "$HOOK_INPUT" | jq -r '.tool_input.command // ""')
+printf '%s' "$CMD" | grep -Eq \
+  '(^|[;&|]|&&|\|\|)[[:space:]]*git([[:space:]]+(-c[[:space:]]+[^[:space:]]+|-C[[:space:]]+[^[:space:]]+|--[^[:space:]]+))*[[:space:]]+commit([[:space:]]|$)' \
+  || exit 0
 
 # Static context: the typecheck command comes from the consumer repo's
 # .claude/second-shift.config.json (override: SECOND_SHIFT_CONFIG), under the
