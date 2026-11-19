@@ -206,8 +206,10 @@ issue thread. It returns guess-points, and it reports the record against the tic
 
 Act on its output before the lint runs:
 
-- A build-blocking guess-point, a criterion reported absent, or an `AC-n` whose meaning changed →
-  ask the operator and record the answer as a row, or declare an `OR-n`.
+- A build-blocking guess-point or a criterion reported absent → ask the operator and record the
+  answer as a row, or declare an `OR-n`.
+- An `AC-n` whose meaning changed → rewrite its Test intent line to the ticket's meaning. When the
+  operator chose the change, keep the ticket's line and record the change as a departure row.
 - Any other guess-point → route it as in the first round.
 - A reported departure that the operator chose → no action.
 
