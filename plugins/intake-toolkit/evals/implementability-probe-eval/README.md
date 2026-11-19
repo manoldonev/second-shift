@@ -24,8 +24,9 @@ changes, or when a model generation turns over.
 - **Hit count drops.** The probe stopped finding forks it used to find.
 - **Extras balloon while hits fall.** Padding — the failure mode the agent doc names. A probe
   that reports thirty guess-points on a well-specified spec teaches its reader to skip it.
-- **Blindness leaks.** The report cites the ledger, the issue thread, or a decision record. The
-  number then means nothing, regardless of how good it looks.
+- **Blindness leaks.** The report cites the issue thread, the session's context, or a ledger or
+  decision record the probe was not handed. The number then means nothing, regardless of how good
+  it looks. A record the probe was handed is its input, not a leak.
 
 Class disagreement on its own is **not** a regression. `human` vs `codebase` turns on whether
 the repo actually settles the question, and the probe grounds that against live code while the

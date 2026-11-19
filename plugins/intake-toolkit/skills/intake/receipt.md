@@ -13,7 +13,8 @@ in this same plugin.
 
 ## The exit gates, in order
 
-Run these before writing, in this order. Each runs once per ticket or slice.
+Run these before writing, in this order. Each runs once per ticket or slice. The probe has one
+more round after the write ("Probe the record").
 
 ### 1. Post-merge scan
 
@@ -63,10 +64,10 @@ returns:
 - the answer is knowable from code → resolve it and record a `fact` row;
 - the answer is genuinely undecided → a declared `OR-n` with a disposition.
 
-Two probe rounds at most; after that, the remaining guess-points become declared open regions. Skip
-it only on a bug or chore, or on genuinely small scope, and **say so and why** in the receipt's
-outcome; a silent skip is the failure this rung exists to catch. No `Task` tool → say it was skipped
-and why; never inline it.
+Two probe rounds at most: this one, and the record round before the lint. Skip the probe only on a
+bug or chore, or on genuinely small scope, and **say so and why** in the receipt's outcome. A skip
+covers both rounds. A silent skip is the failure this rung exists to catch. No `Task` tool → say it
+was skipped and why; never inline it.
 
 ## Write the receipt
 
@@ -184,7 +185,8 @@ The interview resolved 2 gaps."
 - **Test intent** — transcribe the ticket's AC ids onto one `ACs: AC-1 AC-2 …` line, exactly as
   labeled (holes stay holes; a `PM-n` item is never one), or `ACs: none — <reason>` when the ticket
   has no AC block. Under it, one line per id: draft `AC-n: <the observable behavior its test must
-  prove>` from the AC's own text. An AC no test can prove (docs, config) is an exemption, and
+  prove>` from the AC's own text. Each `AC-n` line keeps the meaning of the ticket's criterion with
+  that id. An AC no test can prove (docs, config) is an exemption, and
   **every exemption is the operator's**: put it to them as a question, record the answer as a
   `user-answered` row, and only then write `AC-n: exempt — <reason>`. Never exempt one silently.
   Two more forms are the operator's the same way, each asked and recorded as its own
@@ -194,6 +196,22 @@ The interview resolved 2 gaps."
   reason>` for one whose test sits on a tier the scheduler cannot run (a black-box API suite that
   needs the running app). Both must still be tagged on a test task.
   The build's test-first plan is held to these ids (`interviewing-baseline`, "Test intent").
+
+## Probe the record
+
+The build reads the record, not your context. So the probe's last round reads what the build reads.
+Dispatch `intake-toolkit:implementability-probe` via `Task` again. Hand it the path of the finished
+record and the ticket body. Hand it nothing else: no interview, no findings from this session, no
+issue thread. It returns guess-points, and it reports the record against the ticket's criteria.
+
+Act on its output before the lint runs:
+
+- A build-blocking guess-point, a criterion reported absent, or an `AC-n` whose meaning changed →
+  ask the operator and record the answer as a row, or declare an `OR-n`.
+- Any other guess-point → route it as in the first round.
+- A reported departure that the operator chose → no action.
+
+The record round runs once. It never loops. It never blocks without an operator question.
 
 ## Lint it
 
