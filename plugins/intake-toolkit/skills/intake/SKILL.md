@@ -64,7 +64,7 @@ A skipped Split is still an outcome: the receipt's `Split:` line says why it did
 | the consumer's knowledge provider (`.claude/second-shift/intake-context.md`, `## Knowledge source`) | Requirements, its last act | once per intake, before Split, `codebase-explorer`, the fan-out and any Interview question; on a split, once on the parent, and every slice receipt carries the whole answer |
 | `review-toolkit:codebase-explorer` | Split | at most once per intake, and only there; Split's review of the slices as a set reads its map |
 | the intake fan-out (`intake-fanout.mjs`) | Explore | once per ticket, or once per split (a split the Interview sends back adds the split's one run, which supersedes the first) |
-| `intake-toolkit:implementability-probe` | Receipt | per ticket, or per slice |
+| `intake-toolkit:implementability-probe` | Receipt | per ticket, or per slice: two rounds at most, on the ticket body before the record is written and on the finished record before the lint |
 | `dup-scan.sh` | Receipt | per ticket, or per slice |
 | sizing | Receipt | per ticket, or per slice |
 

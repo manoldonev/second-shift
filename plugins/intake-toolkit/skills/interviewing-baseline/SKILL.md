@@ -466,10 +466,12 @@ AC-8: run.sh's checks phase runs the coverage check (a run-selftest case)
   holes (a slice keeps its parent's ids), and a `PM-n` item is never in it. A ticket with no AC
   block is `ACs: none — <reason>`. The harness never reads the ticket body; this line is what it
   holds the plan to.
-- **One line per id**, at the start of the line, in one of four forms: the observable behavior;
-  `exempt — <reason>` (no test can prove it); `holds — <the existing behavior its test keeps>`
-  (an AC like "X still works": its test passes without the change, so the scheduler keeps its
-  files off the fails-without-the-change check and the checks at the head prove it); or
+- **One line per id**, at the start of the line, keeping the ticket's meaning for that id unless
+  the operator chose a departure that a `D-n` row records, in one of four forms: the observable
+  behavior; `exempt — <reason>` (no test can prove it);
+  `holds — <the existing behavior its test keeps>` (an AC like "X still works": its test passes
+  without the change, so the scheduler keeps its files off the fails-without-the-change check and
+  the checks at the head prove it); or
   `unchecked — <tier and reason>` (its test sits on a tier the scheduler cannot run, such as a
   black-box API suite that needs the running app: its files are noted, not run). An exempt,
   holds or unchecked line is the operator's answer to a question, recorded as a `user-answered`
@@ -489,6 +491,11 @@ the unit. So a Test intent line states the behavior one named test proves, not w
 does. The holds and unchecked forms are additive inside v4: no receipt version names them.
 
 ### Departures
+
+A row that departs from a ticket criterion at intake (the operator chose a behavior that differs
+from the ticket's `AC-n`) ends its Resolution cell with one sentence that starts
+`Departs from AC-n:` and says how. The Receipt adds that sentence when the record round reports
+the departure and the row lacks it.
 
 A decision the receipt never covered will sometimes surface during BUILD. That is normal
 operation (P9), not a failure — what must not happen is the run quietly making the call. The
@@ -511,7 +518,7 @@ Each interviewing surface keeps its own purpose; what unifies them is the ledger
 | `/intake` Requirements stage | requirements from a reporter; the one spec-reviewer pass; the knowledge source's answer | requirement-level rows, held in memory for the Interview; the answer, for the receipt's `## Knowledge source` |
 | `/intake` Split stage | escalation-point choices on a decomposition | in the session → `user-answered`; in a ticket comment → `ticket-sourced`; open → `deferred` |
 | `/intake` Interview stage | the engineer's load-bearing design decisions | primary author of the receipt's ledger |
-| `/intake` Receipt stage | post-merge checks, duplicates, probe guess-points | the only writer of the receipt |
+| `/intake` Receipt stage | post-merge checks, duplicates, probe guess-points, the finished record's gaps against the ticket's criteria | the only writer of the receipt |
 | `plan-interview` | the engineer's design decisions for a plan | the in-plan ledger; never a receipt |
 | `grill-me` | challenges to an existing plan/design | resolutions recorded back into the ledger as `user-answered` |
 | `design-toolkit:design-faithful-spec`, `design-toolkit:figma-faithful-spec` | ambiguous states/transitions in a handoff (`/intake`'s Requirements on a handoff input) | Open Questions double as `deferred` rows |
