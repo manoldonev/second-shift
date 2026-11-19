@@ -146,8 +146,8 @@ for a in lane joined; do
   [ "$(sn "$a" p5case)" = '[0,1,0,0,""]' ] && ok "$a P5: an approve that misses the planted P5 case is wrong" || bad "$a P5 approve: $(sn "$a" p5case)"
 done
 fi
-[ "$(sn plain p1case)" = '[0,0,0,0,""]' ] && ok "plain P1: a note-only needs-work is scorable, and a matching [note] is neither right nor noise there" || bad "plain P1 note: $(sn plain p1case)"
-[ "$(sn plain ctcase)" = '[0,0,0,0,""]' ] && ok "plain control: a note-only needs-work is no harm" || bad "plain control note: $(sn plain ctcase)"
+[ "$(sn plain p1case)" = '"unscorable"' ] && ok "plain P1: a note-only needs-work breaks the plain prompt's contract, so it is unscorable, not right" || bad "plain P1 note: $(sn plain p1case)"
+[ "$(sn plain ctcase)" = '"unscorable"' ] && ok "plain control: a note-only needs-work is unscorable" || bad "plain control note: $(sn plain ctcase)"
 
 echo "== a stored approve with a note, as --rescore reads it =="
 lane_approve "$(N N1 src/q.js:3 'a worry.')" > "$V/old-ct.md"

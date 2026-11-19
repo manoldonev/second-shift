@@ -811,8 +811,8 @@ def plain_problems(v: dict) -> list[str]:
     blockers = [f for f in v["findings"] if f["severity"] == "blocker"]
     if v["verdict"] == "approve" and blockers:
         p.append("an approve carries a [blocker]")
-    if v["verdict"] == "needs-work" and not v["findings"]:
-        p.append("a needs-work carries no finding")
+    if v["verdict"] == "needs-work" and not blockers:
+        p.append("a needs-work carries no [blocker]")
     return p
 
 
