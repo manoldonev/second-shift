@@ -4,6 +4,544 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v18.0.0
+
+### `audit-toolkit` 7.0.0 → 7.0.1
+
+- **chore(review-toolkit)!: remove the retired plan archive, the ablation evidence and the evals that cannot run** (#1222)
+  review-toolkit no longer ships the review-lead-synth agent or the
+  plan-reviewer, review-lead and security-reviewer evals, and intake-toolkit no
+  longer ships the intake-orchestrator eval; none of them could run as shipped.
+  review-lead drops synthesis-only mode and always runs its own reviewer
+  fan-out. The planted code-review bench drops the blind-prove arm and its
+  probe, bound-probe and compare subcommands.
+  Migration: a caller that handed review-lead pre-dispatched findings invokes
+  review-lead normally instead and lets it dispatch the reviewers.
+- **fix: correct wrong and duplicated instructions in shipped prompts** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+
+### `design-toolkit` 8.3.0 → 9.0.0
+
+- **chore(review-toolkit)!: remove the retired plan archive, the ablation evidence and the evals that cannot run** (#1222)
+  review-toolkit no longer ships the review-lead-synth agent or the
+  plan-reviewer, review-lead and security-reviewer evals, and intake-toolkit no
+  longer ships the intake-orchestrator eval; none of them could run as shipped.
+  review-lead drops synthesis-only mode and always runs its own reviewer
+  fan-out. The planted code-review bench drops the blind-prove arm and its
+  probe, bound-probe and compare subcommands.
+  Migration: a caller that handed review-lead pre-dispatched findings invokes
+  review-lead normally instead and lets it dispatch the reviewers.
+- **fix: correct wrong and duplicated instructions in shipped prompts** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+- **chore: strip origin stories and ticket ids from runtime script comments** (#1226)
+- **chore(review-toolkit,design-toolkit)!: remove the eval kit's mock runner and the design-toolkit evals** (#1245)
+  review-toolkit's agent-eval-kit is now a helper library for
+  the code-review bench; run-eval.py no longer runs an eval and the
+  fake-gh shim is gone. design-toolkit no longer ships evals/.
+  Migration: none in the repo. An out-of-tree eval that invoked
+  run-eval.py as a runner must keep its own copy from an earlier release.
+  **BREAKING:** run-eval.py is no longer a runnable eval harness, the fake-gh shim is removed, and plugins/design-toolkit/evals/ is deleted.
+- **fix(design-toolkit): one severity for the shared fidelity defects, and spec-fed figma-faithful keeps its token table** (#1259)
+  design-faithful-reviewer files logical-versus-physical,
+  arbitrary-value and hand-rolled-primitive defects as Warnings, as
+  figma-faithful-reviewer does, instead of blocking merge on them.
+  figma-faithful in spec-fed mode still builds the token table, the
+  layout context and the step-7 plan. An absent design key is documented
+  as no provider declared, not design fidelity off.
+  Migration: none.
+- **chore(design-toolkit)!: remove the figma spec reviewer that nothing dispatches** (#1289)
+  design-toolkit no longer ships figma-faithful-spec-reviewer,
+  an agent nothing dispatched; figma-faithful-spec's step-7 self-check is
+  the check on a figma spec.
+  Migration: if you dispatched the agent by hand, review a figma spec with
+  the figma-faithful-spec skill's step-7 self-check instead.
+  **BREAKING:** the design-toolkit:figma-faithful-spec-reviewer agent is removed.
+- **chore: a lint enforces the no-archeology rule, and a first sweep lands it green** (#1269)
+  check-emit-deadline's red message no longer cites an issue number.
+  Migration: none.
+  run.sh's --max-continuations refusal and its must-show smoke
+  message no longer cite an issue number or a decision id.
+  Migration: none.
+- **fix(design-toolkit): design-faithful commits through dev-pipeline's bot-commit.sh** (#1309)
+  design-faithful commits through dev-pipeline's bot-commit.sh, so
+  its commits carry the configured bot identity instead of a hand-typed one.
+  Migration: none.
+
+### `dev-pipeline` 17.13.1 → 18.0.0
+
+- **feat(dev-pipeline): the verdict's machine line lists each finding and counts other reviewers' comments** (#1210)
+  the joined verdict's plain-vs-lane machine line is now v3. It lists
+  each finding of both reviews, capped at 150, and records other_comments: the
+  comments other reviewers had on the PR when the review started, read by the
+  new tools/other-comments.sh. Route paths such as app/users/[id]/page.tsx are
+  read whole, so two route files at one line no longer pair.
+  Migration: none. Every v2 field keeps its name and meaning.
+- **feat(review-toolkit): review-lead offers to post its report on the PR as a pending review** (#1213)
+  review-lead writes `reviewed: <sha>` as line 2 of its report and,
+  after a review of a branch with an open PR, offers to post the report on that
+  PR as a pending review under your own gh account. A void round no longer runs
+  the join; it shows the blind review alone.
+  Migration: none.
+  review-lead checks the PR head and commits before it offers to
+  post a report, and a PR with more than 250 commits can take a review of
+  its head.
+  Migration: none.
+- **chore(dev-pipeline): remove tools with no caller, the unused selftest pass cache and two prose lints** (#1221)
+  dev-pipeline no longer ships tools/predecessor-gate.sh,
+  tools/checked-call.sh or hooks.md, and review-toolkit no longer ships
+  workflows/tool-discipline-probe.mjs. No skill, agent or lane step called
+  any of them. The hooks.json description now states which commit commands
+  each matcher catches.
+  Migration: a consumer script that calls predecessor-gate.sh or sources
+  checked-call.sh must keep its own copy; no other action.
+- **fix: correct wrong and duplicated instructions in shipped prompts** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+- **chore: strip origin stories and ticket ids from runtime script comments** (#1226)
+- **feat(dev-pipeline)!: remove the reviewers.default config key** (#1243)
+  reviewers.default is removed. config-lint and doctor reject a
+  config that carries it, and the config grill no longer reports it.
+  Migration: delete reviewers.default from .claude/second-shift.config.json
+  (docs/migrations/v2-to-v3.md, "Dead-key removal").
+  **BREAKING:** a config that sets reviewers.default now fails config-lint and /second-shift:doctor.
+- **feat(dev-pipeline,intake-toolkit): the build and intake follow design.provider** (#1246)
+  on a `design.provider: "claude-design"` repo, a build on a ticket
+  with design frames follows the design-faithful sequence, and the build and
+  review sessions are granted DesignSync, not the Figma MCP servers. Intake
+  runs `figma-faithful-spec` when a figma.com link is the input on a
+  `design.provider: "figma"` repo.
+  Migration: none.
+- **fix(dev-pipeline): config-lint names a non-object group instead of printing OK** (#1250)
+  config-lint (run by doctor and onboard) rejects configs it
+  used to pass: a non-object group, list entries of the wrong type, an
+  empty commands map, unknown keys in reviewers.add items, a liveRender
+  command without {out} and a smokeCommand without {route} and
+  {mustShow}. /dev-pipeline:run refuses a configVersion newer than 3.
+  Migration: a config that linted OK may now fail. Run doctor or
+  config-lint.sh on your .claude/second-shift.config.json and fix each
+  line it names; the schema shows the expected shape.
+- **feat(dev-pipeline,second-shift)!: retire paths.pipelineStateDir, and the plan-mode hook reads Claude Code's plans directory** (#1261)
+  paths.pipelineStateDir is removed; the run always reads the
+  intake receipt and writes its logs under .claude/pipeline-state, and
+  config-lint and doctor reject a config that carries the key. The
+  plan-mode ledger gate scans Claude Code's plansDirectory (default
+  ~/.claude/plans) instead of paths.plansDir, and reads the injected
+  planFilePath.
+  Migration: delete paths.pipelineStateDir from
+  .claude/second-shift.config.json (docs/migrations/v2-to-v3.md,
+  "Dead-key removal"); if it pointed elsewhere, move any run logs you keep
+  into .claude/pipeline-state. If you set paths.plansDir so the plan-mode
+  gate would find your plan files, set Claude Code's plansDirectory
+  instead.
+  **BREAKING:** a config that sets paths.pipelineStateDir now fails config-lint and /second-shift:doctor, and /dev-pipeline:run ignores it.
+- **fix(dev-pipeline): the lane stops on a pause-and-ask region** (#1262)
+  a lane build no longer decides a row parked under a
+  pause-and-ask open region. It stops, and the run ends with the new
+  terminal build-paused (exit 1) naming the region and the build's
+  question. A review that scores a user-delegated edit of such a row
+  anything but violated does not bind. The review input lists edits to
+  the session files the review loads from the head (.claude/settings*.json,
+  .mcp.json, CLAUDE.md, .claude/rules, agents, skills, commands,
+  output-styles and hooks), and the review asks for the row or criterion
+  that authorized each.
+  Migration: a queued ticket whose record parks a row under a
+  pause-and-ask region used to run to a PR and may now stop. Answer the
+  region at intake before launching, or after a build-paused stop write
+  the answer into the row with provenance user-answered on the lane
+  branch and re-launch with --resume. A wrapper that routes on the slug
+  needs a build-paused arm; exit 1 already means stopped for a human.
+- **fix(dev-pipeline): the lane review picks its design-fidelity reviewer by the rule the build follows** (#1265)
+  the lane review now dispatches the same design-fidelity reviewer
+  family as the build follows: an unset design.provider gets
+  figma-faithful-reviewer (it got design-faithful-reviewer), and a handoff
+  URL in the record no longer overrides the configured provider.
+  Migration: none for a repo with design.provider set and a matching handoff
+  URL. A repo with no provider that wants design-faithful-reviewer sets
+  design.provider to claude-design.
+- **fix(dev-pipeline): the joined verdict drops the question mark from a blind blocker's "Ready to merge?"** (#1306)
+  a blind blocker that quotes "Ready to merge?" no longer makes the
+  joined verdict fail the verdict grammar and respawn the review.
+  Migration: none.
+- **docs(dev-pipeline,review-toolkit): four doc sentences say what the scheduler and the bench do** (#1290)
+  the tracker adapter README now says that tracker.writes: false only
+  withholds the Atlassian write tools, not the github claim and comments.
+  Migration: none.
+- **refactor(dev-pipeline): drop branch-prefix.sh's unused sourced API** (#1296)
+- **fix(dev-pipeline): the lane reads the record commit as pushed, whatever replace ref the checkout carries** (#1294)
+  the lane, the review skill and the blind review read commits
+  with replace refs off, so a replace ref in the lane worktree or its main
+  checkout no longer changes the record, the changed-file list or the
+  review diffs read from the record's first commit.
+  Migration: none.
+- **chore: a lint enforces the no-archeology rule, and a first sweep lands it green** (#1269)
+  check-emit-deadline's red message no longer cites an issue number.
+  Migration: none.
+  run.sh's --max-continuations refusal and its must-show smoke
+  message no longer cite an issue number or a decision id.
+  Migration: none.
+- **chore(dev-pipeline,review-toolkit): the files held back for open pull requests lose their ticket ids** (#1340)
+- **fix(dev-pipeline): the type-check commit gate skips commands that are not a git commit** (#1321)
+  the pre-commit type-check hook no longer runs the type-check, or
+  denies, on Bash commands that do not invoke git commit.
+  Migration: none.
+- **fix(dev-pipeline): the lane finds the record commit in the history as pushed, whatever shallow or grafts file the checkout holds** (#1339)
+  a shallow fetch or an info/grafts file in the lane checkout no
+  longer changes which commit the run reads as the record; a shallow clone
+  whose history below the record commit is not local stops the run with
+  env-shallow-history, fixed by git fetch --unshallow.
+  Migration: none.
+- **fix(dev-pipeline): claim-issue rolls back the claimed label when the queue-label removal fails** (#1300)
+  a claim whose queue-label removal fails now rolls back the claimed
+  label and stops the run, instead of reporting success with both labels on the issue.
+  Migration: none.
+- **fix(dev-pipeline): run.sh tells handoff and joined-review sessions what is true on their paths** (#1338)
+  a /dev-pipeline:build handoff prompt tells the session to run each
+  command from the worktree, a re-entered handoff gates on the committed
+  record's checks, and a joined-review re-spawn is told its draft was never
+  posted.
+  Migration: none.
+
+### `intake-toolkit` 8.7.1 → 8.8.0
+
+- **chore(review-toolkit)!: remove the retired plan archive, the ablation evidence and the evals that cannot run** (#1222)
+  review-toolkit no longer ships the review-lead-synth agent or the
+  plan-reviewer, review-lead and security-reviewer evals, and intake-toolkit no
+  longer ships the intake-orchestrator eval; none of them could run as shipped.
+  review-lead drops synthesis-only mode and always runs its own reviewer
+  fan-out. The planted code-review bench drops the blind-prove arm and its
+  probe, bound-probe and compare subcommands.
+  Migration: a caller that handed review-lead pre-dispatched findings invokes
+  review-lead normally instead and lets it dispatch the reviewers.
+- **fix: correct wrong and duplicated instructions in shipped prompts** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+- **fix(intake-toolkit): accept a ticket-sourced answer on an intent row** (#1249)
+  a receipt row of kind `intent` may now carry `ticket-sourced`
+  provenance, so an answer the operator gave in a ticket comment passes
+  `ledger-lint.sh --receipt` without being relabeled. The row must still cite
+  the comment by URL.
+  Migration: none.
+- **feat(dev-pipeline,intake-toolkit): the build and intake follow design.provider** (#1246)
+  on a `design.provider: "claude-design"` repo, a build on a ticket
+  with design frames follows the design-faithful sequence, and the build and
+  review sessions are granted DesignSync, not the Figma MCP servers. Intake
+  runs `figma-faithful-spec` when a figma.com link is the input on a
+  `design.provider: "figma"` repo.
+  Migration: none.
+- **feat(dev-pipeline,second-shift)!: retire paths.pipelineStateDir, and the plan-mode hook reads Claude Code's plans directory** (#1261)
+  paths.pipelineStateDir is removed; the run always reads the
+  intake receipt and writes its logs under .claude/pipeline-state, and
+  config-lint and doctor reject a config that carries the key. The
+  plan-mode ledger gate scans Claude Code's plansDirectory (default
+  ~/.claude/plans) instead of paths.plansDir, and reads the injected
+  planFilePath.
+  Migration: delete paths.pipelineStateDir from
+  .claude/second-shift.config.json (docs/migrations/v2-to-v3.md,
+  "Dead-key removal"); if it pointed elsewhere, move any run logs you keep
+  into .claude/pipeline-state. If you set paths.plansDir so the plan-mode
+  gate would find your plan files, set Claude Code's plansDirectory
+  instead.
+- **chore: a lint enforces the no-archeology rule, and a first sweep lands it green** (#1269)
+  check-emit-deadline's red message no longer cites an issue number.
+  Migration: none.
+  run.sh's --max-continuations refusal and its must-show smoke
+  message no longer cite an issue number or a decision id.
+  Migration: none.
+- **feat(intake-toolkit): the last implementability-probe round reads the finished record and checks it against the ticket's criteria** (#1348)
+  the implementability probe's last round at intake exit reads
+  the finished decision record with the ticket body, and reports each
+  ticket acceptance criterion as covered, departed or absent, plus any
+  AC-n whose meaning differs from the ticket's. Gaps become operator
+  questions or declared open regions before the lint.
+  Migration: none.
+- **feat(intake-toolkit): under a jira tracker, intake reads the story's parent and its sibling stories as context** (#1349)
+  under a jira tracker, intake reads the issue's parent ticket and
+  its sibling stories as context, and asks the operator where a decision
+  contradicts the parent's text.
+  Migration: none.
+- **fix(intake-toolkit): dup-scan's verdicts no longer tell intake to queue the ticket** (#1334)
+  dup-scan's candidate report no longer says "queue it"; its
+  three verdicts are ledger outcomes, and queueing follows the intake
+  receipt's rule.
+  Migration: none.
+- **feat(intake-toolkit): a caller-facing surface is a contract whose row states its inputs, outputs and errors** (#1353)
+  an intake receipt can mark a caller-facing surface `contract (D-n)`;
+  ledger-lint.sh --receipt then requires the cited row to state Inputs:,
+  Outputs: and Errors:, refuses an open cited row, and checks that each
+  `cited (convention|adr)` path in it exists in the repo.
+  Migration: none. Existing receipts carry no contract row and lint as before.
+
+### `review-toolkit` 11.9.0 → 12.0.0
+
+- **feat(dev-pipeline): the verdict's machine line lists each finding and counts other reviewers' comments** (#1210)
+  the joined verdict's plain-vs-lane machine line is now v3. It lists
+  each finding of both reviews, capped at 150, and records other_comments: the
+  comments other reviewers had on the PR when the review started, read by the
+  new tools/other-comments.sh. Route paths such as app/users/[id]/page.tsx are
+  read whole, so two route files at one line no longer pair.
+  Migration: none. Every v2 field keeps its name and meaning.
+- **feat(review-toolkit): review-lead offers to post its report on the PR as a pending review** (#1213)
+  review-lead writes `reviewed: <sha>` as line 2 of its report and,
+  after a review of a branch with an open PR, offers to post the report on that
+  PR as a pending review under your own gh account. A void round no longer runs
+  the join; it shows the blind review alone.
+  Migration: none.
+  review-lead checks the PR head and commits before it offers to
+  post a report, and a PR with more than 250 commits can take a review of
+  its head.
+  Migration: none.
+- **chore(dev-pipeline): remove tools with no caller, the unused selftest pass cache and two prose lints** (#1221)
+  dev-pipeline no longer ships tools/predecessor-gate.sh,
+  tools/checked-call.sh or hooks.md, and review-toolkit no longer ships
+  workflows/tool-discipline-probe.mjs. No skill, agent or lane step called
+  any of them. The hooks.json description now states which commit commands
+  each matcher catches.
+  Migration: a consumer script that calls predecessor-gate.sh or sources
+  checked-call.sh must keep its own copy; no other action.
+- **chore(review-toolkit)!: remove the retired plan archive, the ablation evidence and the evals that cannot run** (#1222)
+  review-toolkit no longer ships the review-lead-synth agent or the
+  plan-reviewer, review-lead and security-reviewer evals, and intake-toolkit no
+  longer ships the intake-orchestrator eval; none of them could run as shipped.
+  review-lead drops synthesis-only mode and always runs its own reviewer
+  fan-out. The planted code-review bench drops the blind-prove arm and its
+  probe, bound-probe and compare subcommands.
+  Migration: a caller that handed review-lead pre-dispatched findings invokes
+  review-lead normally instead and lets it dispatch the reviewers.
+  **BREAKING:** review-toolkit no longer ships the review-lead-synth agent, and review-lead no longer has synthesis-only mode. A caller that handed review-lead pre-dispatched findings invokes it normally instead.
+- **fix: correct wrong and duplicated instructions in shipped prompts** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+- **chore: strip origin stories and ticket ids from runtime script comments** (#1226)
+- **feat(dev-pipeline)!: remove the reviewers.default config key** (#1243)
+  reviewers.default is removed. config-lint and doctor reject a
+  config that carries it, and the config grill no longer reports it.
+  Migration: delete reviewers.default from .claude/second-shift.config.json
+  (docs/migrations/v2-to-v3.md, "Dead-key removal").
+- **chore(review-toolkit,design-toolkit)!: remove the eval kit's mock runner and the design-toolkit evals** (#1245)
+  review-toolkit's agent-eval-kit is now a helper library for
+  the code-review bench; run-eval.py no longer runs an eval and the
+  fake-gh shim is gone. design-toolkit no longer ships evals/.
+  Migration: none in the repo. An out-of-tree eval that invoked
+  run-eval.py as a runner must keep its own copy from an earlier release.
+  **BREAKING:** run-eval.py is no longer a runnable eval harness, the fake-gh shim is removed, and plugins/design-toolkit/evals/ is deleted.
+- **chore(review-toolkit)!: remove the substantial panel and the pipeline default panel** (#1248)
+  the review fan-out (`code-review.mjs`) no longer takes `panel`
+  or `requiredSeats` and always returns `reviewers[]`; `/review-toolkit:review-lead`
+  no longer has a pipeline default panel, so its routing table applies to
+  every invocation.
+  Migration: a caller of `code-review.mjs` that passed `requiredSeats` adds
+  those names to `reviewers`, drops `panel`, and reads `reviewers[]` where
+  it read `seats[]`. A `/review-toolkit:review-lead` invocation that
+  declared the pipeline default panel drops the declaration and its opt-in
+  and decline names.
+  **BREAKING:** code-review.mjs ignores `panel` and `requiredSeats` and never returns `seats[]`; review-lead ignores a declared pipeline default panel.
+- **fix(intake-toolkit): accept a ticket-sourced answer on an intent row** (#1249)
+  a receipt row of kind `intent` may now carry `ticket-sourced`
+  provenance, so an answer the operator gave in a ticket comment passes
+  `ledger-lint.sh --receipt` without being relabeled. The row must still cite
+  the comment by URL.
+  Migration: none.
+- **fix(review-toolkit): the scope-completeness reviewer scores an intent row answered in a ticket comment** (#1255)
+  the scope-completeness reviewer scores every intent row of a
+  decision record, including one whose provenance is ticket-sourced.
+  Migration: none.
+- **fix(review-toolkit): the planted bench's jest overlay passes config-lint, and the corpus check lints every overlay** (#1257)
+- **chore(review-toolkit)!: remove unit-test-plan-reviewer and stall-probe, and reduce mutation-review to advisory** (#1258)
+  review-toolkit no longer ships the unit-test-plan-reviewer
+  agent or the stall-probe workflow. unit-test-mutation-reviewer has one
+  mode, advisory, and no longer documents the propose-only output; the
+  mutation-review skill no longer describes a propose and execute protocol.
+  doc-updater is dispatched as an agent; there is no slash command.
+  Migration: a caller that dispatched unit-test-plan-reviewer runs
+  plan-reviewer instead; a caller that requested propose-only mutation
+  output reads the advisory verdict and findings.
+  **BREAKING:** review-toolkit no longer ships the unit-test-plan-reviewer agent or the stall-probe workflow, and unit-test-mutation-reviewer drops propose-only mode.
+- **fix(review-toolkit): planted overlays name test scripts their bases define** (#1260)
+- **fix(review-toolkit): the planted bench's lane render names a run id in the lane's form** (#1263)
+- **fix(review-toolkit): review-lead passes the reviewers and tracker config to the reviewer fan-out** (#1256)
+  review-lead now passes the consumer config's reviewers and tracker groups
+  to the reviewer fan-out, so configured reviewers.modelOverrides and reviewers.tierMap
+  start applying to ad hoc reviews, and under tracker.type jira the scope-completeness
+  reviewer is told to fetch a JIRA ticket through the Atlassian MCP instead of a GitHub
+  issue through gh.
+  Migration: none. A repo whose overrides name a costlier model will see ad hoc
+  reviews run on it from this release.
+- **fix(design-toolkit): one severity for the shared fidelity defects, and spec-fed figma-faithful keeps its token table** (#1259)
+  design-faithful-reviewer files logical-versus-physical,
+  arbitrary-value and hand-rolled-primitive defects as Warnings, as
+  figma-faithful-reviewer does, instead of blocking merge on them.
+  figma-faithful in spec-fed mode still builds the token table, the
+  layout context and the step-7 plan. An absent design key is documented
+  as no provider declared, not design fidelity off.
+  Migration: none.
+- **fix(review-toolkit): review-lead picks the design-fidelity reviewer by the rule the lane review follows** (#1288)
+  the ad hoc review-lead picks its design-fidelity reviewer by
+  design.provider alone, as the pipeline review does: claude-design picks
+  design-faithful-reviewer, and figma or no provider picks
+  figma-faithful-reviewer. A repo with no design.provider now gets
+  figma-faithful-reviewer on a web-component diff where it got
+  design-faithful-reviewer. A handoff URL in a decision record no longer
+  changes the pick, so a record with a Claude Design URL in a repo that is
+  not set to claude-design now gets figma-faithful-reviewer. A repo that sets
+  design.provider: figma sees no change on a web-component diff.
+  Migration: none for most repos. To keep design-faithful-reviewer, set
+  design.provider to claude-design. A repo with no provider that names
+  design-faithful-reviewer in reviewers.remove or reviewers.modelOverrides
+  names figma-faithful-reviewer there instead.
+- **docs(dev-pipeline,review-toolkit): four doc sentences say what the scheduler and the bench do** (#1290)
+  the tracker adapter README now says that tracker.writes: false only
+  withholds the Atlassian write tools, not the github claim and comments.
+  Migration: none.
+- **fix(review-toolkit): reviewer-baseline scopes its severity mapping to code-review dispatches** (#1332)
+  reviewer-baseline no longer steers intake reviewers toward severity
+  values the intake review workflow rejects.
+  Migration: none.
+- **chore: a lint enforces the no-archeology rule, and a first sweep lands it green** (#1269)
+  check-emit-deadline's red message no longer cites an issue number.
+  Migration: none.
+  run.sh's --max-continuations refusal and its must-show smoke
+  message no longer cite an issue number or a decision id.
+  Migration: none.
+- **chore(dev-pipeline,review-toolkit): the files held back for open pull requests lose their ticket ids** (#1340)
+- **fix(review-toolkit): the lead pass reads security-rules.md, and the tier docs match the dispatch** (#1297)
+  review-lead's lead pass now reads .claude/second-shift/security-rules.md
+  when it owns the security dimension, and the file's presence selects
+  security-reviewer; the docs now say a repo-local reviewer runs at the code
+  tier unless reviewers.modelOverrides names it.
+  Migration: none.
+  review-lead's lead pass reads `.claude/second-shift/security-rules.md`
+  when it owns the security dimension.
+  Migration: none.
+
+### `second-shift` 13.6.3 → 14.0.0
+
+- **chore(dev-pipeline): remove tools with no caller, the unused selftest pass cache and two prose lints** (#1221)
+  dev-pipeline no longer ships tools/predecessor-gate.sh,
+  tools/checked-call.sh or hooks.md, and review-toolkit no longer ships
+  workflows/tool-discipline-probe.mjs. No skill, agent or lane step called
+  any of them. The hooks.json description now states which commit commands
+  each matcher catches.
+  Migration: a consumer script that calls predecessor-gate.sh or sources
+  checked-call.sh must keep its own copy; no other action.
+- **chore(review-toolkit)!: remove the retired plan archive, the ablation evidence and the evals that cannot run** (#1222)
+  review-toolkit no longer ships the review-lead-synth agent or the
+  plan-reviewer, review-lead and security-reviewer evals, and intake-toolkit no
+  longer ships the intake-orchestrator eval; none of them could run as shipped.
+  review-lead drops synthesis-only mode and always runs its own reviewer
+  fan-out. The planted code-review bench drops the blind-prove arm and its
+  probe, bound-probe and compare subcommands.
+  Migration: a caller that handed review-lead pre-dispatched findings invokes
+  review-lead normally instead and lets it dispatch the reviewers.
+- **fix: correct wrong and duplicated instructions in shipped prompts** (#1225)
+  reviewers stop being told to call StructuredOutput, and
+  over-engineering findings are capped at Warning in the lead pass and
+  in complexity-reviewer. The audit-toolkit settings template
+  (templates/settings.audit-template.json) is removed; the plugin's
+  hooks.json already wires the same hook.
+  Migration: none.
+- **feat(dev-pipeline)!: remove the reviewers.default config key** (#1243)
+  reviewers.default is removed. config-lint and doctor reject a
+  config that carries it, and the config grill no longer reports it.
+  Migration: delete reviewers.default from .claude/second-shift.config.json
+  (docs/migrations/v2-to-v3.md, "Dead-key removal").
+- **fix(second-shift): one remedy per record scope, and the canary copies match their templates** (#1247)
+  doctor prints one remedy for a drifted project- or local-scope
+  record (uninstall then install), and a project-scope remedy only for a
+  plugin your committed settings enable. The consent doc template names the
+  bot App keys the per-engineer config file may hold.
+  Migration: optional — re-render `.claude/SECOND-SHIFT.md` from the template
+  to pick up the corrected per-engineer-file sentence. The doctor shim and
+  unclaim script need no re-copy (the unclaim change is comments only).
+- **feat(dev-pipeline,second-shift)!: retire paths.pipelineStateDir, and the plan-mode hook reads Claude Code's plans directory** (#1261)
+  paths.pipelineStateDir is removed; the run always reads the
+  intake receipt and writes its logs under .claude/pipeline-state, and
+  config-lint and doctor reject a config that carries the key. The
+  plan-mode ledger gate scans Claude Code's plansDirectory (default
+  ~/.claude/plans) instead of paths.plansDir, and reads the injected
+  planFilePath.
+  Migration: delete paths.pipelineStateDir from
+  .claude/second-shift.config.json (docs/migrations/v2-to-v3.md,
+  "Dead-key removal"); if it pointed elsewhere, move any run logs you keep
+  into .claude/pipeline-state. If you set paths.plansDir so the plan-mode
+  gate would find your plan files, set Claude Code's plansDirectory
+  instead.
+  **BREAKING:** a config that sets paths.pipelineStateDir now fails config-lint and /second-shift:doctor, and /dev-pipeline:run ignores it.
+- **fix(design-toolkit): one severity for the shared fidelity defects, and spec-fed figma-faithful keeps its token table** (#1259)
+  design-faithful-reviewer files logical-versus-physical,
+  arbitrary-value and hand-rolled-primitive defects as Warnings, as
+  figma-faithful-reviewer does, instead of blocking merge on them.
+  figma-faithful in spec-fed mode still builds the token table, the
+  layout context and the step-7 plan. An absent design key is documented
+  as no provider declared, not design fidelity off.
+  Migration: none.
+- **fix(review-toolkit): review-lead picks the design-fidelity reviewer by the rule the lane review follows** (#1288)
+  the ad hoc review-lead picks its design-fidelity reviewer by
+  design.provider alone, as the pipeline review does: claude-design picks
+  design-faithful-reviewer, and figma or no provider picks
+  figma-faithful-reviewer. A repo with no design.provider now gets
+  figma-faithful-reviewer on a web-component diff where it got
+  design-faithful-reviewer. A handoff URL in a decision record no longer
+  changes the pick, so a record with a Claude Design URL in a repo that is
+  not set to claude-design now gets figma-faithful-reviewer. A repo that sets
+  design.provider: figma sees no change on a web-component diff.
+  Migration: none for most repos. To keep design-faithful-reviewer, set
+  design.provider to claude-design. A repo with no provider that names
+  design-faithful-reviewer in reviewers.remove or reviewers.modelOverrides
+  names figma-faithful-reviewer there instead.
+- **fix(second-shift): the re-onboard diff guard retires lintAutofixes, reviewers.default and paths.pipelineStateDir** (#1299)
+  re-onboarding a configVersion 2 config no longer blocks on
+  commands.<id>.lintAutofixes, reviewers.default or paths.pipelineStateDir;
+  they are listed as retired keys instead of deltas to restore.
+  Migration: none.
+- **docs(second-shift): the consent inventory names the plain review, the intake probe and library-conformance** (#1322)
+  the consent inventory (SECOND-SHIFT.md) names the record-blind plain
+  review session and the scheduler's joined verdict post, the intake-toolkit
+  implementability-probe agent and the design-toolkit library-conformance skill.
+  Migration: none.
+- **chore: a lint enforces the no-archeology rule, and a first sweep lands it green** (#1269)
+  check-emit-deadline's red message no longer cites an issue number.
+  Migration: none.
+  run.sh's --max-continuations refusal and its must-show smoke
+  message no longer cite an issue number or a decision id.
+  Migration: none.
+- **feat(intake-toolkit): the last implementability-probe round reads the finished record and checks it against the ticket's criteria** (#1348)
+  the implementability probe's last round at intake exit reads
+  the finished decision record with the ticket body, and reports each
+  ticket acceptance criterion as covered, departed or absent, plus any
+  AC-n whose meaning differs from the ticket's. Gaps become operator
+  questions or declared open regions before the lint.
+  Migration: none.
+- **fix(second-shift): the unclaim step releases the run-state labels on github whatever tracker.writes says** (#1336)
+  the unclaim-on-close step now releases the claimed and queue labels on a github tracker with `tracker.writes: false`, instead of exiting as a no-op and leaving the claimed label on every closed issue.
+  Migration: a github repo with `tracker.writes: false` that took the unclaim workflow re-copies `templates/consumer/second-shift-unclaim.sh` to `.claude/tools/second-shift-unclaim.sh`; every other repo needs nothing.
+- **fix(second-shift): onboard drafts a non-rewriting format check and resolves config-lint from this repo's install record** (#1305)
+  onboard no longer drafts a rewriting format script as a blocking check, and
+  onboard's config-lint step and doctor --report read the plugin install that loads in this
+  repo rather than whichever record was updated last.
+  Migration: none.
+
 ## v17.14.1
 
 ### `dev-pipeline` 17.13.0 → 17.13.1
