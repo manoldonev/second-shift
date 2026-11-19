@@ -22,8 +22,11 @@ specific to an intake ticket.
   parent's text: it is asked again ("The parent ticket" below).
 - **Requirements' open gaps** — spec-reviewer findings only the operator can close. Each is a
   question here.
-- **Explore's snapshot and the pool items that pass the materiality bar.** Each surviving item is a
-  row, an option, a probed fact or a question.
+- **Explore's snapshot.** Questions go to the operator once the snapshot is written, before the
+  pool is in (`explore.md`, "Snapshot, then the interview, then the pool").
+- **The pool items, when the workflow completes.** Each item you checked from its pointer that
+  passes the materiality bar is a row, an option, a probed fact or a question. An item about a
+  question you asked before you read the pool is tagged `already-had`.
 - **The knowledge source's answer**, when Requirements got one ("The knowledge source" below).
 - **The parent ticket's body and the siblings' keys and summaries**, under jira, when the issue has
   a parent ("The parent ticket" below).
@@ -46,6 +49,16 @@ The provider's answer is evidence, read beside the code, never in place of it
   which side is behind: `kb-conflict: <kb-page> (kb stale)` when the page is out of date,
   `kb-conflict: <kb-page> (kb ahead)` when the page states a direction the code has not reached.
 - **A gap the answer reports** is a question like any other, when it passes the materiality bar.
+
+## A late finding
+
+A pool item can contradict an answer the operator already gave, `user-answered` or
+`user-delegated`. Show the item beside the earlier answer and ask that one question once more. The
+second answer stands. This is the one exception to "never re-ask" (`interviewing-baseline`, rules 5
+and 6).
+
+Tag the item `already-had`. When the second answer changes the row, its disposition reads
+`became D-n` and the row gains `From: F-n`. The tag keeps the row out of the tally's `rows added`.
 
 ## The parent ticket
 
@@ -77,13 +90,15 @@ the register so far. Split's decision then reshapes what is interviewed; the row
 stay settled. A ticket that has already been through Split does not return there a second time —
 escalate instead.
 
-The fan-out already ran on the unsplit ticket by then, and its lenses never saw the seams. So:
+The fan-out ran, or still runs, on the unsplit ticket by then, and its lenses never saw the seams.
+So:
 
-- **Split decides "not split"** → no new fan-out; the interview resumes on the pool it has.
-- **Split creates slices** → the sequence goes on to Explore, which runs the split's one fan-out on
-  the parent plus the slice list (`explore.md`, "After a return from the Interview"). The pre-split
-  pool is superseded: its items already settled as rows stay settled, and each slice receipt names
-  the earlier run on its `Run:` line.
+- **Split decides "not split"** → no new fan-out; the interview resumes on the pool it has, or
+  takes the pool when the run completes.
+- **Split creates slices** → the sequence goes on to Explore, which stops an unread run and
+  discards it, then runs the split's one fan-out on the parent plus the slice list (`explore.md`,
+  "After a return from the Interview"). The pre-split pool is superseded: its items already settled
+  as rows stay settled, and each slice receipt names the earlier run on its `Run:` line.
 
 ## Escalation
 
@@ -99,7 +114,8 @@ a ticket comment**, because the operator chose to answer later and the question 
 
 ## Exit
 
-The Interview is done when the register is empty **and** every surface is accounted for — each
+The Interview does not close until the pool is read, or the run has ended in its skipped or failed
+form. It is done when the register is empty **and** every surface is accounted for — each
 material decision carrying a non-`assumed` provenance, each surface decided by a row or out of
 scope with a reason. A surface that other code calls or parses is a `contract`: its row states the
 inputs, the outputs and the errors (`interviewing-baseline`, "The Surface Inventory"). Trivial work exits at once with both explicit empty forms. Nothing is written

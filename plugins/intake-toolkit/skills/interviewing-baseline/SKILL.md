@@ -17,8 +17,8 @@ Rules for every interviewing turn, regardless of which skill is running:
 2. **At most 2 questions per turn.** The user disengages otherwise. Related sub-choices may share one `AskUserQuestion` call, but the material decisions per turn stay ≤ 2.
 3. **Attach a recommendation only when it's grounded** in the user's input, the codebase, or the repo's docs — cite the grounding. If nothing grounds an answer, ask plain — do not guess. (Reporter-owned facts — environment, frequency, business intent — are rarely groundable; design decisions almost always are.)
 4. **Recommended answer goes first.** When using `AskUserQuestion`, the grounded recommendation is the first option, labeled `(Recommended)`.
-5. **Never re-ask.** A question answered earlier in the session — or already resolved in the artifact under discussion — is settled. If the user declines to answer, record it (`TBD` in a ticket draft; `deferred` in a Decision Ledger) and move on.
-6. **"Your call" is a valid answer.** When the user delegates a decision, record the recommendation as the resolution with provenance `user-delegated` — do not re-open it later.
+5. **Never re-ask.** A question answered earlier in the session — or already resolved in the artifact under discussion — is settled. If the user declines to answer, record it (`TBD` in a ticket draft; `deferred` in a Decision Ledger) and move on. The one exception: a fan-out pool item that contradicts the answer is shown beside it, and the question is asked once more. The second answer stands (`/intake`'s `interview.md`, "A late finding").
+6. **"Your call" is a valid answer.** When the user delegates a decision, record the recommendation as the resolution with provenance `user-delegated` — do not re-open it later. The exception of rule 5 covers a delegated answer too.
 7. **Disambiguate domain nouns before drafting.** A noun with >1 plausible schema referent (`git grep` over the repo's data-schema definitions, plus adjacent service interfaces) is forced to a choice by question — never picked by word-similarity.
 8. **No draft-first (P8).** Never present a finished artifact ahead of the decisions it encodes. Nobody holds a complete picture of what they want until something concrete pushes back, and a full draft pushes back on everything at once: the human is reduced to correcting a fait accompli, and the decisions they would have made differently arrive as edits instead of choices. So: **the agent proposes per decision, the human disposes per decision**, and the artifact is *assembled from ledger rows* once they exist. A draft is legitimate as the residue of decided rows — never as the opening move, and never as a way to "give them something to react to."
 
@@ -280,38 +280,53 @@ section.
 ### Fan-out
 
 The intake fan-out (`review-toolkit/workflows/intake-fanout.mjs`, run by `/intake`'s Explore
-stage) hands the interviewer a pool of evidence items, each one kept only after a refuter
-from the model family that did not make it failed to break it. The receipt's mandated `## Fan-out`
-section shows what that pool achieved **over plain intake**, ticket by ticket, and which lens
-produced it. It has four parts:
+stage) hands the interviewer a pool of evidence items: every claim each lens made, each one
+`unverified`. The interviewer checks an item from its pointer before it uses it. The receipt's
+mandated `## Fan-out` section shows what that pool achieved **over plain intake**, ticket by
+ticket, and which lens produced it. This is the v5 form:
 
 - **Tag every item against the snapshot.** Before reading the pool, the interviewer writes down
-  its own explore-first register. That snapshot is what plain intake would have gone in with.
-  Each pool item then gets one tag:
+  its decision register and the facts it holds from the ticket body, the code and the
+  spec-reviewer findings. That snapshot is what plain intake would have gone in with. Each pool
+  item then gets one tag:
   - `new`: the snapshot lacked it;
-  - `already-had`;
+  - `already-had`: the snapshot held it, or it is about a question asked before the pool was read;
   - `overturned (<the snapshot claim>)`: it contradicted something the snapshot asserted;
-  - `not material`: it does not pass the materiality bar.
+  - `not material`: it does not pass the materiality bar, or its check did not hold.
 
   Its `Angle` cell names the lens that produced it, and its disposition cell says what became of
-  it: the `D-n` it became, or why it did not.
-- **Head the section with a tally,** the refuter family, and one `Lenses:` line giving every lens
-  the run dispatched — its key, the model it ran on, and claims kept of claims made (or `failed`).
-  A lens that produced nothing still appears there, so a seat that never moves an outcome shows up
-  in the record:
+  it: `became D-n` (several ids comma-separated), `already had — D-n`, or why it became nothing.
+- **Check before use.** A pool item becomes a row, an option or a question only after the
+  interviewer checks it from its pointer. The row carries the check in an existing evidence form
+  ("Evidence" above) and `From: F-n` in its Resolution, after the evidence, several ids
+  comma-separated. A departure sentence, when there is one, still ends the cell. An item whose
+  check fails is tagged `not material`, with the disposition `not used — did not hold: <what the
+  check showed>`.
+
+  ```
+  | D-1 | Import retry on 409 | No retry on 409. run: `grep -n "retry" jobs/import.ts` → 88: retries every status. From: F-1 | user-answered | intent |
+  ```
+
+- **Head the section with a `Lenses:` line and a tally.** The `Lenses:` line gives every lens the
+  run dispatched: `<key> <model> <claims made>`, or `<key> failed`, separated by ` · `. A lens that
+  produced nothing still appears there, so a seat that never moves an outcome shows up in the
+  record. The tally counts what the rows show: `rows added` is the number of distinct `D-n` after
+  `became` on rows tagged `new` or `overturned`; `snapshot claims overturned` is the number of rows
+  tagged `overturned`; `questions added` is followed by the ids of the rows the questions became, in
+  parentheses, or reads `questions added 0`:
 
   ```
   ## Fan-out
 
-  Refuter: cross (opus/fable alternating)
-  Lenses: retry-semantics opus 2/5 · storage-limits fable 1/4 · auth-scope opus 0/3 · audit-trail fable 0/2 · premortem fable 1/6
-  Tally: rows added 1 · snapshot claims overturned 1 · questions added 1
+  Lenses: retry-semantics opus 5 · storage-limits opus 4 · auth-scope opus 3 · audit-trail opus failed · premortem opus 6
+  Tally: rows added 2 · snapshot claims overturned 1 · questions added 1 (D-1)
 
   | ID | Angle | Claim | Tag | Disposition |
   | --- | --- | --- | --- | --- |
   | F-1 | retry-semantics | The import job retries a 409 without a limit (`jobs/import.ts:88`) | new | became D-1 |
   | F-2 | storage-limits | Uploads over 20 MB are cut at the proxy (`deploy/proxy.conf:12`) | overturned (snapshot: "no size limit applies") | became D-3 |
   | F-3 | premortem | The export list sorts client-side | not material | not material — capped at 50 rows |
+  | F-4 | auth-scope | The export route skips the tenant guard | not material | not used — did not hold: the guard is applied at the router |
 
   ### Snapshot
 
@@ -324,10 +339,21 @@ produced it. It has four parts:
   it a code block: its rows are a register too, and unindented they would read as this receipt's
   own ledger, regions and surfaces.
 
-A pool where nothing survived refutation states `Pool: empty — no claim survived refutation.` in
-place of the rows; the tally, lenses line and snapshot stay. On a split the fan-out runs once for
-the parent and its slices: each slice's receipt lists only the items that touch it, names the
-shared run on a `Run:` line, and embeds the shared snapshot.
+**A late finding.** An item that contradicts an answer already given is asked once more (rules 5
+and 6). It is tagged `already-had`. When the second answer changes the row, its disposition reads
+`became D-n` and the row gains `From: F-n`; the tag keeps it out of `rows added`. An item that
+contradicts a fact row written after the snapshot is tagged `new`: the row is corrected in place
+and gains the link, and the disposition reads `became D-n`.
+
+A pool where no lens made a claim states `Pool: empty — no lens made a claim.` in place of the
+rows; the tally, lenses line and snapshot stay. On a split the fan-out runs once for the parent and
+its slices: each slice's receipt lists only the items that touch it, names the shared run on a
+`Run:` line, and embeds the shared snapshot.
+
+**Receipts below v5** keep the form they were written in: a `Refuter:` line naming the model family
+that checked the claims, `claims kept/claims made` on the `Lenses:` line, and `Pool: empty — no
+claim survived refutation.` for an empty pool. The lint holds them to that form, and checks no
+`From:` link and no tally count on them.
 
 A receipt that ran no fan-out carries exactly one line instead of the section's parts:
 
@@ -344,7 +370,11 @@ worth gathering, and the lint refuses it under its own violation.
 An absent section reads exactly like a fan-out nobody ran and nobody recorded, so the lint
 (`ledger-lint.sh --receipt`) refuses it, along with a skip or failure that names no reason, a skip
 that does not name the operator, a missing `Lenses:` line, a row with no angle, a tag outside the four, an `overturned` that names no
-claim, a disposition citing an undeclared `D-n`, and unindented snapshot rows. The section's
+claim, a disposition citing an undeclared `D-n`, and unindented snapshot rows. On a v5 receipt it
+also refuses a `became D-n` whose row has no `From:` naming the finding, a `From: F-n` naming an
+undeclared finding or one whose disposition does not say `became` that row, a tally count that
+differs from the rows, and a `questions added` id that is undeclared or named after no `became`.
+The section's
 reader is the operator's consumer read: a later reversal of a decision the fan-out flagged, or of
 one it never raised, is how its value is judged, and the angle and lens counts are how a lens that
 never contributes is found.
@@ -411,7 +441,7 @@ A receipt names its version once, on a line of its own before its first `##` hea
 ```
 # Decision record — #1039 <title>
 
-Receipt: v4
+Receipt: v5
 
 ## Summary
 ```
@@ -430,6 +460,7 @@ version instead of failing every receipt written before it:
 | Intake steps | v2 |
 | Knowledge source | v3 |
 | Test intent | v4 |
+| Fan-out (v5 form) | v5 |
 <!-- LOCKSTEP-END receipt-versions -->
 
 The lint (`ledger-lint.sh`) holds the same table and is what enforces it.

@@ -37,22 +37,22 @@ A consumer `tierMap` is never a lockstep failure. `check-model-tiers.sh` compare
 against the **shipped default** map, exactly as it already treats `modelOverrides` — a consumer
 resolving a tier differently is the feature, not drift.
 
-**Fable (`cross`).** Fable ships as the `cross` tier, and a shipped default names it wherever it
-is useful: where a measurement backs it, or where a second model family is the point of the check.
+**Fable (`cross`).** Fable is the `cross` tier. The tier stays in the alphabet and in every
+`DEFAULT_TIER_MAP` copy, but no shipped default dispatches at `cross` today. A shipped default may
+name it where a measurement backs it, or where a second model family is the point of the check.
 There is no rule that shipped defaults stay `opus`. Two conditions travel with every use:
 
 - **The dispatcher degrades.** A consumer without Fable access must lose a call, never an agent:
   an engine that dispatches at `cross` falls back to `reasoning` when the dispatch fails, and the
-  record says so. `intake-fanout.mjs` does this. `code-review.mjs` and `intake-review.mjs` do not
-  degrade, which is why their agents stay off `cross`.
+  record says so. `code-review.mjs` and `intake-review.mjs` do not degrade, which is why their
+  agents stay off `cross`.
 - **The record says what was measured.** Fable as a second family is read against the published
   finding that two families from one provider still share many errors; a default that cites the
   other family as independent must have measured it.
 
-Where it ships today: the intake fan-out (#916) runs its four angles alternating `reasoning` and
-`cross`, its pre-mortem at `cross`, and refutes every claim on the family that did not make it,
-the arm its consumer replay measured. Without Fable it runs every lens and refuter at `reasoning`
-after two failed `cross` dispatches and records `same-family (fable unavailable)`.
+The intake fan-out runs its lens writer and every lens at `reasoning`. A failed dispatch retries
+once, on the token `reasoning` resolves to, so an override that names an unreachable model still
+gets one attempt on a model the account has.
 
 A repo still retargets per agent through `reviewers.modelOverrides` (e.g. `"spec-reviewer": "fable"`)
 or per tier through `reviewers.tierMap` (`"cross": "opus"` turns Fable off). A tier the
