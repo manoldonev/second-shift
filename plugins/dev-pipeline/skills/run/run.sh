@@ -472,7 +472,7 @@ handoff_holds() { # the lane's latest closing comment is build-handoff: a /dev-p
 open_prs() { "$GH_READ" pr list --head "$BRANCH" --state open --json number --jq '.[].number' 2>/dev/null; }
 remote_head() { local out; out="$(git -C "$WT" ls-remote origin "refs/heads/$BRANCH" 2>/dev/null)" || return 1; printf '%s' "$out" | cut -f1; }
 
-# -- the record (rows G6, G7, H1-H4, H6, K6): read at its FIRST commit once one exists, else the receipt --
+# -- the record (rows G6, G7, H1-H4, H6, K6): read at its FIRST commit once one exists, before that at the pushed tip when origin carries it, else the receipt --
 # The record commit is walked over the parents each commit was pushed with: a shallow file or info/grafts in the checkout
 # rewrites the parents a walk sees. An empty GIT_SHALLOW_FILE is git's own "no shallow file" (fetch-pack passes it).
 # 2 when a parent is not local (a shallow clone), 1 when no commit adds the record.
@@ -485,7 +485,8 @@ record_first_commit() {
 shallow_history() { echo "a parent of a commit on $BRANCH is not in $MAIN_ROOT (a shallow clone), so the record commit cannot be found in the history as pushed — run 'git -C $MAIN_ROOT fetch --unshallow origin', then re-launch"; }
 record_at_first() { git -C "$WT" show "$FIRST:$RECORD_REL" 2>/dev/null; }
 record_at_head() { git -C "$WT" show "$HEAD_SHA:$RECORD_REL" 2>/dev/null; }   # read by plan-coverage.sh --head for operator-added ACs only
-record_text() { if [ -n "$FIRST" ]; then record_at_first; else cat "$RECORD" 2>/dev/null; fi; }
+record_at_pushed_tip() { git -C "$MAIN_ROOT" show "$PUSHED_TIP:$RECORD_REL" 2>/dev/null; }
+record_text() { if [ -n "$FIRST" ]; then record_at_first; elif [ "${RECORD_SOURCE:-}" = committed ]; then record_at_pushed_tip; else cat "$RECORD" 2>/dev/null; fi; }
 # the build is asked for a plan only when the record at FIRST carries the section (a v4 receipt's)
 # (the caller has read the record at FIRST already; were this read to fail, plan_coverage's own read refuses the run)
 record_has_test_intent() { local r; r="$(record_at_first)" || return 1; grep -qiE '^#+[[:space:]]+test intent[[:space:]]*$' <<<"$r"; }
@@ -1111,7 +1112,11 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     echo "Your scratch directory is $SCRATCH. It is already added to this session. Put all logs, probes, and PR or comment bodies in it. Never put them in the worktree or in /tmp. Put scratch files there; the scheduler removes it at the end of the run. A probe that you never committed is not a test that the PR deletes."
     echo "Run every check in the foreground: no nohup, no trailing &."
   else echo "Delete every probe or scratch file you created before you end your turn. A probe that you never committed is not a test that the PR deletes."; fi
-  echo "Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables. Do not chain commands with ; or &&. Do not use \$( ) substitution. Run each check below exactly as written."
+  if [ "$HANDOFF" -eq 1 ]; then
+    echo "Run each shell command in the worktree: start each Bash call with 'cd $WT && ', then the command. The working directory resets between calls, and a call without the cd runs in the main checkout. Use no other chain, no shell variables and no \$( ) substitution. Run each check below exactly as written, after that cd."
+  else
+    echo "Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables. Do not chain commands with ; or &&. Do not use \$( ) substitution. Run each check below exactly as written."
+  fi
   echo "Read an issue or PR comment with gh issue view or gh pr view --json comments, never gh api."
   echo "A denied command is not a reason to end your turn: skip a command outside the allowlist and name it in the PR body as skipped. Pushing $BRANCH and opening the draft PR are never skipped."
   echo "Edit files only with the Edit and Write tools, never through a shell. Do not edit a file with python, sed -i, a heredoc or a > redirect."
@@ -1309,7 +1314,11 @@ A limit never removes a row, a finding or a knowledge-base proposal. If they do 
 STYLE
   if [ -n "${3:-}" ]; then
     echo; echo "## Your previous verdict did not bind"
-    echo "The previous review posted a verdict. Its comment does not support its own verdict line. The scheduler posted no status for it and spawned you in its place. Review the head yourself. Post a new verdict comment in the grammar above. Never edit the old one. The old verdict broke these rules:"
+    if [ "$JOINED" = true ]; then
+      echo "The previous review's draft, joined with the blind review's, does not support its own verdict line. The scheduler rejected it before posting, so the PR carries no comment and no status for it, and spawned you in its place. Review the head yourself. Write a new draft in the grammar above. The rejected draft broke these rules:"
+    else
+      echo "The previous review posted a verdict. Its comment does not support its own verdict line. The scheduler posted no status for it and spawned you in its place. Review the head yourself. Post a new verdict comment in the grammar above. Never edit the old one. The old verdict broke these rules:"
+    fi
     sed 's/^/- /' "$3"
   fi
   echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, review-policy edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
@@ -1761,7 +1770,7 @@ committed_record_exists() { # the branch on origin already carries the record: t
        [ -n "$sha" ] || terminal env-remote-unreadable "origin listed no refs/heads/$BRANCH line — whether the record is already committed is unknown, so neither it nor the receipt is read"
        git -C "$MAIN_ROOT" fetch -q origin "$BRANCH" 2>/dev/null || terminal env-remote-unreadable "cannot fetch origin/$BRANCH — whether the record is already committed is unknown, so neither it nor the receipt is read"
        git -C "$MAIN_ROOT" cat-file -e "$sha^{commit}" 2>/dev/null || terminal env-remote-unreadable "origin/$BRANCH moved past $sha during the fetch — whether the record is already committed is unknown, so neither it nor the receipt is read"
-       git -C "$MAIN_ROOT" cat-file -e "$sha:$RECORD_REL" 2>/dev/null ;;
+       PUSHED_TIP="$sha"; git -C "$MAIN_ROOT" cat-file -e "$sha:$RECORD_REL" 2>/dev/null ;;
     2) # origin has no such branch: a local branch or worktree for it is unpushed work, refused before the claim, nothing deleted
        git -C "$MAIN_ROOT" rev-parse -q --verify "refs/heads/$BRANCH" >/dev/null 2>&1 && found="a local branch $BRANCH"
        if [ -d "$WT" ] && wt_ref="$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null)"; then
