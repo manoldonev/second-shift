@@ -199,7 +199,10 @@ the D-n rows bind the build. The cited row's Resolution carries three labeled se
 | D-4 | Import create request | POST /imports. Inputs: name (string, required), tags (string[], optional). Outputs: 201 with the import id. Errors: 409 on a duplicate name, 422 on a missing name. | user-answered | intent |
 ```
 
-Each label may read `none — <reason>`. The lint refuses a contract that cites an `open` row or a
+`Inputs:` names each input and says whether it is required or optional. `Outputs:` names what
+the caller gets back. `Errors:` names each status or error code, or exit code, and when it
+occurs. Each label may read `none — <reason>`. The lint checks that the three labels are there,
+not what they say, so a label that names no field or code is yours to catch. The lint refuses a contract that cites an `open` row or a
 row without all three labels. It also refuses a `cited (convention|adr)` path in that row that
 does not exist in the repo, relative to its root. So "mirror X" resolves to a file in this repo, or
 the row spells the shape out. A `cited (kb)` pointer is not a repo path and is not checked. A shape

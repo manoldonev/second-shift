@@ -535,7 +535,7 @@ if (( RECEIPT == 1 )); then
   declare -a SURFACE_CITATIONS=()
   declare -a CONTRACT_CITATIONS=()
   if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*surface inventory' "$PLAN" && mandated 'Surface Inventory'; then
-    violate "missing mandated receipt section: Surface Inventory (enumerate the surfaces and states this work implies — each one 'decided (D-n)' or 'out-of-scope — <reason>' — or state the explicit empty form '$SURFACE_EMPTY_FORM')"
+    violate "missing mandated receipt section: Surface Inventory (enumerate the surfaces and states this work implies — each one 'decided (D-n)', 'contract (D-n)' for an interface that other code calls or parses, or 'out-of-scope — <reason>' — or state the explicit empty form '$SURFACE_EMPTY_FORM')"
   fi
 
   while IFS= read -r line; do
@@ -584,7 +584,7 @@ if (( RECEIPT == 1 )); then
         fi
         ;;
       *)
-        violate "$s_id row: disposition '$s_disp' not in {${SURFACE_DISPOSITION_ENUM//|/ | }} — a listed surface that is neither decided nor explicitly scoped out is the gap this section exists to make countable"
+        violate "$s_id row: disposition '$s_disp' not in {${SURFACE_DISPOSITION_ENUM//|/ | }} — a listed surface that is not decided, not a contract and not explicitly scoped out is the gap this section exists to make countable"
         ;;
     esac
   done < <(grep -E '^\|[[:space:]]*S-[0-9]+[[:space:]]*\|' "$PLAN" || true)

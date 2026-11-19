@@ -165,7 +165,8 @@ The interview resolved 2 gaps."
 - **Surface Inventory** — every surface `decided (D-n)`, `contract (D-n)` or
   `out-of-scope — <reason>`. Mark `contract` on each interface that code outside the change calls
   or parses: an HTTP endpoint, an SDK or library method, an event or message, a CLI or script
-  interface, or output a machine reads. Its cited row states `Inputs:`, `Outputs:` and `Errors:`
+  interface, or output a machine reads. Its cited row states `Inputs:` (each input, required or
+  optional), `Outputs:` and `Errors:` (each status, error or exit code)
   (`interviewing-baseline`, "The Surface Inventory"). Write the Surface cell in at most 10 words.
   Write an `out-of-scope` reason in one sentence.
 - **Checks** — start from the repo's verification recipe (its CLAUDE.md, the config's `commands.*`)
