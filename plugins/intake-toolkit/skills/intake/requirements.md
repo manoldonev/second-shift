@@ -183,10 +183,14 @@ continues to Split — the handoff does not leave the sequence.
 
 ## The parent ticket, under jira
 
-Under `tracker.type: jira`, read the issue's context once the ticket has a key, before the
-knowledge source. Once per intake: on a split it runs on the intake's own ticket, before Split.
+Under `tracker.type: jira`, read the issue's context as soon as the ticket has a key. An input that
+is a key has one at the start: read the context right after the ticket, before you take a route, so
+a rough-input interview already sees it. A ticket that Filing creates gets its key there: read the
+context right after Filing. Once per intake: on a split it runs on the intake's own ticket, before
+Split.
 
-1. Read the `parent` field of the issue that `getJiraIssue` returned.
+1. Fetch the issue with `getJiraIssue` and name `parent` in its `fields`. The default field set
+   leaves `parent` out, so a default call always looks parentless.
 2. **A parent** → read the parent with `getJiraIssue` and keep its body. Then list the parent's
    other children with the session's Jira search tool (JQL `parent = <parent key>`). Keep each
    child's key and summary.

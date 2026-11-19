@@ -84,7 +84,7 @@ Receipt: v4
 
 Open regions: <each OR-n and its default, in a few words; or "none">.
 
-Provenance legend: `user-answered` = the operator chose. `user-delegated` = the operator gave the choice to the agent. `codebase-derived` = a fact from the code or the docs, with its proof. `deferred` = not decided yet, under an open region. `ticket-sourced` = the operator decided in a linked ticket comment, or the linked parent ticket states it.
+Provenance legend: `user-answered` = the operator chose. `user-delegated` = the operator gave the choice to the agent. `codebase-derived` = a fact from the code or the docs, with its proof. `deferred` = not decided yet, under an open region. `ticket-sourced` = the operator decided in a linked ticket comment, or the linked parent or sibling ticket states it.
 
 Open region legend: `pause-and-ask` = the build stops and asks. `reversible-default-and-flag` = the build uses the stated default.
 

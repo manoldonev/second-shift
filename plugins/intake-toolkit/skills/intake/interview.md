@@ -48,16 +48,18 @@ The provider's answer is evidence, read beside the code, never in place of it
 
 ## The parent ticket
 
-Under jira, the parent's text is context. It ranks below the issue's own text
-(`interviewing-baseline`, "Precedence when sources disagree"):
+Under jira, the parent's text and the siblings' summaries are context. They rank below the issue's
+own text (`interviewing-baseline`, "Precedence when sources disagree"):
 
 - **A row whose resolution contradicts a sentence of the parent's text** goes to the operator as
-  a question. Quote the sentence. This holds whatever settled the row: the issue, the code, the
-  pool, the knowledge source or your own recommendation. Where the issue's text is the other
-  side, recommend the issue's text. The answer is `user-answered`.
-- **A fact the parent states and the issue does not contradict** may enter as a `ticket-sourced`
-  row of Kind `fact`. Its Resolution quotes the sentence and cites the parent by URL
-  (`https://<site>/browse/<KEY>`).
+  a question. Quote the sentence. This holds whatever settled the row: a Requirements answer, the
+  issue, the code, the pool, the knowledge source or your own recommendation. Where the issue's
+  text is the other side, recommend the issue's text. The answer is `user-answered`.
+- **A scope exclusion in the issue** ("not in this ticket") is checked against the siblings'
+  summaries. When no sibling owns the excluded work, ask the operator who does.
+- **A fact the parent or a sibling states and the issue does not contradict** may enter as a
+  `ticket-sourced` row of Kind `fact`. Its Resolution quotes the sentence and cites that ticket by
+  URL (`https://<site>/browse/<KEY>`).
 
 ## Per ticket, per slice
 
