@@ -69,10 +69,9 @@ regression.
 AC-3 missing from the `ACs:` line (reported `absent`), and a one-word Resolution (reported as a
 guess-point with its fork). The probe also listed the operator's departure as a blocking
 guess-point, which would re-ask a settled decision; the agent doc now says a departure an `intent`
-row records (`user-answered`, `user-delegated` or `ticket-sourced`) is not a guess-point. The
-planted record is not committed.
+row records (`user-answered`, `user-delegated` or `ticket-sourced`) is not a guess-point.
 
-**Record round re-run, after that change, with D-2 made `user-delegated`: 3 / 3 reported, and the
-thin row too.** The probe reported AC-1 `departed — D-2` and left D-2 off the guess-point list as
-settled by an intent row. Its two blocking guess-points were the thin row and the stdout summary
-lines that D-1 leaves open. One run.
+**Record round re-run, after that change, with D-2 made `user-delegated`: 4 / 4 on
+`planted-defects.md` (P-1 to P-4), and D-2 kept off the guess-point list.** That record is the
+committed `fixtures/planted-record.md`. Its two blocking guess-points were the thin row and the
+stdout summary lines that D-1 leaves open. One run.

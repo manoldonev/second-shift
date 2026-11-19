@@ -66,8 +66,9 @@ returns:
 
 Two probe rounds at most: this one, and the record round before the lint. Skip the probe only on a
 bug or chore, or on genuinely small scope, and **say so and why** in the receipt's outcome. A skip
-covers both rounds. A silent skip is the failure this rung exists to catch. No `Task` tool → say it
-was skipped and why; never inline it.
+covers this round only: the record round runs whenever the ticket has an AC block. A silent skip
+is the failure this rung exists to catch. No `Task` tool → say it was skipped and why; never
+inline it.
 
 ## Write the receipt
 
@@ -201,7 +202,7 @@ The interview resolved 2 gaps."
 ## Probe the record
 
 The build reads the record, not your context. So the probe's last round reads what the build reads.
-Dispatch `intake-toolkit:implementability-probe` via `Task` again. Hand it the path of the finished
+Dispatch `intake-toolkit:implementability-probe` via `Task`. Hand it the path of the finished
 record and the ticket body. Hand it nothing else: no interview, no findings from this session, no
 issue thread. It returns guess-points, and it reports the record against the ticket's criteria.
 
@@ -210,16 +211,21 @@ Act on its output before the lint runs. The operator chose a change or a departu
 
 - A build-blocking guess-point → ask the operator and record the answer as a row, or declare an
   `OR-n`.
-- A criterion reported absent → add its id to the `ACs:` line and draft its `AC-n` line from the
-  ticket's text ("Test intent" above). When building it needs a decision the record does not hold,
-  ask the operator and record the answer as a row, or declare an `OR-n`.
-- An `AC-n` whose meaning changed and the operator did not choose the change → rewrite its Test
-  intent line to the ticket's meaning.
+- A criterion reported absent → ask the operator. Recommend an `AC-n` line drafted from the
+  ticket's text ("Test intent" above). Record the answer: the id on the `ACs:` line with its
+  `AC-n` line, and a row for any decision it needs. Or declare an `OR-n`.
+- An `AC-n` whose meaning changed and the operator did not choose the change → ask the operator,
+  recommending the ticket's meaning. Record the answer as a row and write the `AC-n` line to match
+  it, or declare an `OR-n`.
 - An `AC-n` whose meaning the operator changed → its Test intent line states the chosen behavior
-  under the ticket's id. A `D-n` row records the change as a departure.
+  under the ticket's id, and its row is marked as a departure.
 - Any other guess-point → route it as in the first round.
-- A reported departure that the operator chose → no action.
+- A reported departure that the operator chose → mark its row as a departure if it is not marked
+  yet. Nothing else.
 - A reported departure that the operator did not choose → ask the operator, or declare an `OR-n`.
+
+A row is marked as a departure when its Resolution ends with a `Departs from AC-n:` sentence
+(`interviewing-baseline`, "Departures").
 
 The record round runs once. It never loops. It never blocks without an operator question.
 

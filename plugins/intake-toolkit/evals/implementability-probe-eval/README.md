@@ -18,6 +18,10 @@ changes, or when a model generation turns over.
    different class.
 4. Append the result to `BASELINE.md`: gaps reported / 5, class agreement, extra guess-points,
    and the dispatch shape used.
+5. The record round: dispatch the probe again, handing it `fixtures/underspecified-spec.md` and
+   `fixtures/planted-record.md`. It reads nothing else under this directory. Score the report
+   against `fixtures/planted-defects.md` (withheld) and append defects reported / 4 to
+   `BASELINE.md`.
 
 ## What a regression looks like
 

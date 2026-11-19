@@ -492,6 +492,11 @@ does. The holds and unchecked forms are additive inside v4: no receipt version n
 
 ### Departures
 
+A row that departs from a ticket criterion at intake (the operator chose a behavior that differs
+from the ticket's `AC-n`) ends its Resolution cell with one sentence that starts
+`Departs from AC-n:` and says how. The Receipt adds that sentence when the record round reports
+the departure and the row lacks it.
+
 A decision the receipt never covered will sometimes surface during BUILD. That is normal
 operation (P9), not a failure — what must not happen is the run quietly making the call. The
 record is the one place it is written: BUILD edits the row in place (a gap it covers nowhere gets
