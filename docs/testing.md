@@ -752,7 +752,8 @@ A finding's path is the first `path:line` on its first line, else the first toke
 a `/` and a file extension. A finding goes to the bench's judge when its path:line falls inside a
 planted range, within three lines, or its path names the file of a path-level location (a `{file,
 side}` with no range, such as the file where a dropped test belongs). On a case with a path-level
-location, a `[blocker]` that names no path goes to the judge too. It matches the plant when the
+location, a finding that names no path and sends back goes to the judge too: any finding on the
+lane and joined arms, a `[blocker]` on the plain arm. It matches the plant when the
 judge agrees that it describes the plant. The judge's calibration on the known-bug dev set runs
 first. On the lane and joined arms every finding gates, so a `[note]` sends a case back as a
 `[blocker]` does. The plain arm's prompt lets a note ride on an approve, so there only a `[blocker]`

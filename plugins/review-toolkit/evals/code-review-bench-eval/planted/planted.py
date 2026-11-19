@@ -841,20 +841,25 @@ def in_range(finding: dict, truth: dict) -> bool:
     return False
 
 
-def judged(finding: dict, truth: dict) -> bool:
+def gates(review: dict) -> bool:
+    return review.get("arm") in ("lane", JOINED)
+
+
+def judged(finding: dict, truth: dict, gating: bool) -> bool:
     if in_range(finding, truth):
         return True
-    return finding["severity"] == "blocker" and finding.get("path") is None \
+    return (gating or finding["severity"] == "blocker") and finding.get("path") is None \
         and any(path_level(loc) for loc in truth.get("locations") or [])
 
 
 async def judge_findings(truth: dict, review: dict, judge) -> dict[str, bool]:
     """The judge runs on a finding only when its path:line falls inside a planted range, within the window,
-    or its path names a path-level location's file. On a case with a path-level location, a [blocker] that
-    names no path goes to the judge too."""
+    or its path names a path-level location's file. On a case with a path-level location, a send-back
+    finding that names no path goes to the judge too: any finding on the lane and joined arms, a [blocker]
+    on the plain arm."""
     if truth["class"] == CONTROL:
         return {}
-    picks = [f for f in review.get("findings", []) if judged(f, truth)]
+    picks = [f for f in review.get("findings", []) if judged(f, truth, gates(review))]
     verdicts = await asyncio.gather(*(judge(truth["description"], f["text"]) for f in picks))
     return {f["id"]: bool(ok) for f, ok in zip(picks, verdicts)}
 
@@ -868,7 +873,7 @@ def score_review(truth: dict, review: dict, matched: dict[str, bool]) -> dict:
         s["harm" if cls == CONTROL else "right"] = 1
         s["how"] = "gate"
         return s
-    gating = review.get("arm") in ("lane", JOINED)
+    gating = gates(review)
     findings = review.get("findings", [])
     rows_back = [r for r, sc in (review.get("rows") or {}).items() if sc in SENDBACK_SCORES]
     blockers = [f for f in findings if f["severity"] == "blocker"]

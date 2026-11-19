@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # score-selftest.sh — the scorer on canned reviews with a canned judge, no model: right, wrong, harm and noise
 # per class and arm; the three-line window; the judge asked only about findings inside a planted range, on a
-# path-level location's file, or with no path on a case that has one; a path parsed with no line; a P2 row
+# path-level location's file, or with no path on a case that has one (a [blocker], or any finding on the lane
+# and joined arms); a path parsed with no line; a P2 row
 # by its id; a P5 [note]; a [note] that sends back on the lane and joined arms only; a gate stop; an unscorable verdict counted apart and never as an approve; the gate,
 # which reads every class but P2; the pilot run's cases, arm and changelog rule; and the per-case report.
 set -uo pipefail
@@ -167,6 +168,17 @@ python3 "$HERE/planted.py" --root "$R" score --reviews "$T/reviews-pt.json" --ju
   && ok "a path-only blocker the judge matches is right" || bad "path-level score: $(jq -c '.records[] | select(.case == "ptcase" and .run == 1) | .score' "$T/out-pt.json")"
 [ "$(jq -c '.records[] | select(.case == "p1case" and .run == 2) | [.findings[] | [.id, .path, .line]]' "$T/out-pt.json")" = '[["B1","test/plugin/x.test.js",null],["B2","src/p.js",null],["B3",null,null],["B4","src/i.js",9]]' ] \
   && ok "a path with no line parses, a backticked path drops its comma, and/or parses no path, and a later path:line wins" || bad "parsed paths: $(jq -c '.records[] | select(.case == "p1case" and .run == 2) | .findings' "$T/out-pt.json")"
+if [ -n "$HAVE_LANE" ]; then
+lane_back honored '- [note] N1 the missing test is absent from the change.' > "$V/lane-pt-note.md"
+{ echo "["; r lane ptcase 1 ok lane-pt-note.md; echo ","; r joined ptcase 1 ok lane-pt-note.md; echo "]"; } > "$T/reviews-pt-note.json"
+{ echo "["; j "$(jq -r .truth.description "$R/cases/ptcase/case.json")" "the missing test is absent from the change." true; echo "]"; } > "$T/judge-pt-note.json"
+python3 "$HERE/planted.py" --root "$R" score --reviews "$T/reviews-pt-note.json" --judge "$T/judge-pt-note.json" > "$T/out-pt-note.json" 2> "$T/err-pt-note.txt"; rc=$?
+[ "$rc" -eq 0 ] && ok "score exits 0 on a pathless lane note" || bad "score rc=$rc: $(tail -n 5 "$T/err-pt-note.txt")"
+for a in lane joined; do
+  got="$(jq -c --arg a "$a" '.records[] | select(.arm == $a) | .score | [.right, .wrong, .harm, .noise, .how]' "$T/out-pt-note.json")"
+  [ "$got" = '[1,0,0,0,"note"]' ] && ok "$a: a pathless [note] on a path-level case goes to the judge, and a match is right" || bad "$a pathless note: $got"
+done
+fi
 
 echo "== the pilot run =="
 mkcase plcase '{"class": "P4", "pattern": "two-hop-caller", "description": "The new rule rejects what an existing caller passes.", "locations": [{"file": "src/f.js", "start": 3, "end": 4, "side": "head"}]}'

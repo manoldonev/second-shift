@@ -20,3 +20,5 @@
 
 - [ ] 4.1 Test: on the lane and joined arms a `[note]` is send-back, an approve that misses P5 is wrong, an unmatched note is noise and a note on a control is harm; the plain arm keeps its scoring and accepts a note-only needs-work (plugins/review-toolkit/evals/code-review-bench-eval/planted/score-selftest.sh)
 - [ ] 4.2 Score notes as send-back for the lane and joined arms (plugins/review-toolkit/evals/code-review-bench-eval/planted/planted.py, docs/testing.md)
+- [ ] 4.3 Test: on the lane and joined arms a pathless `[note]` on a path-level case goes to the judge, and a match is right (plugins/review-toolkit/evals/code-review-bench-eval/planted/score-selftest.sh)
+- [ ] 4.4 Send a pathless send-back finding to the judge, a note too on the lane and joined arms (plugins/review-toolkit/evals/code-review-bench-eval/planted/planted.py, docs/testing.md)
