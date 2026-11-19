@@ -467,10 +467,11 @@ AC-8: run.sh's checks phase runs the coverage check (a run-selftest case)
   block is `ACs: none — <reason>`. The harness never reads the ticket body; this line is what it
   holds the plan to.
 - **One line per id**, at the start of the line, keeping the ticket's meaning for that id unless
-  the operator chose a departure that a `D-n` row records, in one of four forms: the observable behavior;
-  `exempt — <reason>` (no test can prove it); `holds — <the existing behavior its test keeps>`
-  (an AC like "X still works": its test passes without the change, so the scheduler keeps its
-  files off the fails-without-the-change check and the checks at the head prove it); or
+  the operator chose a departure that a `D-n` row records, in one of four forms: the observable
+  behavior; `exempt — <reason>` (no test can prove it);
+  `holds — <the existing behavior its test keeps>` (an AC like "X still works": its test passes
+  without the change, so the scheduler keeps its files off the fails-without-the-change check and
+  the checks at the head prove it); or
   `unchecked — <tier and reason>` (its test sits on a tier the scheduler cannot run, such as a
   black-box API suite that needs the running app: its files are noted, not run). An exempt,
   holds or unchecked line is the operator's answer to a question, recorded as a `user-answered`

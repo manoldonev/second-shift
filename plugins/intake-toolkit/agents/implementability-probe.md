@@ -85,9 +85,9 @@ resolution is too thin to implement safely is a guess-point like any other.
 Then check the record against the ticket's acceptance criteria. Take each criterion of the
 ticket: the record covers it, departs from it in a `D-n` row, or leaves it absent. Also check each
 `AC-n` the record names: it must mean what the ticket's criterion with that id means. A departure
-the operator chose is still a departure. Report it; do not judge or overrule it. A departure that a
-`user-answered` row records is settled, so it is not a guess-point: do not list it under
-Guess-points or count it as blocking.
+the operator chose is still a departure. Report it; do not judge or overrule it. A departure that
+an `intent` row records (`user-answered`, `user-delegated` or `ticket-sourced`) is settled, so it
+is not a guess-point: do not list it under Guess-points or count it as blocking.
 
 ## Output
 

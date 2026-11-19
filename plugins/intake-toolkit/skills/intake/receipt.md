@@ -186,13 +186,14 @@ The interview resolved 2 gaps."
   labeled (holes stay holes; a `PM-n` item is never one), or `ACs: none — <reason>` when the ticket
   has no AC block. Under it, one line per id: draft `AC-n: <the observable behavior its test must
   prove>` from the AC's own text. Each `AC-n` line keeps the meaning of the ticket's criterion with
-  that id, unless the operator chose a departure that a `D-n` row records. An AC no test can prove (docs, config) is an exemption, and
-  **every exemption is the operator's**: put it to them as a question, record the answer as a
-  `user-answered` row, and only then write `AC-n: exempt — <reason>`. Never exempt one silently.
-  Two more forms are the operator's the same way, each asked and recorded as its own
-  `user-answered` row: `AC-n: holds — <the existing behavior its test keeps>` for an AC about
-  behavior that already exists ("X still works": its test passes without the change, so the
-  scheduler keeps it off the fails-without-the-change check), and `AC-n: unchecked — <tier and
+  that id, unless the operator chose a departure that a `D-n` row records. An AC no test can prove
+  (docs, config) is an exemption, and **every exemption is the operator's**: put it to them as a
+  question, record the answer as a `user-answered` row, and only then write
+  `AC-n: exempt — <reason>`. Never exempt one silently. Two more forms are the operator's the same
+  way, each asked and recorded as its own `user-answered` row:
+  `AC-n: holds — <the existing behavior its test keeps>` for an AC about behavior that already
+  exists ("X still works": its test passes without the change, so the scheduler keeps it off the
+  fails-without-the-change check), and `AC-n: unchecked — <tier and
   reason>` for one whose test sits on a tier the scheduler cannot run (a black-box API suite that
   needs the running app). Both must still be tagged on a test task.
   The build's test-first plan is held to these ids (`interviewing-baseline`, "Test intent").
@@ -204,10 +205,14 @@ Dispatch `intake-toolkit:implementability-probe` via `Task` again. Hand it the p
 record and the ticket body. Hand it nothing else: no interview, no findings from this session, no
 issue thread. It returns guess-points, and it reports the record against the ticket's criteria.
 
-Act on its output before the lint runs:
+Act on its output before the lint runs. The operator chose a change or a departure when an
+`intent` row records it: `user-answered`, `user-delegated` or `ticket-sourced`.
 
-- A build-blocking guess-point or a criterion reported absent → ask the operator and record the
-  answer as a row, or declare an `OR-n`.
+- A build-blocking guess-point → ask the operator and record the answer as a row, or declare an
+  `OR-n`.
+- A criterion reported absent → add its id to the `ACs:` line and draft its `AC-n` line from the
+  ticket's text ("Test intent" above). When building it needs a decision the record does not hold,
+  ask the operator and record the answer as a row, or declare an `OR-n`.
 - An `AC-n` whose meaning changed and the operator did not choose the change → rewrite its Test
   intent line to the ticket's meaning.
 - An `AC-n` whose meaning the operator changed → its Test intent line states the chosen behavior
