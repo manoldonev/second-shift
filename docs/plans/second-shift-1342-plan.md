@@ -22,3 +22,6 @@
 - [ ] 4.2 Score notes as send-back for the lane and joined arms (plugins/review-toolkit/evals/code-review-bench-eval/planted/planted.py, docs/testing.md)
 - [ ] 4.3 Test: on the lane and joined arms a pathless `[note]` on a path-level case goes to the judge, and a match is right (plugins/review-toolkit/evals/code-review-bench-eval/planted/score-selftest.sh)
 - [ ] 4.4 Send a pathless send-back finding to the judge, a note too on the lane and joined arms (plugins/review-toolkit/evals/code-review-bench-eval/planted/planted.py, docs/testing.md)
+- [ ] 4.5 Test: a stored lane or joined approve that carries a `[note]`, as `--rescore` reads it, is no harm on a control and wrong on a planted case (plugins/review-toolkit/evals/code-review-bench-eval/planted/score-selftest.sh)
+- [ ] 4.6 Count a lane or joined `[note]` as send-back only on a needs-work (plugins/review-toolkit/evals/code-review-bench-eval/planted/planted.py, docs/testing.md)
+- [ ] 4.7 The bench lane arm writes every finding it reports, with no dismissed or suppressed finding (plugins/review-toolkit/evals/code-review-bench-eval/arms/lane-review.md)

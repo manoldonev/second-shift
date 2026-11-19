@@ -3,7 +3,7 @@
 # per class and arm; the three-line window; the judge asked only about findings inside a planted range, on a
 # path-level location's file, or with no path on a case that has one (a [blocker], or any finding on the lane
 # and joined arms); a path parsed with no line; a P2 row
-# by its id; a P5 [note]; a [note] that sends back on the lane and joined arms only; a gate stop; an unscorable verdict counted apart and never as an approve; the gate,
+# by its id; a P5 [note]; a [note] that sends back on a lane or joined needs-work only, never on a stored approve; a gate stop; an unscorable verdict counted apart and never as an approve; the gate,
 # which reads every class but P2; the pilot run's cases, arm and changelog rule; and the per-case report.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -148,6 +148,30 @@ done
 fi
 [ "$(sn plain p1case)" = '[0,0,0,0,""]' ] && ok "plain P1: a note-only needs-work is scorable, and a matching [note] is neither right nor noise there" || bad "plain P1 note: $(sn plain p1case)"
 [ "$(sn plain ctcase)" = '[0,0,0,0,""]' ] && ok "plain control: a note-only needs-work is no harm" || bad "plain control note: $(sn plain ctcase)"
+
+echo "== a stored approve with a note, as --rescore reads it =="
+lane_approve "$(N N1 src/q.js:3 'a worry.')" > "$V/old-ct.md"
+lane_approve "$(N N1 src/a.js:14 'the third token is dropped.')" > "$V/old-p1.md"
+lane_approve "$(N N1 src/e.js:7 'a string literal where the repo uses the unit constants.')" > "$V/old-p5.md"
+out="$(python3 -c '
+import sys, asyncio, pathlib; sys.path.insert(0, sys.argv[1]); import planted
+cases = {c["id"]: c for c in planted.load_cases(pathlib.Path(sys.argv[2]))}
+async def judge(golden, cand):
+    return True
+recs = []
+for arm in ("lane", "joined"):
+    for case, f in (("ctcase", "old-ct.md"), ("p1case", "old-p1.md"), ("p5case", "old-p5.md")):
+        v = planted.parse_verdict((pathlib.Path(sys.argv[3]) / f).read_text())
+        recs.append({"arm": arm, "case": case, "run": 1, "status": "ok", "verdict": v["verdict"], "rows": v["rows"], "findings": v["findings"]})
+for r in asyncio.run(planted.score_records(cases, recs, judge)):
+    s = r["score"]
+    print(r["arm"], r["case"], s["right"], s["wrong"], s["harm"], s["noise"], s["how"] or "-")
+' "$HERE" "$R" "$V" 2>&1)"
+for a in lane joined; do
+  grep -qxF "$a ctcase 0 0 0 0 -" <<<"$out" && ok "$a control: a stored approve with a [note] sent nothing back, so it is no harm" || bad "$a stored control: $out"
+  grep -qxF "$a p1case 0 1 0 0 -" <<<"$out" && ok "$a P1: a stored approve with a matching [note] is wrong, not right" || bad "$a stored P1: $out"
+  grep -qxF "$a p5case 0 1 0 0 -" <<<"$out" && ok "$a P5: a stored approve with a matching [note] is wrong, not right" || bad "$a stored P5: $out"
+done
 
 echo "== a path-level location =="
 printf 'verdict: needs-work\n## Findings\n- [blocker] B1 test/t.test.js — no test proves AC-1.\n- [blocker] B2 test/t.test.js:90 — the AC-1 test is missing.\n- [blocker] B3 no test proves AC-1 at all.\n- [blocker] B4 src/t.js:40 — an unrelated worry.\n- [note] N1 a note that names no file.\n' > "$V/plain-pt.md"

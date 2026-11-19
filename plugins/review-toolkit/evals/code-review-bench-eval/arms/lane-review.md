@@ -18,5 +18,5 @@ Over-engineering is always a `[note]`: a new abstraction, layer, option, extensi
 The review runs in two passes. Pass 1 is the completeness and correctness review, from the ticket and the code alone. Pass 1 does not open the decision record, the plan or the PR description. It reads the diff with the plans directory excluded. It writes its findings to the scratch directory before pass 2 starts. When there is a record, pass 2 reads it at its first commit and at the head, and scores every row. A record row never removes, dismisses or downgrades a pass-1 finding. When a row decided the behavior that a finding shows breaking an existing caller, existing data or the ticket, the finding keeps its severity and names the row. Only two record grounds take a pass-1 finding out of `## Findings`: the accepted break above, and the test intent's exemption of an acceptance criterion from a test. An exemption gets one line in `## Notes` that quotes it. A dismissed or suppressed finding is never listed.
 <!-- LOCKSTEP-END review-correctness -->
 
-Write to `{out}` every `[blocker]` and every `[note]` that you did not dismiss or suppress, one per
-numbered item, in the output form above. Put the finding's scenario in its item.
+Write to `{out}` every finding that you report, one per numbered item, in the output form above.
+Put the finding's scenario in its item.
