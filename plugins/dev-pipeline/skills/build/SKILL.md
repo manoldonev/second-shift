@@ -58,10 +58,9 @@ This path does not do the steps that the scheduler does after its build:
    `bash "<value of SS_ADAPTER>" review <pr>`, with the path written in full. That command opens
    the fresh session in a `review` tab of the ticket's workspace. Do not review your own build.
    Never post a comment that starts with `verdict:`.
-   On `needs-work`, do these steps in this session. Fix each `[blocker]` finding, or rebut it in a
-   PR comment. Fix each record row scored `violated` or `undeterminable`, or edit the row as step 3
-   allows. A `[note]` finding requires nothing: fix one only if you choose to, and never rebut or
-   reply to one. Push, then tell the operator to run a fresh review.
+   On `needs-work`, do these steps in this session. Fix each finding, `[blocker]` or `[note]`, or
+   rebut it in a PR comment. Fix each record row scored `violated` or `undeterminable`, or edit the
+   row as step 3 allows. Push, then tell the operator to run a fresh review.
    While your handoff is the latest run comment on the ticket, `/dev-pipeline:run <ticket>` refuses
    the ticket with `claimed-elsewhere`. This stops it from building into your worktree. `--resume`
    gives the ticket back to the lane.

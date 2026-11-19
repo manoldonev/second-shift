@@ -130,6 +130,7 @@ if [ -n "${PLAIN_SESSION:-}" ]; then
     plain-approve)       r=$'verdict: approve\n## Findings\nNone.' ;;
     plain-blocker-agree) r=$'```\nverdict: needs-work\n## Findings\n- [blocker] B1 src/a.ts:4 — the defect the lane saw\n- [note] N1 src/a.ts:9 — a plain note\n```' ;;
     plain-blocker-new)   r=$'verdict: needs-work\n## Findings\n- [blocker] B1 src/other.ts:20 — a defect only plain saw\n  Scenario: an empty list → a crash' ;;
+    plain-note-new)      r=$'verdict: needs-work\n## Findings\n- [note] N1 src/other.ts:30 — a convention break only plain saw\n  Fix: follow the convention' ;;
     plain-no-jira)       r=$'verdict: approve\n## Findings\n- [note] N0 ticket-unavailable — getJiraIssue could not fetch GH-42' ;;
     plain-no-jira-located) r=$'verdict: approve\n## Findings\n- [note] N0 src/a.ts:1 — ticket-unavailable — getJiraIssue could not fetch GH-42' ;;
     plain-makefile)      r=$'verdict: needs-work\n## Findings\n- [blocker] B1 Makefile:13 — the test target skips the new suite\n- [blocker] B2 the docs at https://ci.test:443 still name the old target' ;;
@@ -277,7 +278,9 @@ case "$plan" in
   review-approve-d2) post "$(ROWS=$'| D-1 | honored | fake |\n| D-2 | honored | Added by the build, user-answered. |' vbody approve "$(git rev-parse "origin/$branch")")" ;;   # the head's added row scored
   review-bad-approve-blocker)  post "$(ROWS='| D-1 | honored | fake |' FINDINGS='- [blocker] B1 must change before merge' vbody approve "$(git rev-parse "origin/$branch")")" ;;
   review-bad-approve-violated) post "$(ROWS='| D-1 | violated | fake |' vbody approve "$(git rev-parse "origin/$branch")")" ;;
-  review-bad-needs-work-noblocker) post "$(FINDINGS='- [note] N1 nothing required' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
+  review-bad-needs-work-nofinding) post "$(FINDINGS='None.' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
+  review-needs-work-note-only) # one convention note and nothing else, in the grammar's finding form
+    post "$(FINDINGS=$'- [note] N1 src/a.ts:9 — the helper repeats a literal the repo keeps as a unit constant\n  Scenario: a reader changes the constant → this helper keeps the old value\n  Fix: use the constant' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
   review-approve-kb) # the session's knowledge-base contributions block, last in ## Notes
     post "$(vbody approve "$(git rev-parse "origin/$branch")" $'\n## Notes\n\nKnowledge-base contributions:\n- <kb-page> — the worker retries a 409 forever (lookup gap)\n- <kb-page> — every build round appends to work.txt (change gap)')" ;;
   review-needs-work-mixed) # one blocker and one note, in the grammar's finding form

@@ -39,16 +39,16 @@ grep -qF 'The diff is origin/main...HEAD, not the remote default branch.' "$FAKE
   && ok "(a) the review prompt has the session review the base diff itself for completeness and correctness, other pillars as notes" || bad "(a) the completeness and correctness instruction is missing from the review prompt"
 grep -qxF "Read it with exactly 'gh issue view 42 --json title,body,comments', as written." "$FAKE_GH/prompt-2.txt" && grep -qF "If you cannot read the ticket, you cannot review the PR: post 'verdict: needs-work' with line 3 'reason: ticket-unreadable'." "$FAKE_GH/prompt-2.txt" \
   && ok "(a) the review reads the ticket itself, and an unreadable ticket is line 3 reason: ticket-unreadable" || bad "(a) the ticket read is missing from the review prompt"
-grep -q 'Its risk is also required performance work: the review states the worst-case bound as a finding' "$FAKE_GH/prompt-2.txt" \
+grep -q 'Its risk is also required performance work: the review states the worst-case bound\.' "$FAKE_GH/prompt-2.txt" \
   && grep -qF 'A bound that breaks an existing caller or existing data is a [blocker] under the severity rule of pass 1.' "$FAKE_GH/prompt-2.txt" \
-  && grep -qF 'Any other bound is a [blocker] when it breaks what the row decided, and a [note] otherwise.' "$FAKE_GH/prompt-2.txt" \
+  && grep -qF "Any other bound is a [blocker] when it breaks what the row decided. Otherwise it is a [note] when it is relevant, and one line in '## Notes' when it is not." "$FAKE_GH/prompt-2.txt" \
   && ! grep -q 'neither a dispatch nor a decline' "$FAKE_GH/prompt-2.txt" \
-  && ok "(a) a row's cost risk is a bound the session states: a break of a caller or data blocks, any other bound blocks only when it breaks the row" || bad "(a) the record-named risk rule is missing, lets a row excuse a break, or still asks for a dispatch"
+  && ok "(a) a row's cost risk is a bound the session states: a break of a caller or data blocks, any other bound blocks when it breaks the row, else is a relevant note or a Notes line" || bad "(a) the record-named risk rule is missing, lets a row excuse a break, or still asks for a dispatch"
 P2="$FAKE_GH/prompt-2.txt"
 pline() { grep -nF -- "$1" "$P2" | head -n 1 | cut -d: -f1; }
 l_p1=$(pline '## Pass 1: the ticket and the code'); l_p2=$(pline '## Pass 2: the decision record'); l_acct=$(pline "## The build's account")
 l_rec=$(pline 'docs/plans/main-42-decisions.md'); l_diff=$(pline "diff origin/main...HEAD -- . ':(exclude)docs/plans'")
-l_corr=$(pline "A pass-1 finding is never posted as \`Dismissed.\` or \`Suppressed.\` on a record's ground."); l_notes=$(pline 'End pass 1 with the notes pass.')
+l_corr=$(pline "A dismissed or suppressed finding is never listed."); l_notes=$(pline 'End pass 1 with the notes pass.')
 l_out=$(pline '/pass-1-findings.md. Then start pass 2.'); l_last=$(pline "Read the build's own account last, after pass 2.")
 [ -n "$l_p1" ] && [ -n "$l_p2" ] && [ -n "$l_rec" ] && [ "$l_p1" -lt "$l_p2" ] && [ "$l_p2" -lt "$l_rec" ] \
   && ok "(a) the review prompt names the record path only after the pass-2 marker" || bad "(a) record path at line ${l_rec:-none}, pass 1 at ${l_p1:-none}, pass 2 at ${l_p2:-none}"
@@ -56,12 +56,13 @@ l_out=$(pline '/pass-1-findings.md. Then start pass 2.'); l_last=$(pline "Read t
   && ok "(a) the pass-1 diff command excludes the plans directory" || bad "(a) no pass-1 diff that excludes docs/plans (line ${l_diff:-none})"
 p2_first=$(head -n 1 "$P2")
 [ -n "$p2_first" ] && ! grep -qi 'record' <<<"$p2_first" && ok "(a) the review prompt's first line names no decision record" || bad "(a) first line: $p2_first"
-grep -qF "A finding that shows existing data or an existing caller breaking under the change is a \`[blocker]\`. The ticket's scope list, a record row or parity with an older version never makes it a note." "$P2" \
-  && grep -qF "A \`user-delegated\` or \`codebase-derived\` row never accepts a break. The finding then quotes that line." "$P2" \
+grep -qF "A finding that shows existing data or an existing caller breaking under the change is a \`[blocker]\`. The ticket's scope list, a record row or parity with an older version never removes it or makes it a note." "$P2" \
+  && grep -qF "A \`user-delegated\` or \`codebase-derived\` row never accepts a break. The Evidence cell of the accepting row quotes the acceptance." "$P2" \
+  && grep -qF "Every reported finding makes the verdict \`needs-work\`, a \`[note]\` the same as a \`[blocker]\`." "$P2" \
   && grep -qF 'A record row never removes, dismisses or downgrades a pass-1 finding.' "$P2" \
-  && ok "(a) the correctness block carries the severity rule and the two-pass rule" || bad "(a) the severity or two-pass rule is missing from the review prompt"
+  && ok "(a) the correctness block carries the relevance rule, the severity rule and the two-pass rule" || bad "(a) the relevance, severity or two-pass rule is missing from the review prompt"
 [ -n "$l_corr" ] && [ -n "$l_notes" ] && [ -n "$l_out" ] && [ "$l_p1" -lt "$l_corr" ] && [ "$l_corr" -lt "$l_notes" ] && [ "$l_notes" -lt "$l_out" ] && [ "$l_out" -lt "$l_p2" ] \
-  && grep -qF 'Report maintainability, test-coverage and repo-convention problems in the diff as [note]s with file:line. Report only what you would post. A note never gates.' "$P2" \
+  && grep -qF 'Report maintainability, test-coverage and repo-convention problems in the diff as [note]s with file:line. Report only the relevant ones. A note gates like a blocker.' "$P2" \
   && ok "(a) the notes pass follows the correctness block and ends pass 1, which writes its findings before pass 2" || bad "(a) notes pass at ${l_notes:-none}, block end ${l_corr:-none}, findings file ${l_out:-none}, pass 2 ${l_p2:-none}"
 [ -n "$l_acct" ] && [ -n "$l_last" ] && [ "$l_p2" -lt "$l_acct" ] && [ "$l_acct" -lt "$l_last" ] \
   && ok "(a) the build's account is read after pass 2" || bad "(a) the build's account at ${l_last:-none}, pass 2 at ${l_p2:-none}"
@@ -141,16 +142,15 @@ run_case "$d"; expect approved "(b) needs-work, fix, approve"
 grep -q 'verdict: needs-work' "$FAKE_GH/prompt-3.txt" && ok "(b) round-2 build prompt carries the findings" || bad "(b) findings not in round-2 prompt"
 printf '%s\n' "$OUT" | grep -q '2 round' && ok "(b) two rounds counted" || bad "(b) round count wrong"
 
-# (b3) #1010: a mixed needs-work (a blocker, a note) binds, and its round-2 build is ordered to act on the blocker, not the note.
+# (b3) a mixed needs-work (a blocker, a note) binds, and its round-2 build is ordered to act on every finding, the note included.
 # A grep on the emitted prompt, by necessity: the fake build never reads its prompt, so no run can show what it was told
 fixture b3; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 run_case "$d"; expect approved "(b3) a mixed needs-work binds, fix, approve"
 grep -qF -- '- [blocker] B1 src/a.ts:3 — mixed blocker' "$FAKE_GH/prompt-3.txt" && grep -qxF -- '  Scenario: a 409 → the worker never exits' "$FAKE_GH/prompt-3.txt" && grep -qF -- '- [note] N1 src/a.ts:9 — mixed note' "$FAKE_GH/prompt-3.txt" \
   && ok "(b3) both finding lines, the blocker's scenario included, reach the round-2 build" || bad "(b3) a finding line is missing from prompt-3"
-grep -qF 'fix each [blocker] finding, or rebut it' "$FAKE_GH/prompt-3.txt" && grep -qF 'violated or undeterminable' "$FAKE_GH/prompt-3.txt" \
-  && ok "(b3) the build is ordered to fix or rebut each blocker and fix each bad row" || bad "(b3) the round-2 prompt does not split blockers from notes"
-grep -qF 'A [note] finding requires nothing' "$FAKE_GH/prompt-3.txt" && ok "(b3) a note is named optional" || bad "(b3) the round-2 prompt does not free the notes"
-! grep -qF 'fix each, or rebut it' "$FAKE_GH/prompt-3.txt" && ok "(b3) the every-finding order is gone" || bad "(b3) the prompt still orders every finding addressed"
+grep -qF 'fix each finding, [blocker] or [note], or rebut it' "$FAKE_GH/prompt-3.txt" && grep -qF 'violated or undeterminable' "$FAKE_GH/prompt-3.txt" \
+  && ok "(b3) the build is ordered to fix or rebut every finding, a note included, and fix each bad row" || bad "(b3) the round-2 prompt does not order every finding addressed"
+! grep -qF 'requires nothing' "$FAKE_GH/prompt-3.txt" && ok "(b3) no note is named optional" || bad "(b3) the round-2 prompt still frees the notes"
 
 # (b2) a check red in round 2 sits beside the review's findings, never in place of them: the retry still has what the review asked for
 fixture b2 "- ! grep -qx 3 work.txt"; printf 'build-pr\nreview-needs-work\nbuild-push-only\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"

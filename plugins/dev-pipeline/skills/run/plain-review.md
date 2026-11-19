@@ -22,7 +22,7 @@ Flag a problem only when all of these hold:
 2. It is discrete and actionable: one problem, not a general issue with the codebase or a combination of several.
 3. Fixing it does not demand a level of rigor that is not present in the rest of the codebase.
 4. The change introduced it. Judge this from the diff above. A bug that sits only in code the diff does not touch is pre-existing and is not flagged. A changed rule, default, signature or data shape that breaks code the diff did not touch (an existing caller, consumer, test or stored data) was introduced by the change and is flagged.
-5. The author would likely fix it if they were made aware of it.
+5. A distinguished engineer who knew of it would definitely address it before merge.
 6. It does not rely on unstated assumptions about the codebase or the author's intent.
 7. It is not enough to speculate that the change may disrupt another part of the codebase. Name the other part that is provably affected, at path:line, found with Grep or Read.
 8. It is clearly not an intentional change by the author.
@@ -33,11 +33,11 @@ Also flag over-engineering the change introduced: a new abstraction, layer, indi
 
 Ignore style, formatting, naming, typos and documentation unless they obscure meaning or change behavior. Do not flag missing tests on their own.
 
-Output every finding the author would fix if they knew about it. Do not stop at the first qualifying finding; continue until you have listed every one. If no finding is one the author would definitely want to see and fix, output no findings.
+Output every finding that a distinguished engineer who knew of it would definitely address before merge, a [blocker] or a [note]. Do not stop at the first qualifying finding; continue until you have listed every one. If no finding passes that bar, output no findings.
 
 Severity:
 - [blocker]: the change is incorrect as it stands. Existing code or tests will break, it has a bug that must be fixed before merge, or it does not meet a requirement the ticket states.
-- [note]: a real problem the author would fix that does not block merge.
+- [note]: a real problem that does not make the change incorrect, such as a maintainability or over-engineering problem. It passes the same bar as a blocker.
 Do not claim an issue is more severe than it is. A problem whose triggering inputs or state you cannot state is not a blocker.
 
 Each finding is one paragraph, matter-of-fact: why it is a bug, the inputs, state or ordering under which it occurs, and what goes wrong. No code chunk longer than 3 lines. Keep the cited line range as short as possible.
@@ -49,4 +49,4 @@ verdict: needs-work
 - [blocker] B1 path:line — the problem, as a review comment
 - [note] N1 path:line — the problem, as a review comment
 
-Line 1 is exactly `verdict: approve` or `verdict: needs-work`. `verdict: approve` carries no `[blocker]`, and `verdict: needs-work` carries at least one. With no findings, the section holds the single line `None.`.
+Line 1 is exactly `verdict: approve` or `verdict: needs-work`. `verdict: approve` carries no finding, and `verdict: needs-work` carries at least one, a `[blocker]` or a `[note]`. With no findings, the section holds the single line `None.`.

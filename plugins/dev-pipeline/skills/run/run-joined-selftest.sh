@@ -63,14 +63,24 @@ devblock_last 1 && jq -e '.plain_only == 1 and .lane_only == 0 and .flipped == t
 ! grep -q 'dev: lane vs blind\|blind review, as written' "$FAKE_GH/prompt-3.txt" && grep -q '\[blind\] src/other.ts:20' "$FAKE_GH/prompt-3.txt" \
   && ok "(j2) the next build reads the findings without the dev block" || bad "(j2) prompt-3 dev block lines: $(grep -c 'dev: lane vs blind' "$FAKE_GH/prompt-3.txt")"
 
-# (j3) a blocker both raised at the same site is one finding, tagged [lane+blind]; plain's notes are dropped
+# (j2n) a note only plain raised gates too: the lane's approve becomes a needs-work, and the next build reads the note
+fixture j2n; printf 'build-pr\nreview-approve-summary\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-note-new\nplain-approve\n' > "$FAKE_PLAIN_PLAN"
+run_case "$d"; expect approved "(j2n) needs-work from a plain-only note, then approve"
+posted 1 > "$d/v1.md"
+[ "$(head -n 1 "$d/v1.md")" = "verdict: needs-work" ] && grep -qx 'Not mergeable yet.' "$d/v1.md" && grep -qx 'Fix the \[blind\] findings in Findings.' "$d/v1.md" \
+  && grep -qx -- '- \[note\] N1 \[blind\] src/other.ts:30 — a convention break only plain saw' "$d/v1.md" && grep -qx '  Fix: follow the convention' "$d/v1.md" \
+  && grep -q 'state=failure' "$FAKE_GH/statuses" && grep -q '\[blind\] src/other.ts:30' "$FAKE_GH/prompt-3.txt" && ! grep -q 'breaks the verdict grammar' <<<"$OUT" \
+  && jq -e '.plain_only == 1 and .flipped == true and .plain_notes_dropped == 0' <<<"$(devjson 1)" >/dev/null \
+  && ok "(j2n) the plain-only note is added as [blind], flips the approve, binds with a failure status, and reaches the next build" || bad "(j2n) first verdict: $(tr '\n' '|' < "$d/v1.md")"
+
+# (j3) a blocker both raised at the same site is one finding, tagged [lane+blind]; plain's note at the lane note's site is not listed twice
 fixture j3; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-blocker-agree\nplain-approve\n' > "$FAKE_PLAIN_PLAN"
 run_case "$d"; expect approved "(j3) an agreed blocker, then approve"
 posted 1 > "$d/v1.md"
 grep -qx -- '- \[blocker\] B1 \[lane+blind\] src/a.ts:3 — mixed blocker' "$d/v1.md" && [ "$(grep -c '^- \[blocker\]' "$d/v1.md")" -eq 1 ] \
   && above 1 > "$d/above-1.md" && grep -qx -- '- \[note\] N1 src/a.ts:9 — mixed note' "$d/above-1.md" && ! grep -q 'a plain note\|^- .*\[blind\]' "$d/above-1.md" \
-  && ok "(j3) one blocker tagged [lane+blind], the lane's note kept, plain's note dropped" || bad "(j3) first verdict: $(tr '\n' '|' < "$d/v1.md")"
-jq -e '.lane_blockers == 1 and .plain_blockers == 1 and .agreed == 1 and .lane_only == 0 and .plain_only == 0 and .plain_notes_dropped == 1 and .flipped == false' <<<"$(devjson 1)" >/dev/null \
+  && ok "(j3) one blocker tagged [lane+blind], the lane's note kept, plain's note at its site not listed again" || bad "(j3) first verdict: $(tr '\n' '|' < "$d/v1.md")"
+jq -e '.lane_blockers == 1 and .plain_blockers == 1 and .agreed == 1 and .lane_only == 0 and .plain_only == 0 and .plain_notes_dropped == 0 and .flipped == false' <<<"$(devjson 1)" >/dev/null \
   && jq -e '.m_b_b == 1 and .m_n_n == 1' <<<"$(devjson 1)" >/dev/null \
   && grep -qxF -- '- `src/a.ts:3` (blind :4) — lane B1: mixed blocker · blind B1: the defect the lane saw' "$d/v1.md" \
   && grep -qxF -- '- `src/a.ts:9` — lane N1: mixed note · blind N1: a plain note' "$d/v1.md" \

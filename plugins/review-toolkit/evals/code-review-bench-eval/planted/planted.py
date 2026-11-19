@@ -811,8 +811,8 @@ def plain_problems(v: dict) -> list[str]:
     blockers = [f for f in v["findings"] if f["severity"] == "blocker"]
     if v["verdict"] == "approve" and blockers:
         p.append("an approve carries a [blocker]")
-    if v["verdict"] == "needs-work" and not blockers:
-        p.append("a needs-work carries no [blocker]")
+    if v["verdict"] == "needs-work" and not v["findings"]:
+        p.append("a needs-work carries no finding")
     return p
 
 
@@ -860,18 +860,23 @@ async def judge_findings(truth: dict, review: dict, judge) -> dict[str, bool]:
 
 
 def score_review(truth: dict, review: dict, matched: dict[str, bool]) -> dict:
+    """On the lane and joined arms every finding gates, so a [note] is send-back as a [blocker] is. The plain
+    arm's prompt lets a note ride on an approve, so there only a [blocker] sends back and a note counts on P5."""
     s = {"right": 0, "wrong": 0, "harm": 0, "noise": 0, "how": ""}
     cls = truth["class"]
     if review["status"] == "gate-stop":
         s["harm" if cls == CONTROL else "right"] = 1
         s["how"] = "gate"
         return s
+    gating = review.get("arm") in ("lane", JOINED)
     findings = review.get("findings", [])
     rows_back = [r for r, sc in (review.get("rows") or {}).items() if sc in SENDBACK_SCORES]
     blockers = [f for f in findings if f["severity"] == "blocker"]
+    notes = [f for f in findings if f["severity"] == "note"]
+    sendback = findings if gating else blockers
     if cls == CONTROL:
-        if blockers or rows_back:
-            s["harm"], s["how"] = 1, "blocker" if blockers else "row"
+        if sendback or rows_back:
+            s["harm"], s["how"] = 1, "blocker" if blockers else "note" if sendback else "row"
         return s
     row = truth.get("row")
 
@@ -882,11 +887,11 @@ def score_review(truth: dict, review: dict, matched: dict[str, bool]) -> dict:
         s["right"], s["how"] = 1, "blocker"
     elif cls == "P2" and row in rows_back:
         s["right"], s["how"] = 1, "row"
-    elif cls == "P5" and any(hit(f) for f in findings if f["severity"] == "note"):
+    elif (gating or cls == "P5") and any(hit(f) for f in notes):
         s["right"], s["how"] = 1, "note"
-    if review.get("verdict") == "approve" and not s["right"] and cls != "P5":
+    if review.get("verdict") == "approve" and not s["right"] and (gating or cls != "P5"):
         s["wrong"] = 1
-    s["noise"] = sum(1 for f in blockers if not hit(f))
+    s["noise"] = sum(1 for f in sendback if not hit(f))
     return s
 
 

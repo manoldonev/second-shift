@@ -2,7 +2,7 @@
 # score-selftest.sh — the scorer on canned reviews with a canned judge, no model: right, wrong, harm and noise
 # per class and arm; the three-line window; the judge asked only about findings inside a planted range, on a
 # path-level location's file, or with no path on a case that has one; a path parsed with no line; a P2 row
-# by its id; a P5 [note]; a gate stop; an unscorable verdict counted apart and never as an approve; the gate,
+# by its id; a P5 [note]; a [note] that sends back on the lane and joined arms only; a gate stop; an unscorable verdict counted apart and never as an approve; the gate,
 # which reads every class but P2; the pilot run's cases, arm and changelog rule; and the per-case report.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,7 +42,7 @@ B() { printf -- '- [blocker] %s %s — %s\n  Scenario: an input → a wrong outc
 lane_back honored "$(B B1 src/a.js:14 'the third token is dropped.'; B B2 src/z.js:1 'an unrelated worry.')" > "$V/lane-p1.md"
 lane_back violated "$(B B1 'D-2' 'violated: the code returns null.')" > "$V/lane-p2.md"
 lane_approve > "$V/lane-p4.md"
-lane_approve '- [note] N1 src/e.js:7 — a string literal where the repo uses the unit constants.' > "$V/lane-p5.md"
+lane_back honored '- [note] N1 src/e.js:7 — a string literal where the repo uses the unit constants.' > "$V/lane-p5.md"
 lane_back honored "$(B B1 src/q.js:3 'a worry.')" > "$V/lane-ct.md"
 printf 'verdict: approve\n\n## Findings\n\nNone.\n' > "$V/lane-bad.md"
 printf 'verdict: needs-work\n## Findings\n- [blocker] B1 src/a.js:16 — the third token is dropped.\n' > "$V/plain-p1.md"
@@ -84,7 +84,7 @@ if [ -n "$HAVE_LANE" ]; then
 [ "$(s lane p2case 1)" = '[1,0,0,0,"blocker"]' ] && ok "lane P2: a blocker that names the planted row is right and is not noise" || bad "lane P2: $(s lane p2case 1)"
 [ "$(s lane p3case 1)" = '[1,0,0,0,"gate"]' ] && ok "lane P3: a gate that stops the case is right" || bad "lane P3: $(s lane p3case 1)"
 [ "$(s lane p4case 1)" = '[0,1,0,0,""]' ] && ok "lane P4: an approve of a planted case is wrong" || bad "lane P4: $(s lane p4case 1)"
-[ "$(s lane p5case 1)" = '[1,0,0,0,"note"]' ] && ok "lane P5: a matching [note] on an approve is right, and the approve is not wrong" || bad "lane P5: $(s lane p5case 1)"
+[ "$(s lane p5case 1)" = '[1,0,0,0,"note"]' ] && ok "lane P5: a matching [note] on a needs-work is right" || bad "lane P5: $(s lane p5case 1)"
 [ "$(s lane ctcase 1)" = '[0,0,1,0,"blocker"]' ] && ok "lane control: a [blocker] is harm" || bad "lane control: $(s lane ctcase 1)"
 fi
 [ "$(s plain p1case 1)" = '[0,0,0,1,""]' ] && ok "plain P1: a [blocker] four lines past the range is not judged, misses and is noise; a needs-work is not wrong" || bad "plain P1: $(s plain p1case 1)"
@@ -121,6 +121,32 @@ score false
   && ok "the gate passes when the lane's worst run beats plain's best, overall without P2 and on P1" || bad "gate 3: $(jq -c '.gate' "$T/out-false.json")"
 grep -q '^gate: pass' "$T/err-false.txt" && ok "the report prints the gate" || bad "report: $(tail -n 2 "$T/err-false.txt")"
 fi
+
+echo "== a note gates on the lane and joined arms =="
+N() { printf -- '- [note] %s %s — %s\n  Scenario: an input → a wrong outcome\n  Fix: change it.\n' "$1" "$2" "$3"; }
+lane_back honored "$(N N1 src/a.js:14 'the third token is dropped.'; N N2 src/z.js:1 'an unrelated worry.')" > "$V/lane-p1-notes.md"
+lane_back honored "$(N N1 src/q.js:3 'a worry.')" > "$V/lane-ct-note.md"
+lane_approve > "$V/lane-p5-approve.md"
+printf 'verdict: needs-work\n## Findings\n- [note] N1 src/a.js:14 — the third token is dropped.\n  Scenario: an input → a wrong outcome\n  Fix: change it.\n' > "$V/plain-p1-note.md"
+printf 'verdict: needs-work\n## Findings\n- [note] N1 src/q.js:3 — a worry.\n' > "$V/plain-ct-note.md"
+{ echo "["
+  r lane p1case 1 ok lane-p1-notes.md; echo ","; r joined p1case 1 ok lane-p1-notes.md; echo ","
+  r lane ctcase 1 ok lane-ct-note.md; echo ","; r joined ctcase 1 ok lane-ct-note.md; echo ","
+  r lane p5case 1 ok lane-p5-approve.md; echo ","; r joined p5case 1 ok lane-p5-approve.md; echo ","
+  r plain p1case 1 ok plain-p1-note.md; echo ","; r plain ctcase 1 ok plain-ct-note.md
+  echo "]"; } > "$T/reviews-notes.json"
+python3 "$HERE/planted.py" --root "$R" score --reviews "$T/reviews-notes.json" --judge "$T/judge-true.json" > "$T/out-notes.json" 2> "$T/err-notes.txt"; rc=$?
+sn() { jq -c --arg a "$1" --arg c "$2" '.records[] | select(.arm == $a and .case == $c) | if .score == null then .status else .score | [.right, .wrong, .harm, .noise, .how] end' "$T/out-notes.json"; }
+[ "$rc" -eq 0 ] && ok "score exits 0 on note-only verdicts" || bad "score rc=$rc: $(tail -n 5 "$T/err-notes.txt")"
+if [ -n "$HAVE_LANE" ]; then
+for a in lane joined; do
+  [ "$(sn "$a" p1case)" = '[1,0,0,1,"note"]' ] && ok "$a P1: a matching [note] on a note-only needs-work is right; an unmatched [note] is noise" || bad "$a P1 notes: $(sn "$a" p1case)"
+  [ "$(sn "$a" ctcase)" = '[0,0,1,0,"note"]' ] && ok "$a control: a needs-work with only a [note] is harm" || bad "$a control note: $(sn "$a" ctcase)"
+  [ "$(sn "$a" p5case)" = '[0,1,0,0,""]' ] && ok "$a P5: an approve that misses the planted P5 case is wrong" || bad "$a P5 approve: $(sn "$a" p5case)"
+done
+fi
+[ "$(sn plain p1case)" = '[0,0,0,0,""]' ] && ok "plain P1: a note-only needs-work is scorable, and a matching [note] is neither right nor noise there" || bad "plain P1 note: $(sn plain p1case)"
+[ "$(sn plain ctcase)" = '[0,0,0,0,""]' ] && ok "plain control: a note-only needs-work is no harm" || bad "plain control note: $(sn plain ctcase)"
 
 echo "== a path-level location =="
 printf 'verdict: needs-work\n## Findings\n- [blocker] B1 test/t.test.js — no test proves AC-1.\n- [blocker] B2 test/t.test.js:90 — the AC-1 test is missing.\n- [blocker] B3 no test proves AC-1 at all.\n- [blocker] B4 src/t.js:40 — an unrelated worry.\n- [note] N1 a note that names no file.\n' > "$V/plain-pt.md"

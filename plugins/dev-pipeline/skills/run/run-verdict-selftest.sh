@@ -98,7 +98,7 @@ vc_case() { # vc_case <id> <build plan> <review plan> <rule>
 vc_case vc1 build-pr review-bad-approve-blocker "approve with a blocker"
 vc_case vc2 build-pr review-bad-approve-violated "approve with a violated or undeterminable row: D-1 violated"
 vc_case vc3 build-pr-add-row review-approve "record row not scored: D-2"   # the row only the head carries: run.sh reads the record there too
-vc_case vc4 build-pr review-bad-needs-work-noblocker "needs-work with no blocker"
+vc_case vc4 build-pr review-bad-needs-work-nofinding "needs-work with no finding"
 grep -qF 'Bash(bash *verdict-check.sh*)' "$FAKE_GH/args-2.txt" && grep -q "^Before you post, check your draft: run 'bash .*/tools/verdict-check.sh " "$FAKE_GH/prompt-2.txt" \
   && grep -qx 'The verdict comment has these parts, in this order and nothing else:' "$FAKE_GH/prompt-2.txt" && ! grep -q 'LOCKSTEP-' "$FAKE_GH/prompt-2.txt" && ok "(vc4) [D-2] the review may run the checker on its draft and is told to; the grammar reaches it without its markers" \
   || bad "(vc4) [D-2] allowlist/prompt: $(grep -c 'verdict-check' "$FAKE_GH/prompt-2.txt")"
@@ -109,6 +109,12 @@ fixture vc6; printf 'build-pr-rm-record\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
   && ok "(vc6) [D-5] exit 1, no status, no re-spawn, the run block names no verdict" || bad "(vc6) rc=$RC calls=$(cat "$FAKE_GH/calls") block=$(grep '| verdict-uncheckable' "$FAKE_GH/pr-body.md")"
 fixture vc7; printf 'build-pr\nreview-needs-work-notes-reason\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 expect approved "(vc7) 'reason: render-unavailable' as prose under ## Notes is not the render reason: the needs-work goes to a BUILD"
+# (vc8) a note gates: a needs-work whose only finding is a convention [note] binds, posts failure and starts round 2
+fixture vc8; printf 'build-pr\nreview-needs-work-note-only\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
+expect approved "(vc8) a note-only needs-work, a round-2 build, then approve"
+[ "$(cat "$FAKE_GH/calls")" -eq 4 ] && grep -q 'state=failure' <<<"$(sed -n 1p "$FAKE_GH/statuses" 2>/dev/null)" && ! grep -q 'breaks the verdict grammar' <<<"$OUT" \
+  && grep -qF -- '- [note] N1 src/a.ts:9 — the helper repeats a literal' "$FAKE_GH/prompt-3.txt" && grep -qF '  Fix: use the constant' "$FAKE_GH/prompt-3.txt" \
+  && ok "(vc8) the note-only verdict binds with a failure status, and the round-2 build gets the note and its Fix line" || bad "(vc8) calls=$(cat "$FAKE_GH/calls") statuses=$(tr '\n' '|' < "$FAKE_GH/statuses" 2>/dev/null)"
 
 # (kb) the review session writes the knowledge-base contributions itself, by the inclusion test review-context.md declares,
 # and a verdict carrying them binds against the v3 record (its '## Knowledge source' answer included) the launch linted
