@@ -186,7 +186,7 @@ The interview resolved 2 gaps."
   labeled (holes stay holes; a `PM-n` item is never one), or `ACs: none — <reason>` when the ticket
   has no AC block. Under it, one line per id: draft `AC-n: <the observable behavior its test must
   prove>` from the AC's own text. Each `AC-n` line keeps the meaning of the ticket's criterion with
-  that id. An AC no test can prove (docs, config) is an exemption, and
+  that id, unless the operator chose a departure that a `D-n` row records. An AC no test can prove (docs, config) is an exemption, and
   **every exemption is the operator's**: put it to them as a question, record the answer as a
   `user-answered` row, and only then write `AC-n: exempt — <reason>`. Never exempt one silently.
   Two more forms are the operator's the same way, each asked and recorded as its own
@@ -208,10 +208,13 @@ Act on its output before the lint runs:
 
 - A build-blocking guess-point or a criterion reported absent → ask the operator and record the
   answer as a row, or declare an `OR-n`.
-- An `AC-n` whose meaning changed → rewrite its Test intent line to the ticket's meaning. When the
-  operator chose the change, keep the ticket's line and record the change as a departure row.
+- An `AC-n` whose meaning changed and the operator did not choose the change → rewrite its Test
+  intent line to the ticket's meaning.
+- An `AC-n` whose meaning the operator changed → its Test intent line states the chosen behavior
+  under the ticket's id. A `D-n` row records the change as a departure.
 - Any other guess-point → route it as in the first round.
 - A reported departure that the operator chose → no action.
+- A reported departure that the operator did not choose → ask the operator, or declare an `OR-n`.
 
 The record round runs once. It never loops. It never blocks without an operator question.
 
