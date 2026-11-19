@@ -19,8 +19,8 @@ and follow it there:
 | --- | --- | --- | --- |
 | Requirements | `$SKILL_DIR/requirements.md` | every input | the ticket body, its key, the spec-reviewer outcome and the knowledge source's outcome |
 | Split | `$SKILL_DIR/split.md` | only when triggered (below) | the slices, or "not split" and why |
-| Explore | `$SKILL_DIR/explore.md` | every ticket, once per split | your exploration, the snapshot and the fan-out pool |
-| Interview | `$SKILL_DIR/interview.md` | per ticket, or per slice | the Decision Ledger, Open Regions and Surface Inventory |
+| Explore | `$SKILL_DIR/explore.md` | every ticket, once per split | your exploration, the snapshot, and the fan-out running in the background |
+| Interview | `$SKILL_DIR/interview.md` | per ticket, or per slice; starts once the snapshot is written, ends only after the pool is read or the run ended | the Decision Ledger, Open Regions and Surface Inventory |
 | Receipt | `$SKILL_DIR/receipt.md` | per ticket, or per slice | `.claude/pipeline-state/{issue}-ledger.md`, linted clean |
 
 Read each stage file, and the `plan-interview` protocol the Interview points to, whole with the
@@ -69,7 +69,7 @@ A skipped Split is still an outcome: the receipt's `Split:` line says why it did
 | the consumer's knowledge provider (`.claude/second-shift/intake-context.md`, `## Knowledge source`) | Requirements, its last act | once per intake, before Split, `codebase-explorer`, the fan-out and any Interview question; on a split, once on the parent, and every slice receipt carries the whole answer |
 | `review-toolkit:codebase-explorer` | Split | at most once per intake, and only there; Split's review of the slices as a set reads its map |
 | the intake fan-out (`intake-fanout.mjs`) | Explore | once per ticket, or once per split (a split the Interview sends back adds the split's one run, which supersedes the first) |
-| `intake-toolkit:implementability-probe` | Receipt | per ticket, or per slice: two rounds at most, on the ticket body before the record is written and on the finished record before the lint |
+| `intake-toolkit:implementability-probe` | Receipt | per ticket, or per slice, when the ticket has an AC block: one round, on the finished record and the ticket body before the lint |
 | `dup-scan.sh` | Receipt | per ticket, or per slice |
 | sizing | Receipt | per ticket, or per slice |
 
@@ -82,7 +82,8 @@ The sequence forks once, after Split:
 1. **Split** decides the slices and, on the operator's yes, creates them **without the queue
    label**.
 2. **Explore** runs once, on the parent body **plus the slice list**, so the fan-out's lenses see
-   the seams between slices. One notice covers it.
+   the seams between slices. One printed notice covers it, and the operator's `skip fan-out`
+   covers every slice.
 3. **Interview, then Receipt, per slice.** Each slice's interview takes the pool items that touch
    it; its receipt lists them and names the shared run, and carries the knowledge source's whole
    answer, from the one dispatch Requirements made on the parent. A slice gets the queue label

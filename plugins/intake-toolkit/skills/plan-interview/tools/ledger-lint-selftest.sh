@@ -987,6 +987,82 @@ ck_lint "$TMP/fo.md"
   && pass "(ll-fo11) a Snapshot outside the Fan-out section → 1, named" \
   || fail "(ll-fo11) misplaced snapshot — rc=$rc err=$err"
 
+echo "[ledger-lint-selftest] receipt mode: ## Fan-out, the v5 form"
+
+# Each case is the v5 fixture with one thing changed, so its failure names one cause. The fixture's
+# rows: the retry row and the 409 row both came from F-1, the validation row from F-3, the upload-size
+# row is what F-2 already had. The mutations reach the rows by their text, and an expected violation
+# is an extended regex.
+V5="$FIX/valid-receipt-v5.md"
+VCUR_V4="$FIX/valid-receipt.md"
+f5_case() { # f5_case <label> <receipt> <expected rc> [expected stderr regex]
+  ck_lint "$2"
+  [[ "$rc" -eq "$3" ]] && { [[ -z "${4:-}" ]] || grep -qE -- "$4" <<< "$err"; } \
+    && pass "(ll-f5) $1 → $3${4:+, named}" \
+    || fail "(ll-f5) $1 — rc=$rc err=$err"
+}
+f5_sed() { # f5_sed <label> <sed expression> <expected rc> [expected stderr regex]
+  sed "$2" "$V5" > "$TMP/f5.md"
+  f5_case "$1" "$TMP/f5.md" "$3" "${4:-}"
+}
+
+# (ll-f5a) the fixture: no Refuter line, one finding that became two rows, linked rows, a tally that
+# agrees, two questions listed → 0, read as v5
+ck_lint "$V5"
+[[ "$rc" -eq 0 ]] && grep -q "receipt v5" <<< "$out" && grep -q "4 fan-out item(s)" <<< "$out" && ! grep -q '^Refuter:' "$V5" \
+  && pass "(ll-f5a) v5 receipt with no 'Refuter:' line, linked rows and an agreeing tally → 0" \
+  || fail "(ll-f5a) v5 fixture — rc=$rc out=$out err=$err"
+
+# (ll-f5b) a 'became' row with no From: naming the finding → 1
+f5_sed "the rows F-1 became carry no From:" 's/ From: F-1 |/ |/' 1 "disposition 'became D-[0-9]+', but the Resolution of D-[0-9]+ has no 'From: F-1'"
+f5_sed "the rows F-1 became name F-3 instead" 's/ From: F-1 |/ From: F-3 |/' 1 "disposition 'became D-[0-9]+', but the Resolution of D-[0-9]+ has no 'From: F-1'"
+
+# (ll-f5c) a From: that names a finding the table does not declare → 1
+f5_sed "the 409 row also names F-9" 's/409\. From: F-1 |/409. From: F-1, F-9 |/' 1 "row: 'From: F-9' names a finding the Fan-out table does not declare"
+
+# (ll-f5d) a From: on a row the finding's disposition does not name → 1
+f5_sed "the 409 row also names F-2, an already-had finding" 's/409\. From: F-1 |/409. From: F-1, F-2 |/' 1 "row: 'From: F-2', but finding F-2's disposition does not say 'became D-[0-9]+'"
+f5_sed "the retry row also names F-3" 's/status\. From: F-1 |/status. From: F-1, F-3 |/' 1 "row: 'From: F-3', but finding F-3's disposition does not say 'became D-[0-9]+'"
+
+# (ll-f5e) the From: may sit anywhere in the cell, a departure sentence after it → 0
+f5_sed "a From: before a departure sentence" 's/ From: F-1 |/ From: F-1. Changed in build: the retry stays off. |/' 0
+
+# (ll-f5f) each tally count that disagrees with the rows → 1, named
+f5_sed "'rows added' one over the rows" 's/rows added 3/rows added 4/' 1 "Tally says 'rows added 4', but 3 distinct D-n follow 'became'"
+f5_sed "an already-had finding that became its row, counted as added" \
+  's/rows added 3/rows added 4/; s/| already had — \(.*\) |$/| became \1 |/; s/the operator.s comment https/the comment From: F-2 https/' \
+  1 "Tally says 'rows added 4', but 3 distinct D-n follow 'became'"
+f5_sed "'snapshot claims overturned' under the overturned rows" 's/snapshot claims overturned 1/snapshot claims overturned 0/' 1 "Tally says 'snapshot claims overturned 0', but 1 row\(s\) are tagged 'overturned'"
+f5_sed "'questions added' over the ids it lists" 's/questions added 2 (/questions added 3 (/' 1 "Tally says 'questions added 3' but lists 2 id\(s\)"
+f5_sed "'questions added' with no id list" 's/questions added 2 ([^)]*)/questions added 2/' 1 "Tally says 'questions added 2' but lists 0 id\(s\)"
+f5_sed "the zero form 'questions added 0'" 's/questions added 2 ([^)]*)/questions added 0/' 0
+f5_sed "a tally with no 'rows added'" 's/rows added 3 · //' 1 "Tally has no 'rows added <n>'"
+grep -vF '409. From: F-1' "$V5" > "$TMP/f5-undeclared.md"
+f5_case "'questions added' lists a row the ledger does not declare" "$TMP/f5-undeclared.md" 1 "Tally 'questions added' lists D-[0-9]+, which the Decision Ledger does not declare"
+f5_sed "'questions added' lists a row no 'became' names" 's/became \(D-[0-9]*\), D-[0-9]* |/became \1 |/' 1 "Tally 'questions added' lists D-[0-9]+, which no Fan-out disposition names after 'became'"
+
+# (ll-f5g) the v5 empty pool: the new line → 0; the line below v5 → 1, naming the v5 line
+awk '/^\| F-[0-9]|^\| ID \| Angle|^\| --- \| --- \| --- \| --- \| --- \|$/ {next}
+  /^Tally:/ {print "Pool: empty — no lens made a claim."; print "Tally: rows added 0 · snapshot claims overturned 0 · questions added 0"; next}
+  {sub(/ From: F-[0-9]+ \|/, " |"); print}' "$V5" > "$TMP/f5-empty.md"
+f5_case "no F rows and 'Pool: empty — no lens made a claim.'" "$TMP/f5-empty.md" 0
+sed 's/^Pool: empty — no lens made a claim\.$/Pool: empty — no claim survived refutation./' "$TMP/f5-empty.md" > "$TMP/f5-empty-old.md"
+f5_case "no F rows and the empty-pool line below v5" "$TMP/f5-empty-old.md" 1 "no empty-pool line \('Pool: empty — no lens made a claim\.'\)"
+
+# (ll-f5h) a skipped fan-out declares no finding, so a From: on a v5 row names an undeclared one
+awk '/^## Fan-out/ {print; print ""; print "Fan-out: skipped — by the operator, during the run: no reason given"; skip = 1; next} skip && /^## / {skip = 0} !skip' "$V5" > "$TMP/f5-skipped.md"
+f5_case "a skipped fan-out and a row with 'From: F-1'" "$TMP/f5-skipped.md" 1 "row: 'From: F-1' names a finding the Fan-out table does not declare"
+sed 's/ From: F-[0-9]* |/ |/' "$TMP/f5-skipped.md" > "$TMP/f5-skipped-clean.md"
+f5_case "a skipped fan-out during the run, no From:" "$TMP/f5-skipped-clean.md" 0
+
+# (ll-f5i) below v5 nothing changes: the v4 fixture still needs its Refuter line and keeps the old
+# empty-pool line; its unlinked 'became' rows and its unlisted tally still lint clean
+grep -v '^Refuter:' "$VCUR_V4" > "$TMP/f5-v4-norefuter.md"
+f5_case "the v4 fixture without its 'Refuter:' line" "$TMP/f5-v4-norefuter.md" 1 "Fan-out has no 'Refuter:' line"
+awk '/^\| F-[0-9]|^\| ID \| Angle|^\| --- \| --- \| --- \| --- \| --- \|$/ {next} {print} /^Tally:/ {print "Pool: empty — no claim survived refutation."}' "$VCUR_V4" > "$TMP/f5-v4-empty.md"
+f5_case "the v4 fixture with no F rows and the old empty-pool line" "$TMP/f5-v4-empty.md" 0
+f5_case "the v4 fixture as it stands: no From: links, an unlisted 'questions added 1'" "$VCUR_V4" 0
+
 echo "[ledger-lint-selftest] receipt mode: codebase-derived evidence (#982)"
 
 # A receipt's codebase-derived row states the command it ran or why the fact is only cited.
@@ -1154,12 +1230,13 @@ done
 # (ll-rv7) AC-11 / AC-12: --receipt-version prints the highest version the lint knows — a receipt
 # at that version lints, one above it is refused as newer than the lint
 known="$(bash "$LINT" --receipt-version 2>/dev/null)" && rc=0 || rc=$?
-[[ "$rc" -eq 0 && "$known" =~ ^[0-9]+$ ]] && (( known >= 4 )) \
-  && pass "(ll-rv7) --receipt-version prints a version, at least v4 → $known" \
+[[ "$rc" -eq 0 && "$known" == 5 ]] \
+  && pass "(ll-rv7) --receipt-version prints 5, the v5 Fan-out form" \
   || fail "(ll-rv7) --receipt-version — rc=$rc out=$known"
-sed "s/^Receipt: v4\$/Receipt: v$known/" "$VCUR" > "$TMP/rv-known.md"
+[[ "$known" =~ ^[0-9]+$ ]] || known=5
+sed "s/^Receipt: v5\$/Receipt: v$known/" "$V5" > "$TMP/rv-known.md"
 rv_case "a receipt at the lint's highest version, v$known" "$TMP/rv-known.md" 0
-sed "s/^Receipt: v4\$/Receipt: v$((known + 1))/" "$VCUR" > "$TMP/rv-newer.md"
+sed "s/^Receipt: v5\$/Receipt: v$((known + 1))/" "$V5" > "$TMP/rv-newer.md"
 rv_case "a receipt at v$((known + 1)), above what the lint knows" "$TMP/rv-newer.md" 1 'newer than this lint knows'
 
 # (ll-rv8) D-15: the version line and the steps are receipt-mode only — the ExitPlanMode hook's

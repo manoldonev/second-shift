@@ -13,8 +13,8 @@ in this same plugin.
 
 ## The exit gates, in order
 
-Run these before writing, in this order. Each runs once per ticket or slice. The probe has one
-more round after the write ("Probe the record").
+Run these before writing, in this order. Each runs once per ticket or slice. The probe runs after
+the write ("Probe the record").
 
 ### 1. Post-merge scan
 
@@ -53,23 +53,6 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" --issue <is
 Under `tracker.type: jira` it prints a not-applicable line and exits `0` — no queue label, no
 corpus.
 
-### 3. Implementability probe
-
-Dispatch `intake-toolkit:implementability-probe` via `Task`, handing it the **ticket body alone** —
-no interview, no ledger, no findings from this session. It only works blind: what the elicitation
-left in your context is exactly what the cold implementer will not have. For each guess-point it
-returns:
-
-- the answer is the operator's → a question, and a new ledger row;
-- the answer is knowable from code → resolve it and record a `fact` row;
-- the answer is genuinely undecided → a declared `OR-n` with a disposition.
-
-Two probe rounds at most: this one, and the record round before the lint. Skip the probe only on a
-bug or chore, or on genuinely small scope, and **say so and why** in the receipt's outcome. A skip
-covers this round only: the record round runs whenever the ticket has an AC block. A silent skip
-is the failure this rung exists to catch. No `Task` tool → say it was skipped and why; never
-inline it.
-
 ## Write the receipt
 
 The shape and every empty form are `interviewing-baseline`'s ("The intake receipt"); write the
@@ -78,7 +61,7 @@ highest version the lint knows (`ledger-lint.sh --receipt-version`).
 ```
 # Decision record — #<issue> <title>
 
-Receipt: v4
+Receipt: v5
 
 ## Summary
 
@@ -176,9 +159,11 @@ The interview resolved 2 gaps."
   screen and state the ticket renders, with the frame id, and agree each row's `must-show` now (the
   element that proves the right state rendered — the empty-state copy on an empty row, not the page
   title every state shares). A ticket that renders nothing disarms with `Design: none — <reason>`.
-- **Fan-out** — the tagged pool, tally, refuter, `Lenses:` line and the snapshot indented four
+- **Fan-out** — the `Lenses:` line, the tally, the tagged pool and the snapshot indented four
   spaces (`interviewing-baseline`, "Fan-out"), or exactly one skipped or failed line. The skip form
-  is the operator's: `Fan-out: skipped — by the operator …`. **On a slice:** list only the items
+  is the operator's: `Fan-out: skipped — by the operator, during the run: <reason>`. Each row that
+  came from a finding carries `From: F-n`, and the tally counts what the rows show: the lint checks
+  both. **On a slice:** list only the items
   Explore sorted to this slice, add a `Run:` line naming the shared run
   (`Run: shared with the #<parent> split — slices #a, #b, #c`), and embed the shared snapshot. When
   the ticket came back to Split from the Interview, the `Run:` line also names the pre-split run
@@ -207,10 +192,32 @@ The interview resolved 2 gaps."
 
 ## Probe the record
 
-The build reads the record, not your context. So the probe's last round reads what the build reads.
+The build reads the record, not your context. So the probe reads what the build reads. It runs
+whenever the ticket has an AC block. A ticket with no AC block gets no probe, and its
+`Requirements:` step line says so and why. A silent skip is the failure this rung exists to catch.
+
 Dispatch `intake-toolkit:implementability-probe` via `Task`. Hand it the path of the finished
 record and the ticket body. Hand it nothing else: no interview, no findings from this session, no
-issue thread. It returns guess-points, and it reports the record against the ticket's criteria.
+issue thread. It only works blind: what the elicitation left in your context is exactly what the
+cold implementer will not have. It returns guess-points, and it reports the record against the
+ticket's criteria. No `Task` tool → say on the `Requirements:` step line that the probe was
+skipped and why. Never inline it.
+
+### A partial report
+
+The report is not final while the harness marks it partial or it holds an `unverified` item.
+Resume the same probe with SendMessage. When the harness marked the report partial, tell the probe
+that its report was cut short and to finish the whole report. Otherwise name each unverified item
+in the message and tell the probe to finish those items. Resume at most 2 times. Then ask the operator to accept the report as
+partial or to resume again, and recommend a resume. A session with no SendMessage makes no resume
+and asks the operator at once.
+
+Record a partial round only on the operator's word, on the `Requirements:` step line. Each item
+still `unverified` in a report the operator accepts becomes its own `OR-n` with disposition
+`pause-and-ask`. A ticket AC that the accepted report does not list counts as `unverified`. Never
+guess the status of an unchecked AC line or guess-point.
+
+### Act on the report
 
 Act on its output before the lint runs. The operator chose a change or a departure when an
 `intent` row records it: `user-answered`, `user-delegated` or `ticket-sourced`.
@@ -225,7 +232,10 @@ Act on its output before the lint runs. The operator chose a change or a departu
   it, or declare an `OR-n`.
 - An `AC-n` whose meaning the operator changed → its Test intent line states the chosen behavior
   under the ticket's id, and its row is marked as a departure.
-- Any other guess-point → route it as in the first round.
+- Any other guess-point:
+  - the answer is the operator's → a question, and a new ledger row;
+  - the answer is knowable from code → resolve it and record a `fact` row;
+  - the answer is genuinely undecided → a declared `OR-n` with a disposition.
 - A reported departure that the operator chose → mark its row as a departure if it is not marked
   yet. Nothing else.
 - A reported departure that the operator did not choose → ask the operator, or declare an `OR-n`.
@@ -233,7 +243,8 @@ Act on its output before the lint runs. The operator chose a change or a departu
 A row is marked as a departure when its Resolution ends with a `Departs from AC-n:` sentence
 (`interviewing-baseline`, "Departures").
 
-The record round runs once. It never loops. It never blocks without an operator question.
+The probe runs once per ticket or slice. Only the resumes of a partial report repeat it. It never
+blocks without an operator question.
 
 ## Lint it
 

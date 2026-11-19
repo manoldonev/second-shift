@@ -46,7 +46,7 @@
 # Tables validated:
 #   - map  REVIEWER_MODEL  in workflows/code-review.mjs
 #   - map  INTAKE_MODEL    in workflows/intake-review.mjs
-#   - map  FANOUT_MODEL    in workflows/intake-fanout.mjs (its refuter ships at the `cross` tier)
+#   - map  FANOUT_MODEL    in workflows/intake-fanout.mjs
 #     These declare an abstract TIER, resolved through the alphabet parsed from
 #     model-tiering.md before any comparison. Each file also inlines a DEFAULT_TIER_MAP
 #     copy (the sandbox forbids imports) which is held against that same authority.
