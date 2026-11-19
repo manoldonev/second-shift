@@ -9,7 +9,7 @@ The foundation of the `design-faithful` capability, in both directions:
   (`lib/emit-*.mjs`, `lib/sync-plan.mjs`, `tools/build-ds-files.mjs`, [`PUSH.md`](./PUSH.md)).
 
 The repo-specific inputs (FE app dir, primitives package + inventory, global token CSS source,
-design-handoff bundle location, design-system project name, bot identity) live in the consumer
+design-handoff bundle location, design-system project name) live in the consumer
 repo's `.claude/second-shift/design-tokens/*.md` reference — the code and docs here read from it
 or fall back to conservative discovery.
 
