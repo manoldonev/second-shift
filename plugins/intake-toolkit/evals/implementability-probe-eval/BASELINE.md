@@ -44,3 +44,29 @@ registers `intake-toolkit:implementability-probe` yet. Recorded because it is a 
 from production dispatch: the frontmatter's `maxTurns: 15` was not enforced by the harness on
 this run — the probe used 11 tool calls, inside the cap either way. Re-run by registered name
 after the release that carries this plugin, and note it here if the number moves.
+
+## Run 2 — 2026-11-19, opus, the record round added to the agent
+
+Dispatched by body (`general-purpose`, the agent file below its frontmatter as the prompt), for the
+same reason as run 1: the installed plugin does not yet carry the changed agent.
+
+**Body round, `underspecified-spec.md`: 4 / 5 seeded gaps reported. Class agreement 3 / 4. 4 extras.**
+
+| Seeded | Reported as | Class seeded → reported |
+| --- | --- | --- |
+| S-1 where the JSON goes, what happens to the human lines | G-3 | human → human |
+| S-2 exit-code semantics under `--json` | G-4 | human → human |
+| S-3 `--json` × `--receipt` | not reported; G-6 assumes the flags compose | — |
+| S-4 `violate()` carries no id to serialize | G-1 | human → human |
+| S-5 is the JSON a stable contract | G-7 | undecided → human |
+
+One run per arm is inside agent variance, so the S-3 miss is a signal to re-run, not a measured
+regression.
+
+**Record round, the same spec plus a record written for this run with three planted defects:
+3 / 3 reported, and the thin row too.** AC-1 departed by a `user-answered` row (reported
+`departed — D-2`), AC-2's Test intent line changed to a count (reported under Changed meaning),
+AC-3 missing from the `ACs:` line (reported `absent`), and a one-word Resolution (reported as a
+guess-point with its fork). The probe also listed the operator's departure as a blocking
+guess-point, which would re-ask a settled decision; the agent doc now says a departure a
+`user-answered` row records is not a guess-point. The planted record is not committed.
