@@ -24,6 +24,8 @@ specific to an intake ticket.
 - **Explore's snapshot and the pool items that pass the materiality bar.** Each surviving item is a
   row, an option, a probed fact or a question.
 - **The knowledge source's answer**, when Requirements got one ("The knowledge source" below).
+- **The parent ticket's body and the siblings' keys and summaries**, under jira, when the issue has
+  a parent ("The parent ticket" below).
 - **Split's outcome** — on a split, the slice's own scope, the decisions the parent already took for
   every slice (the brief's guardrails and quarantine tags), and the seam items the pool raised for
   this slice.
@@ -43,6 +45,19 @@ The provider's answer is evidence, read beside the code, never in place of it
   which side is behind: `kb-conflict: <kb-page> (kb stale)` when the page is out of date,
   `kb-conflict: <kb-page> (kb ahead)` when the page states a direction the code has not reached.
 - **A gap the answer reports** is a question like any other, when it passes the materiality bar.
+
+## The parent ticket
+
+Under jira, the parent's text is context. It ranks below the issue's own text
+(`interviewing-baseline`, "Precedence when sources disagree"):
+
+- **A row whose resolution contradicts a sentence of the parent's text** goes to the operator as
+  a question. Quote the sentence. This holds whatever settled the row: the issue, the code, the
+  pool, the knowledge source or your own recommendation. Where the issue's text is the other
+  side, recommend the issue's text. The answer is `user-answered`.
+- **A fact the parent states and the issue does not contradict** may enter as a `ticket-sourced`
+  row of Kind `fact`. Its Resolution quotes the sentence and cites the parent by URL
+  (`https://<site>/browse/<KEY>`).
 
 ## Per ticket, per slice
 

@@ -40,7 +40,9 @@ is a file another session reads, and no stage hands control to another skill and
 > depending on how the session registered it (`ToolSearch` to discover a deferred tool). The
 > jira adapter has no labels and makes no tracker writes besides the filing the operator says yes
 > to (`requirements.md`, "Filing"); every other write the stage files name is **presented** to the
-> operator instead.
+> operator instead. Requirements also reads the issue's parent ticket and the parent's other
+> children, read-only, as context (`requirements.md`, "The parent ticket, under jira"). Under
+> `tracker.type: github` Requirements reads no parent ticket.
 
 ## When Split runs
 
