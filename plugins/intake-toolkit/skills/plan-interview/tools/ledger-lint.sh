@@ -118,6 +118,14 @@
 #   scheduler keeps holds files off its fails-without-the-change leg and notes unchecked ones unrun.
 #   The holds and unchecked forms are additive inside v4's section: no version bump.
 #
+#   `## Fan-out`, v5 form (the `Fan-out (v5 form)` row). The section carries no `Refuter:` line, and
+#   its empty pool reads FANOUT_EMPTY_POOL_V5. The tally and the row links are checked: a `became D-n`
+#   disposition needs `From: F-n` on row D-n, a `From: F-n` names a declared finding whose
+#   disposition says `became` that row, `rows added` counts the distinct D-n after `became` on rows
+#   tagged `new` or `overturned`, `snapshot claims overturned` counts the `overturned` rows, and
+#   `questions added <n> (D-a, D-b)` lists n ids, each declared and named after a `became`. Only the
+#   comma list directly after `became` or `From:` counts. Below v5 the section lints as before.
+#
 # Receipt mode also refuses a section title used twice: every reader takes the first copy, so
 # the second is never read.
 #
@@ -146,6 +154,7 @@ RECEIPT_SECTIONS="$(grep -v 'LOCKSTEP-' <<'TABLE'
 | Intake steps | v2 |
 | Knowledge source | v3 |
 | Test intent | v4 |
+| Fan-out (v5 form) | v5 |
 # LOCKSTEP-END receipt-versions
 TABLE
 )"
@@ -193,7 +202,8 @@ SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a us
 CHECKS_EMPTY_FORM='No ticket-specific checks. The configured checks cover this change.'
 CHECKS_EMPTY_FORM_OLD='No ticket-specific checks — the configured lanes cover this change.'   # older records carry it; still accepted
 FANOUT_TAG_ENUM='new|already-had|overturned|not material'
-FANOUT_EMPTY_POOL='Pool: empty — no claim survived refutation.'
+FANOUT_EMPTY_POOL='Pool: empty — no claim survived refutation.'   # below v5
+FANOUT_EMPTY_POOL_V5='Pool: empty — no lens made a claim.'
 FANOUT_SKIP_BY='by the operator'   # the one name a fan-out skip may carry, read case-insensitively at a word end
 INTAKE_STEP_KEYS='Requirements|Split|Explore|Fan-out|Dup-scan|Post-merge scan|Sizing'
 KS_NONE='Knowledge source: none declared'
@@ -296,6 +306,99 @@ check_evidence() { # check_evidence <row-id> <resolution-cell, pipes masked>
     fi
   else
     violate "$id row: a codebase-derived receipt row states its evidence in the Resolution cell — 'run: \`<command>\` → <decisive output>' for a fact checked at intake, or $CITED_FORMS for one that cannot be run: $shown"
+  fi
+}
+
+# The v5 Fan-out links, read from FANOUT_LINKS ("F-n|tag|D ids after 'became'"), ROW_IDS and
+# ROW_RESOLUTIONS. Only the comma list directly after `From:` counts, as after `became`.
+FROM_LIST='(^|[^[:alnum:]_])From:[[:space:]]*F-[0-9]+([[:space:]]*,[[:space:]]*F-[0-9]+)*'
+BECAME_LIST='(^|[^[:alnum:]_])became[[:space:]]+(D-[0-9]+([[:space:]]*,[[:space:]]*D-[0-9]+)*)'
+TALLY_QUESTIONS='questions[[:space:]]+added[[:space:]]+([0-9]+)([[:space:]]*\(([^)]*)\))?'
+from_ids() { # from_ids <resolution-cell> — the F ids its From: lists name
+  { grep -oE "$FROM_LIST" <<< "$1" || true; } | { grep -oE 'F-[0-9]+' || true; } | tr '\n' ' '
+}
+link_of() { # link_of <F-id> — prints that finding's link, or returns 1 when no row declares it
+  local link
+  for link in ${FANOUT_LINKS[@]+"${FANOUT_LINKS[@]}"}; do
+    [[ "${link%%|*}" == "$1" ]] && { printf '%s' "$link"; return 0; }
+  done
+  return 1
+}
+row_index() { # row_index <D-id> — prints its index in ROW_IDS, or returns 1
+  local i
+  for i in ${ROW_IDS[@]+"${!ROW_IDS[@]}"}; do
+    [[ "${ROW_IDS[$i]}" == "$1" ]] && { printf '%s' "$i"; return 0; }
+  done
+  return 1
+}
+
+check_fanout_links() {
+  local i d_id f link became d idx
+  for i in ${ROW_IDS[@]+"${!ROW_IDS[@]}"}; do
+    d_id="${ROW_IDS[$i]}"
+    for f in $(from_ids "${ROW_RESOLUTIONS[$i]}"); do
+      if ! link="$(link_of "$f")"; then
+        violate "$d_id row: 'From: $f' names a finding the Fan-out table does not declare"
+      else
+        became="${link##*|}"
+        [[ " $became " == *" $d_id "* ]] || \
+          violate "$d_id row: 'From: $f', but finding $f's disposition does not say 'became $d_id' — link the row to the finding it came from"
+      fi
+    done
+  done
+  for link in ${FANOUT_LINKS[@]+"${FANOUT_LINKS[@]}"}; do
+    f="${link%%|*}"
+    for d in ${link##*|}; do
+      idx="$(row_index "$d")" || continue
+      [[ " $(from_ids "${ROW_RESOLUTIONS[$idx]}") " == *" $f "* ]] || \
+        violate "$f row: disposition 'became $d', but the Resolution of $d has no 'From: $f' — end the row's evidence with 'From: $f'"
+    done
+  done
+}
+
+check_fanout_tally() { # check_fanout_tally <the Tally: line>
+  local tally="$1" link tag d added=" " n_added n_over=0 want body tok listed=" " n_listed=0 named=" "
+  for link in ${FANOUT_LINKS[@]+"${FANOUT_LINKS[@]}"}; do
+    tag="${link#*|}"; tag="${tag%%|*}"
+    [[ "$tag" == overturned ]] && n_over=$((n_over + 1))
+    for d in ${link##*|}; do
+      [[ "$named" == *" $d "* ]] || named="$named$d "
+      if [[ "$tag" == new || "$tag" == overturned ]] && [[ "$added" != *" $d "* ]]; then added="$added$d "; fi
+    done
+  done
+  n_added="$(wc -w <<< "$added" | tr -d ' ')"
+  if [[ "$tally" =~ rows[[:space:]]+added[[:space:]]+([0-9]+) ]]; then
+    want=$(( 10#${BASH_REMATCH[1]} ))
+    (( want == n_added )) || \
+      violate "Fan-out Tally says 'rows added $want', but $n_added distinct D-n follow 'became' on rows tagged 'new' or 'overturned'"
+  else
+    violate "Fan-out Tally has no 'rows added <n>': $tally"
+  fi
+  if [[ "$tally" =~ snapshot[[:space:]]+claims[[:space:]]+overturned[[:space:]]+([0-9]+) ]]; then
+    want=$(( 10#${BASH_REMATCH[1]} ))
+    (( want == n_over )) || \
+      violate "Fan-out Tally says 'snapshot claims overturned $want', but $n_over row(s) are tagged 'overturned'"
+  else
+    violate "Fan-out Tally has no 'snapshot claims overturned <n>': $tally"
+  fi
+  if [[ "$tally" =~ $TALLY_QUESTIONS ]]; then
+    want=$(( 10#${BASH_REMATCH[1]} ))
+    body="${BASH_REMATCH[3]:-}"
+    for tok in ${body//,/ }; do
+      if [[ ! "$tok" =~ ^D-[0-9]+$ ]]; then
+        violate "Fan-out Tally 'questions added' lists '$tok', which is not a D-n id"
+        continue
+      fi
+      n_listed=$((n_listed + 1))
+      [[ "$listed" == *" $tok "* ]] && violate "Fan-out Tally 'questions added' lists $tok twice"
+      listed="$listed$tok "
+      row_index "$tok" >/dev/null || violate "Fan-out Tally 'questions added' lists $tok, which the Decision Ledger does not declare"
+      [[ "$named" == *" $tok "* ]] || violate "Fan-out Tally 'questions added' lists $tok, which no Fan-out disposition names after 'became'"
+    done
+    (( want == n_listed )) || \
+      violate "Fan-out Tally says 'questions added $want' but lists $n_listed id(s) — the form is 'questions added <n> (D-a, D-b)', or 'questions added 0'"
+  else
+    violate "Fan-out Tally has no 'questions added <n>': $tally"
   fi
 }
 
@@ -741,8 +844,11 @@ if (( RECEIPT == 1 )); then
   # so — skipped (by the operator) or failed (what) — because an absent section reads exactly like
   # a fan-out nobody ran and nobody recorded. Only the operator skips it: a skip in any
   # other name is a stage deciding on its own that the evidence was not worth gathering.
+  FO_V5=0
+  mandated 'Fan-out (v5 form)' && FO_V5=1
+  declare -a FANOUT_LINKS=()   # one "F-n|tag token|D ids after 'became'" per Fan-out row
   if ! has_section 'fan-out' "$PLAN"; then
-    mandated 'Fan-out' && violate "missing mandated receipt section: Fan-out (the tagged evidence pool with its Tally, Refuter and Snapshot, or one explicit form: 'Fan-out: skipped — by the operator <where / why>' or 'Fan-out: failed — <what>')"
+    mandated 'Fan-out' && violate "missing mandated receipt section: Fan-out (the tagged evidence pool with its Tally, Lenses line and Snapshot, or one explicit form: 'Fan-out: skipped — by the operator <where / why>' or 'Fan-out: failed — <what>')"
   else
     FANOUT_SEC="$(section_of 'fan-out' "$PLAN")"
     if grep -qiE "^[[:space:]]*Fan-out:[[:space:]]*skipped[[:space:]]*(—|–|-|:)?[[:space:]]*${FANOUT_SKIP_BY}([^[:alnum:]_]|\$)" <<< "$FANOUT_SEC" \
@@ -755,10 +861,15 @@ if (( RECEIPT == 1 )); then
     else
       grep -qiE '^[[:space:]]*Tally:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
         violate "Fan-out has no 'Tally:' line (rows added · snapshot claims overturned · questions added) — the tally is what the section exists to show"
-      grep -qiE '^[[:space:]]*Refuter:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
-        violate "Fan-out has no 'Refuter:' line — say which model family checked the claims (e.g. 'cross (opus/fable alternating)' or 'same-family (fable unavailable)')"
-      grep -qiE '^[[:space:]]*Lenses:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
-        violate "Fan-out has no 'Lenses:' line — name every lens the run dispatched, the model it ran on and claims kept of claims made, so a lens that never contributes shows in the record"
+      if (( FO_V5 == 0 )); then
+        grep -qiE '^[[:space:]]*Refuter:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
+          violate "Fan-out has no 'Refuter:' line — say which model family checked the claims (e.g. 'cross (opus/fable alternating)' or 'same-family (fable unavailable)')"
+        grep -qiE '^[[:space:]]*Lenses:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
+          violate "Fan-out has no 'Lenses:' line — name every lens the run dispatched, the model it ran on and claims kept of claims made, so a lens that never contributes shows in the record"
+      else
+        grep -qiE '^[[:space:]]*Lenses:[[:space:]]*.*[[:alnum:]]' <<< "$FANOUT_SEC" || \
+          violate "Fan-out has no 'Lenses:' line — name every lens the run dispatched, the model it ran on and the claims it made ('<key> <model> <claims made>' or '<key> failed'), so a lens that never contributes shows in the record"
+      fi
       # section_of stops at the '### Snapshot' heading, so look for it between '## Fan-out' and
       # the next '## ' heading rather than anywhere in the receipt.
       awk 'tolower($0) ~ /^##[[:space:]]+fan-out/ {on=1; next} on && /^##[[:space:]]/ {on=0} on && tolower($0) ~ /^###+[[:space:]]+snapshot[[:space:]]*$/ {f=1} END {exit !f}' "$PLAN" || \
@@ -803,12 +914,21 @@ if (( RECEIPT == 1 )); then
           for d_id in "${ROW_IDS[@]}"; do [[ "$d_id" == "$d_ref" ]] && { found=1; break; }; done
           (( found == 1 )) || violate "$f_id row cites decision '$d_ref', which the Decision Ledger does not declare"
         done
+        became=""
+        if [[ "$f_disp" =~ $BECAME_LIST ]]; then
+          became="$(grep -oE 'D-[0-9]+' <<< "${BASH_REMATCH[2]}" | tr '\n' ' ')"
+        fi
+        FANOUT_LINKS+=("$f_id|$f_token|$became")
       done < <(grep -E '^\|[[:space:]]*F-[0-9]+[[:space:]]*\|' <<< "$FANOUT_SEC" || true)
-      if (( FANOUT_ROW_COUNT == 0 )) && ! grep -qF "$FANOUT_EMPTY_POOL" <<< "$FANOUT_SEC"; then
-        violate "Fan-out has no 'F-n' rows and no empty-pool line ('$FANOUT_EMPTY_POOL')"
+      empty_pool="$FANOUT_EMPTY_POOL"
+      (( FO_V5 == 0 )) || empty_pool="$FANOUT_EMPTY_POOL_V5"
+      if (( FANOUT_ROW_COUNT == 0 )) && ! grep -qF "$empty_pool" <<< "$FANOUT_SEC"; then
+        violate "Fan-out has no 'F-n' rows and no empty-pool line ('$empty_pool')"
       fi
+      (( FO_V5 == 0 )) || check_fanout_tally "$(grep -iE '^[[:space:]]*Tally:' <<< "$FANOUT_SEC" | head -n 1 || true)"
     fi
   fi
+  (( FO_V5 == 0 )) || check_fanout_links
 
   # ---- Receipt check H: the intake steps -----------------------------------------
   # What each intake step did, in a fixed order, so a reader of the record never has to guess

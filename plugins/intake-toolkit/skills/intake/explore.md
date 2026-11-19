@@ -2,51 +2,47 @@
 
 Read by `/intake-toolkit:intake` only. Explore is **your own exploration plus the intake fan-out**,
 run once per ticket — or, on a split, once for the parent and its slice list together. It ends with
-a snapshot of your register and the fan-out's pool in hand, for the Interview.
+a snapshot of your register, and the interview starts from it while the fan-out still runs.
 
 Explore never dispatches `codebase-explorer`: that gate runs only in Split. When Split ran, read its
 map; when it did not, explore with your own tools.
 
 ## 1. The fan-out notice — before anything else
 
-The fan-out runs by default. Before exploring and before launching, give the operator **one**
-notice and **one** question (`AskUserQuestion`, the run option first). The notice says, plainly:
+The fan-out runs on every intake. Before exploring, print this notice, verbatim, and ask no
+question (no `AskUserQuestion`):
 
-- the fan-out runs by default on every intake;
-- what it does: a sealed writer sets four angles and a pre-mortem; five lenses work them blind,
-  alternating Opus and Fable; every claim faces a refuter from the other family and is dropped
-  unless confirmed; what survives joins the interview as evidence;
-- why: on consumer tickets whose intake decision was later reversed, intake with the pool caught
-  decisions plain intake missed;
-- what it costs: it runs alongside exploration for up to 30 minutes, and questions start when it
-  returns; it uses Fable where the account has it (subscription usage) and Opus where it does not;
-- **on a split:** it runs once, on the parent and the slice list, so its lenses see the seams
-  between slices; every slice's interview takes the items that touch it;
-- what is recorded: the receipt's `## Fan-out` shows what it added over plain intake.
+> The intake fan-out is starting. Five lenses read the code blind, each from a different angle, and one asks why this ticket would fail two weeks after it ships. What they find joins our interview as evidence, and it tends to raise decisions that my own reading missed. It runs for a few minutes while we talk. Type 'skip fan-out' to stop it.
 
-The options are **Run the fan-out (default)** and **Skip it for this ticket** (on a split, "for
-this split"); the operator may add a reason. Ask once: an answer is not reopened in the session, and
-on a split it covers every slice — no slice gets a notice of its own.
+A split's run prints the same text. Then launch the workflow at once (section 2), and only then
+explore (section 3).
 
-- **Skip** → launch nothing, and every receipt this intake writes carries exactly one line in its
-  `## Fan-out`: `Fan-out: skipped — by the operator at the intake notice: <their reason, or "no
-  reason given">`. Only the operator skips the fan-out; the lint refuses a skip that names anyone
-  else.
-- **No `Workflow` tool in this session** → ask nothing; say the fan-out cannot run here, and every
-  receipt records `Fan-out: failed — Workflow tool unavailable in this session`.
+**No `Workflow` tool in this session** → print no notice. Say that the fan-out cannot run here, and
+every receipt records `Fan-out: failed — Workflow tool unavailable in this session`.
+
+### The operator's skip
+
+Any operator message or free-text answer that contains `skip fan-out` is a skip.
+
+- **Before the pool is read** → stop the workflow with `TaskStop` and read nothing from it. Lenses
+  already in flight may finish; their output is not read. Every receipt this intake writes carries
+  exactly one line in its `## Fan-out`: `Fan-out: skipped — by the operator, during the run: <their
+  reason, or "no reason given">`. Only the operator skips the fan-out; the lint refuses a skip that
+  names anyone else.
+- **After the pool is read** → there is nothing to stop. Say so. The fan-out stays recorded as run.
 
 ### After a return from the Interview
 
 When the Interview sent the ticket back to Split and Split created slices (`interview.md`, "Back to
 Split"), Explore runs once more, for the split: **one** fan-out, after the split decision, on the
-parent plus the slice list. That run is the split's fan-out; the earlier one covered only the
-unsplit ticket.
+parent plus the slice list. That run is the split's fan-out.
 
-- **The operator skipped at the first notice** → the skip stands for the split; ask nothing again,
-  and every slice receipt carries the same skip line.
-- **The first run went ahead** → give the split's notice, once, as above, saying that it is a
-  second run (its cost again) and that the first one's lenses never saw the seams. On a skip, the
-  slice receipts carry the skip line with the operator's reason.
+- **The first run is still unread** → stop it with `TaskStop` and discard it. The split's run
+  supersedes it.
+- **The operator skipped the first run** → the skip stands for the split. Print no notice, launch
+  nothing, and every slice receipt carries the same skip line.
+- **Otherwise** → print the notice again and launch the split's run. Its lenses see the seams that
+  the first run's lenses never saw.
 
 Pool items the first run already settled as rows stay settled. Each slice receipt's `Run:` line
 names the earlier run as superseded (`receipt.md`, "Fan-out").
@@ -69,15 +65,15 @@ Launch it **in the background** with `Workflow({ scriptPath, args })`, args
   seams.
 - `knowledgeSource` — the knowledge source's answer from Requirements, as the receipt will carry
   it (the `Provider:` line and the indented answer); omit it when the outcome was `none declared`
-  or `failed`. Only the lens writer reads it, to make its jobs concrete: the lenses and refuters
-  never see it and check their claims against the code, so the pool stays independent of it.
+  or `failed`. Only the lens writer reads it, to make its jobs concrete: the lenses never see it
+  and check their claims against the code, so the pool stays independent of it.
 - `protocol` — the absolute paths of the intake `SKILL.md`, `interview.md` (this directory) and
   `interviewing-baseline/SKILL.md`. Every agent works under them.
 - `checkouts` — every other repo the change meets that has a local checkout (the frontend that calls
   this backend, a client, a sibling service), each `{ path, role }`, `role` saying what it is. Find
-  them from the ticket and the repo's docs before launching: one of the measured run's two catches
-  came from reading the consumer's checkout. A consumer with no reachable checkout goes in the
-  receipt as `Checkouts: <repo> not available`.
+  them from the ticket and the repo's docs: one of the measured run's two catches came from reading
+  the consumer's checkout. A consumer with no reachable checkout goes in the receipt as
+  `Checkouts: <repo> not available`.
 - `config` — only `reviewers.modelOverrides` and `reviewers.tierMap`.
 
 The notice was the announcement; say nothing more at launch. The script stops waiting after 30
@@ -93,19 +89,38 @@ wherever something can be run (a grep count, `ls`, `git cat-file`, a tool's `--h
 command and its decisive output: a `file:line` you read is a pointer, not verification
 (`interviewing-baseline`, "Evidence").
 
-## 4. Snapshot, then the pool
+## 4. Snapshot, then the interview, then the pool
 
-When exploring is done, write your register as it stands to
-`.claude/pipeline-state/<issue>-snapshot.md` (on a split, under the parent's number). That is what
-plain intake would have gone in with. It is internal: never shown to the operator as a draft (P8),
-reaching the record only inside the receipt's `## Fan-out`, and never read by the scheduler — it is
-the one file a stop before the receipt may leave behind.
+When exploring is done, write the snapshot to `.claude/pipeline-state/<issue>-snapshot.md` (on a
+split, under the parent's number). It holds your decision register as it stands, and the facts you
+hold from the ticket body, the code and the spec-reviewer findings. It holds nothing from the pool,
+and you write it before you read the pool. That is what plain intake would have gone in with. It is
+internal: never shown to the operator as a draft (P8), reaching the record only inside the
+receipt's `## Fan-out`, and never read by the scheduler — it is the one file a stop before the
+receipt may leave behind.
 
-Only then read the fan-out's result, waiting for its completion notice if it is still running. No
-question goes to the operator before the pool is in.
+Once the snapshot is written, start the Interview (`interview.md`) on what the snapshot supports. Do
+not wait for the workflow. When you run out of questions before the pool arrives, wait for the
+workflow's completion notice, or its failed or ceiling form. That is the only wait, and the
+30-minute ceiling bounds it.
 
-Consume the pool like your own findings: verify what you need from each item's pointer. An item
-becomes a register row, an option, a probed fact or a question **only if it passes the Interview's
+When the workflow completes, read the pool and tag each item against the snapshot
+(`interviewing-baseline`, "Fan-out"). Every item arrives `unverified`: nothing checked it inside the
+workflow.
+
+- **Check before use.** Before an item becomes a row, an option or a question, check it from its
+  pointer: open the file, run the command. The row carries the check in an existing evidence form
+  (``run: `<command>` → <output>`` or `cited (…)`) and `From: F-n` in its Resolution, after the
+  evidence (several ids comma-separated). An item whose check fails is tagged `not material`, with
+  the disposition `not used — did not hold: <what the check showed>`, and becomes nothing else.
+- **An item about a question you already asked** before you read the pool is tagged `already-had`.
+  Its disposition reads `already had — D-n` and needs no `From:` link.
+- **An item that contradicts an answer already given** goes back to the operator once
+  (`interview.md`, "A late finding").
+- **An item that contradicts a fact row you wrote after the snapshot** is tagged `new`. Correct the
+  row in place. The row gains the `From:` link, and the disposition reads `became D-n`.
+
+An item becomes a row, an option, a probed fact or a question **only if it passes the Interview's
 materiality bar**. Pool evidence may overturn a snapshot claim it contradicts. A `failed` or
 `partial` result is said in the receipt's `## Fan-out`, never dropped.
 

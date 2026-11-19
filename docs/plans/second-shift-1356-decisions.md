@@ -42,6 +42,8 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-24 | Criteria that no test can prove | AC-4, AC-5 to AC-10, AC-16 and AC-17 are exempt from a test. The review still scores each one against the diff. | user-answered | intent |
 | D-26 | Record of a finding that contradicts an answer | The item is tagged `already-had`. When the second answer changes the row, its disposition reads `became D-n` and the row gains `From: F-n`. The tag keeps it out of `rows added`. | user-delegated | intent |
 | D-25 | Findings set aside as not material | No new rule in this ticket. Parked under OR-1. Owner: the operator, at PM-1, after about ten consumer intakes on the new form. | deferred | open |
+| D-27 | A v5 Tally line the lint cannot read | The lint refuses a v5 `Tally:` line that lacks one of its three counts. It also refuses a `questions added` list entry that is not a `D-n` id, or that is listed twice. Added in build: a count the lint cannot read is a count it cannot check. | user-delegated | intent |
+| D-28 | A failed lens in the workflow result | A lens that fails after its retry has `model: null` and `claims: 0`. Added in build: the `Lenses:` line writes it as `<key> failed`, so no model is shown for it. | user-delegated | intent |
 
 Options weighed:
 

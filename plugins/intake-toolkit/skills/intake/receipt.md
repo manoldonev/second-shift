@@ -78,7 +78,7 @@ highest version the lint knows (`ledger-lint.sh --receipt-version`).
 ```
 # Decision record — #<issue> <title>
 
-Receipt: v4
+Receipt: v5
 
 ## Summary
 
@@ -176,9 +176,11 @@ The interview resolved 2 gaps."
   screen and state the ticket renders, with the frame id, and agree each row's `must-show` now (the
   element that proves the right state rendered — the empty-state copy on an empty row, not the page
   title every state shares). A ticket that renders nothing disarms with `Design: none — <reason>`.
-- **Fan-out** — the tagged pool, tally, refuter, `Lenses:` line and the snapshot indented four
+- **Fan-out** — the `Lenses:` line, the tally, the tagged pool and the snapshot indented four
   spaces (`interviewing-baseline`, "Fan-out"), or exactly one skipped or failed line. The skip form
-  is the operator's: `Fan-out: skipped — by the operator …`. **On a slice:** list only the items
+  is the operator's: `Fan-out: skipped — by the operator, during the run: <reason>`. Each row that
+  came from a finding carries `From: F-n`, and the tally counts what the rows show: the lint checks
+  both. **On a slice:** list only the items
   Explore sorted to this slice, add a `Run:` line naming the shared run
   (`Run: shared with the #<parent> split — slices #a, #b, #c`), and embed the shared snapshot. When
   the ticket came back to Split from the Interview, the `Run:` line also names the pre-split run

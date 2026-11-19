@@ -1,11 +1,10 @@
 export const meta = {
   name: 'review-toolkit-intake-fanout',
   description:
-    'Intake fan-out for the Explore stage of /intake-toolkit:intake: a sealed lens writer, four angles and a pre-mortem working blind across two model families, and a refuter per claim from the family that did not make it. Returns the evidence pool that survived refutation.',
+    'Intake fan-out for the Explore stage of /intake-toolkit:intake: a sealed lens writer, then four angles and a pre-mortem working blind. Returns every claim the lenses made, each unverified, for the interviewer to check from its pointer.',
   phases: [
     { title: 'Lenses', detail: 'intake-lens-writer writes the five jobs' },
-    { title: 'Widen', detail: 'four angles and a pre-mortem, blind, families alternating' },
-    { title: 'Refute', detail: 'one intake-refuter per claim, the other family, refuted by default' },
+    { title: 'Widen', detail: 'four angles and a pre-mortem, blind' },
   ],
 }
 
@@ -20,28 +19,20 @@ const DEFAULT_TIER_MAP = {
 }
 
 // {agentType: tier}. Lockstep with each agent's frontmatter `model:` via check-model-tiers.sh.
-// These are the agents' own defaults; the lens and refuter tiers a run actually uses are chosen
-// per lens below. config.reviewers.modelOverrides (bare-keyed) wins over both.
+// config.reviewers.modelOverrides (bare-keyed) wins over it.
 const FANOUT_MODEL = {
   'review-toolkit:intake-lens-writer': 'reasoning',
   'review-toolkit:intake-lens': 'reasoning',
-  'review-toolkit:intake-refuter': 'cross',
 }
-
-// The arm the consumer replay measured: the four angles alternate the two model families,
-// the pre-mortem runs on the second family, and every claim is refuted by the family that did
-// not make it. Mixing families is the variable under test (build rule 2), so it ships as measured.
-const ANGLE_TIERS = ['reasoning', 'cross', 'reasoning', 'cross']
-const PREMORTEM_TIER = 'cross'
 
 const bare = (t) => (String(t).includes(':') ? String(t).split(':').pop() : String(t))
 
-// The build rules, as the measured lens writer read them. Given to the lens writer verbatim.
+// The build rules every lens works under. Given to the lens writer verbatim.
 const BUILD_RULES = [
   "Independence. Each agent works blind to the others' conclusions. No shared \"war room\" context; it reproduces the self-agreement the lane's never-resume-a-review rule exists to prevent.",
-  'Diversity of angle, then of model. Each agent gets a different job or framing, never the same prompt N times. Mixing models (for example Opus with Fable) is a variable under test, not an assumption.',
+  'Diversity of angle. Each agent gets a different job or framing, never the same prompt N times.',
   'Evidence is the only thing passed between agents. A probe result, a repro, a cited line or commit. Never an opinion or a vote. Anything that travels without its evidence is dropped.',
-  "Refute, don't confirm. Every surviving claim faces a verifier told to break it, with refuted as the default when it cannot confirm.",
+  "Check, don't trust. The interviewer checks each claim from its pointer before it uses it.",
   'Keep by evidence, not consensus. A claim stays because it was measured or reproduced. One reproduced finding outweighs any number of agreeing agents, and two agents that disagree are settled by running the thing.',
 ].map((r, i) => `${i + 1}. ${r}`).join('\n')
 
@@ -50,8 +41,8 @@ const BUILD_RULES = [
 //   issueBody  — the full ticket text (lenses never re-fetch it); on a split, the parent's body
 //                plus its slice list, so the lenses see the seams
 //   knowledgeSource — optional: the consumer's knowledge provider's answer, as the receipt carries
-//                it. Threaded into the lens writer's prompt ONLY: the lenses and refuters
-//                stay blind to it and check their claims against the code.
+//                it. Threaded into the lens writer's prompt ONLY: the lenses stay blind to it and
+//                check their claims against the code.
 //   readRoot   — optional ABSOLUTE path of the checkout the ticket targets
 //   checkouts  — optional [{ path, role }]: ABSOLUTE paths of other repos the change meets (a
 //                frontend that calls this backend, a client, a sibling service), with what each is
@@ -70,26 +61,16 @@ const tierMap = { ...DEFAULT_TIER_MAP, ...((config && config.reviewers && config
 const resolve = (tier) => tierMap[tier] || tier
 const WRITER = 'review-toolkit:intake-lens-writer'
 const LENS = 'review-toolkit:intake-lens'
-const REFUTER = 'review-toolkit:intake-refuter'
-const writerModel = resolve(modelOverrides[bare(WRITER)] || FANOUT_MODEL[WRITER])
-const lensOverride = modelOverrides[bare(LENS)] ? resolve(modelOverrides[bare(LENS)]) : null
-const refuterOverride = modelOverrides[bare(REFUTER)] ? resolve(modelOverrides[bare(REFUTER)]) : null
-const FIRST = resolve('reasoning')
-const SECOND = resolve('cross')
-const twoFamilies = FIRST !== SECOND
-const other = (m) => (!twoFamilies ? m : m === SECOND ? FIRST : SECOND)
+const modelOf = (agentType) => resolve(modelOverrides[bare(agentType)] || FANOUT_MODEL[agentType])
+const writerModel = modelOf(WRITER)
+const lensModel = modelOf(LENS)
+// Every retry runs here, so an override naming a model the account cannot reach still gets one
+// attempt on a model it can.
+const RETRY_MODEL = resolve('reasoning')
 const events = []
 
-// The second family may be out of this account's reach. It is declared down after two failed
-// dispatches with no success, never on one (a single dead agent is not an access problem), and
-// from then on every dispatch meant for it runs on the first family instead.
-let secondOk = false
-let secondFails = 0
-const secondDown = () => !secondOk && secondFails >= 2
-const live = (m) => (twoFamilies && m === SECOND && secondDown() ? FIRST : m)
-
 const ceilingMin = Math.round(ceilingMs / 60000)
-const failed = (reason) => ({ issue, status: 'failed', reason, refuter: null, lenses: [], pool: [], events })
+const failed = (reason) => ({ issue, status: 'failed', reason, lenses: [], pool: [], events })
 
 if (typeof budget !== 'undefined' && budget && budget.total && budget.remaining() <= 0) {
   log('budget exhausted — skipping the intake fan-out')
@@ -127,67 +108,31 @@ const isStr = (v) => typeof v === 'string' && v.trim().length > 0
 const validWriter = (r) =>
   r && Array.isArray(r.angles) && r.angles.length >= 4 && r.angles.slice(0, 4).every((x) => x && isStr(x.key) && isStr(x.job)) && isStr(r.premortem)
 const validLens = (r) => r && Array.isArray(r.claims) && r.claims.every((c) => c && isStr(c.claim) && isStr(c.pointer) && isStr(c.observed))
-const validVerdict = (r) => r && typeof r.refuted === 'boolean'
 
 // One dispatch: resolves to the agent's text, or null when the dispatch threw or came back
 // empty (a dead agent, a safeguard block, a model the account cannot reach).
 const tryAgent = async (prompt, opts) => {
-  let t = null
   try {
-    t = await agent(prompt, opts)
-    t = t == null || t === '' ? null : t
+    const t = await agent(prompt, opts)
+    return t == null || t === '' ? null : t
   } catch (err) {
     events.push(`${opts.label}: dispatch failed (${String(err).slice(0, 160)})`)
+    return null
   }
-  if (twoFamilies && opts.model === SECOND) {
-    if (t != null) secondOk = true
-    else if (!secondOk && ++secondFails === 2) {
-      events.push(`'${SECOND}' could not be dispatched twice; the rest of this run uses '${FIRST}' in its place`)
-    }
-  }
-  return t
 }
 
-// Dispatch with ONE retry: a dead or unparseable first attempt is retried once on
-// `retryModel` (the other family when the run has one, else the same model). Each attempt picks
-// its model when it runs, so one the run has since found unreachable is skipped. A retry that
-// could not be dispatched at all (no access, dead) is not that retry: one more
-// attempt follows, on the first attempt's model or, when that is the unreachable one, the other.
-const dispatch = async (prompt, valid, opts, retryModel) => {
-  const plan = [opts.model, retryModel]
-  let first = null
+// Dispatch with ONE retry, on RETRY_MODEL, when the first attempt is dead or unparseable.
+const dispatch = async (prompt, valid, opts) => {
+  const plan = [opts.model, RETRY_MODEL]
   for (let attempt = 0; attempt < plan.length; attempt++) {
-    const model = live(plan[attempt])
-    if (attempt === 0) first = model
-    const label = attempt === 0 ? opts.label : `${opts.label} (retry${attempt > 1 ? ', same tier' : ''})`
+    const model = plan[attempt]
+    const label = attempt === 0 ? opts.label : `${opts.label} (retry)`
     const text = await tryAgent(prompt, { ...opts, model, label })
     const parsed = parseReviewResult(text)
     if (parsed && valid(parsed)) return { result: parsed, model }
     if (text != null) events.push(`${label}: no parseable REVIEW_RESULT block`)
-    if (text == null && attempt === 1) {
-      const fallback = model !== first ? first : live(model) !== model ? live(model) : null
-      if (fallback) plan.push(fallback)
-    }
   }
   return { result: null, model: null }
-}
-
-// One refuter per claim, from the family that did not make it (`madeBy` is the model the lens
-// actually ran on, retries included). It keeps that family on its retry, because a same-family
-// retry is the check the measured arm never ran; only an unreachable family falls back.
-const refuteOne = async (c, lensKey, madeBy, i) => {
-  const prompt =
-    `Refute this claim made during a cold intake of the ticket below. Default to refuted=true unless ` +
-    `you confirm it by opening the cited file, re-running the cited command, or reading the cited doc. ` +
-    `A reasoning-only claim is refuted unless you can ground it yourself (say what grounded it).\n\n${ground}\n\n${ticketBlock}\n` +
-    `Claim (${c.kind || 'claim'}): ${c.claim}\nPointer: ${c.pointer}\nObserved: ${c.observed}\n` +
-    `Measured under: ${c.measured_under || 'not stated'}`
-  const model = refuterOverride || other(madeBy)
-  const v = await dispatch(prompt, validVerdict, { agentType: REFUTER, model, label: `refute:${lensKey}#${i + 1}`, phase: 'Refute' }, model)
-  return {
-    refuted: v.result ? v.result.refuted : true,
-    family: v.model == null ? null : v.model === madeBy ? 'same' : 'cross',
-  }
 }
 
 // --- the run ---
@@ -202,69 +147,43 @@ const run = async () => {
     `Tell the lens what to read or probe, never what it will find.\n\n${ground}\n\n${ticketBlock}\n` +
     knowledgeBlock +
     `The build rules every lens works under:\n${BUILD_RULES}\n`
-  const w = await dispatch(writerPrompt, validWriter, { agentType: WRITER, model: writerModel, label: 'lens-writer', phase: 'Lenses' }, other(writerModel))
+  const w = await dispatch(writerPrompt, validWriter, { agentType: WRITER, model: writerModel, label: 'lens-writer', phase: 'Lenses' })
   if (!w.result) return failed('the lens writer produced no usable jobs after one retry')
 
+  phase('Widen')
   const lenses = [
-    ...w.result.angles.slice(0, 4).map((x, i) => ({ key: x.key, job: x.job, model: lensOverride || resolve(ANGLE_TIERS[i]) })),
-    { key: 'premortem', job: w.result.premortem, model: lensOverride || resolve(PREMORTEM_TIER) },
+    ...w.result.angles.slice(0, 4).map((x) => ({ key: x.key, job: x.job })),
+    { key: 'premortem', job: w.result.premortem },
   ]
-  const results = await pipeline(
-    lenses,
-    async (l) => {
+  const results = await parallel(
+    lenses.map((l) => async () => {
       const prompt =
         `You are one lens in a fan-out that runs BEFORE the intake interview on this ticket. Your job: ${l.job}\n` +
-        `Return claims, each with evidence. A reasoning-only claim is dropped unless a refuter can ground it. Max 6 claims.\n\n${ground}\n\n${ticketBlock}`
-      const r = await dispatch(prompt, validLens, { agentType: LENS, model: l.model, label: `lens:${l.key}`, phase: 'Widen' }, lensOverride ? l.model : other(l.model))
-      return { l, r }
-    },
-    async ({ l, r }) => {
-      if (!r.result) return { key: l.key, model: null, status: 'failed', claims: 0, survived: [], sameFamily: 0 }
-      const claims = r.result.claims.slice(0, 6)
-      const verdicts = await parallel(claims.map((c, i) => () => refuteOne(c, l.key, r.model, i)))
-      const survived = claims
-        .filter((c, i) => verdicts[i] && verdicts[i].refuted === false)
-        .map((c) => ({
-          claim: c.claim,
-          pointer: c.pointer,
-          observed: c.observed,
-          angle: l.key,
-          kind: c.kind || 'probed-fact',
-          measured_under: c.measured_under || '',
-          status: 'unrefuted',
-        }))
-      const sameFamily = verdicts.filter((v) => v && v.family === 'same').length
-      log(`${l.key} (${r.model}): ${survived.length}/${claims.length} survive`)
-      return { key: l.key, model: r.model, status: 'ok', claims: claims.length, survived, sameFamily }
-    },
+        `Return claims, each with evidence. Every claim needs a pointer the interviewer can open or run. Max 6 claims.\n\n${ground}\n\n${ticketBlock}`
+      const r = await dispatch(prompt, validLens, { agentType: LENS, model: lensModel, label: `lens:${l.key}`, phase: 'Widen' })
+      if (!r.result) return { key: l.key, model: null, status: 'failed', claims: [] }
+      const claims = r.result.claims.slice(0, 6).map((c) => ({
+        claim: c.claim,
+        pointer: c.pointer,
+        observed: c.observed,
+        angle: l.key,
+        kind: c.kind || 'probed-fact',
+        measured_under: c.measured_under || '',
+        status: 'unverified',
+      }))
+      log(`${l.key} (${r.model}): ${claims.length} claims`)
+      return { key: l.key, model: r.model, status: 'ok', claims }
+    }),
   )
   const ran = results.filter((x) => x && x.status === 'ok')
-  const pool = ran.flatMap((x) => x.survived)
-  const lensSummary = results.map((x) => ({
-    key: x.key,
-    model: x.model,
-    status: x.status,
-    claims: x.claims,
-    survived: x.survived.length,
-    refuter: x.status !== 'ok' ? null : x.sameFamily ? 'same-family' : 'cross',
-  }))
+  const lensSummary = results.map((x) => ({ key: x.key, model: x.model, status: x.status, claims: x.claims.length }))
   if (ran.length === 0) return { ...failed('every lens failed after one retry'), lenses: lensSummary }
-  const sameKeys = ran.filter((x) => x.sameFamily).map((x) => x.key)
-  const unavailable = secondDown() ? ` (${SECOND} unavailable)` : ''
-  const refuter = !twoFamilies
-    ? 'same-family (configured)'
-    : sameKeys.length === 0
-      ? `cross (${FIRST}/${SECOND} alternating)`
-      : sameKeys.length === ran.length
-        ? `same-family${unavailable}`
-        : `same-family for ${sameKeys.join(', ')}${unavailable}; cross for the rest`
   return {
     issue,
     status: ran.length === lenses.length ? 'complete' : 'partial',
     reason: ran.length === lenses.length ? '' : `${lenses.length - ran.length} of ${lenses.length} lenses failed after one retry`,
-    refuter,
     lenses: lensSummary,
-    pool,
+    pool: ran.flatMap((x) => x.claims),
     events,
   }
 }
