@@ -37,10 +37,15 @@ is a file another session reads, and no stage hands control to another skill and
 > `tracker.type: jira` it is a **JIRA key** read with the Atlassian MCP's `getJiraIssue`, never
 > `gh issue view`. Do not assume one MCP namespace: the tool is `mcp__atlassian__getJiraIssue`,
 > `mcp__plugin_atlassian_atlassian__getJiraIssue` or `mcp__claude_ai_Atlassian_Rovo__getJiraIssue`
-> depending on how the session registered it (`ToolSearch` to discover a deferred tool). The
+> depending on how the session registered it (`ToolSearch` to discover a deferred tool). Those three
+> are the common prefixes, not the only ones: a server registered under another key gets
+> `mcp__<key>__`. So find every Atlassian tool the stage files name by its bare name (`ToolSearch`
+> with `getJiraIssue`, for example), whatever its prefix. The
 > jira adapter has no labels and makes no tracker writes besides the filing the operator says yes
 > to (`requirements.md`, "Filing"); every other write the stage files name is **presented** to the
-> operator instead.
+> operator instead. Requirements also reads the issue's parent ticket and the parent's other
+> children, read-only, as context (`requirements.md`, "The parent ticket, under jira"). Under
+> `tracker.type: github` Requirements reads no parent ticket.
 
 ## When Split runs
 

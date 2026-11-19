@@ -3,7 +3,8 @@
 Read by `/intake-toolkit:intake` only (`SKILL.md` there owns the order). Requirements runs on
 **every** input and ends with four things in hand: a ticket body, the ticket's key, the outcome of
 the one `spec-reviewer` pass this intake makes, and the knowledge source's outcome ("The knowledge
-source" below, its last act). They pass to Split **in memory**.
+source" below, its last act). Under `tracker.type: jira` it also holds the parent ticket's context
+("The parent ticket, under jira" below). They pass to Split **in memory**.
 
 <!-- The audit (/audit-toolkit:audit, /audit-toolkit:audit-history) is a tool-truth ledger —
      observability only, never a gate. Dispatch review-toolkit:spec-reviewer and
@@ -24,7 +25,8 @@ source" below, its last act). They pass to Split **in memory**.
    claims, never whether they are verified.
 
 Read the ticket with `gh issue view <issue> --json title,body,labels,comments` (jira: the
-`getJiraIssue` the skill's tracker delta names). Then take one route:
+`getJiraIssue` the skill's tracker delta names, then the parent read in "The parent ticket, under
+jira" below). Then take one route:
 
 | Input | Route | spec-reviewer |
 | --- | --- | --- |
@@ -152,8 +154,8 @@ the title and the body, and ask **one** question: file it now, or will they file
 
 - **Yes, file it** → file through the session's own tracker tool: on github
   `gh issue create --title <title> --body-file <file in the session scratchpad>`; under
-  `tracker.type: jira`, the Atlassian MCP's create tool (`createJiraIssue`, in whichever of the
-  three namespaces the session exposes) when the session has one. With no create tool, say so and
+  `tracker.type: jira`, the Atlassian MCP's create tool (`createJiraIssue`, found by its bare
+  name whatever its prefix) when the session has one. With no create tool, say so and
   take the other branch.
 - **No, they file it** → wait for the operator to paste the key.
 
@@ -179,6 +181,30 @@ the facts it reads off the handoff enter as `codebase-derived` rows whose eviden
 the handoff. An ambiguity `figma-faithful-spec` resolves with the operator is a `user-answered`
 row. The spec's body then goes through **Filing** above when no ticket exists yet, and the sequence
 continues to Split — the handoff does not leave the sequence.
+
+## The parent ticket, under jira
+
+Under `tracker.type: jira`, read the issue's context as soon as the ticket has a key. An input that
+is a key has one at the start: read the context right after the ticket, before you take a route, so
+a rough-input interview already sees it. A ticket that Filing creates gets its key there: read the
+context right after Filing. Once per intake: on a split it runs on the intake's own ticket, before
+Split.
+
+1. Fetch the issue with `getJiraIssue` and name `parent` in its `fields`. The default field set
+   leaves `parent` out, so a default call always looks parentless.
+2. **A parent** → read the parent with `getJiraIssue` and keep its body. Then list the parent's
+   other children with `searchJiraIssuesUsingJql`, found by its bare name whatever its prefix
+   (`SKILL.md`, "Tracker delta"), with JQL `parent = <parent key>`. Rovo's `search` does not run
+   JQL. Keep each child's key and summary.
+3. **No parent** → nothing to read. Say so in the outcome (below). It is not a failure.
+
+These reads are read-only. Make no tracker write of any kind: no comment, link, edit or
+transition. A read that errors goes into the outcome with the first line of its error, and
+intake continues.
+
+The parent's body and the siblings' summaries are **context**. They rank below the issue's own
+text. Where the two conflict, the issue's text is the recommendation, and the Interview puts the
+conflict to the operator (`interview.md`, "The parent ticket").
 
 ## The knowledge source — Requirements' last act
 
@@ -249,6 +275,9 @@ The receipt's `Requirements:` line names the route and what it did, in short sen
 `the ticket body as written. spec-reviewer: implementable. The interview resolved 2 gaps.`,
 `interviewed (feature). Filed as #N on the operator's yes. spec-reviewer: clean.`,
 `design-faithful-spec on <handoff>.`, `figma-faithful-spec on <handoff>.`
+
+Under jira, add one sentence on the parent: `Read the parent <KEY> and its 3 other children.`, or
+`The issue has no parent.`, or `The parent read failed: <first line of the error>.`
 
 The knowledge source's outcome is not a step line: it is the receipt's own `## Knowledge source`
 section (`receipt.md`).
