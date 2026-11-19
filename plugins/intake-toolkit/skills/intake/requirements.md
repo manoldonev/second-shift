@@ -192,7 +192,8 @@ Split.
 1. Fetch the issue with `getJiraIssue` and name `parent` in its `fields`. The default field set
    leaves `parent` out, so a default call always looks parentless.
 2. **A parent** → read the parent with `getJiraIssue` and keep its body. Then list the parent's
-   other children with the session's Jira search tool (JQL `parent = <parent key>`). Keep each
+   other children with `searchJiraIssuesUsingJql`, in whichever of the three namespaces the
+   session exposes (JQL `parent = <parent key>`). Rovo's `search` does not run JQL. Keep each
    child's key and summary.
 3. **No parent** → nothing to read. Say so in the outcome (below). It is not a failure.
 
