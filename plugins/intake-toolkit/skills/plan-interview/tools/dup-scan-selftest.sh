@@ -401,6 +401,16 @@ grep -q "Never close a ticket on this output" <<< "$OUT" \
   && pass "(ds-ab) the report tells the reader to judge, never to auto-close" \
   || fail "(ds-ab) judgment framing absent — out=$OUT"
 
+# Queueing belongs to the intake receipt's rule, not to the scan. The synthetic corpus,
+# the draft body and the default labels carry no "queue" word, so any one in this rc-10
+# output is the scan's own instruction.
+run "$SYN" "$GH" --title "Importer drops rows when the batch size exceeds the page limit" \
+        --body-file "$FIX/draft-body.md"
+rc=$RC
+[ "$rc" -eq 10 ] && ! grep -qi 'queue' <<< "$OUT" \
+  && pass "(ds-ac) the rc-10 verdicts carry no queue instruction" \
+  || fail "(ds-ac) queue instruction in rc-10 output — rc=$rc out=$OUT"
+
 echo
 echo "[dup-scan-selftest] $PASS passed, $FAIL failed"
 exit "$FAIL"
