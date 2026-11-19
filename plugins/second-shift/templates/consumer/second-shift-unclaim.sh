@@ -54,8 +54,8 @@ case "$ISSUE" in
 esac
 
 # Both are preinstalled on ubuntu-latest. Missing either is a loud failure, never a
-# silent skip: guessing the tracker vocabulary here could write to a tracker that
-# declares it takes no writes.
+# silent skip: guessing the tracker vocabulary here could write github labels on a repo
+# whose tracker is not github.
 for tool in jq gh; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     say "FAIL: $tool is not on PATH — cannot resolve or release the run-state labels"
@@ -83,12 +83,8 @@ cfg() { # cfg <jq-filter> <default>
   echo "$2"
 }
 
-WRITES="$(cfg '.tracker.writes' 'true')"
-if [ "$WRITES" = "false" ]; then
-  say "no-op: tracker.writes is false — this tracker takes no writes"
-  exit 0
-fi
-
+# tracker.writes is not read: on github the scheduler swaps the claim labels whatever it
+# says, so a release gated on it would leave every claimed label stale.
 TRACKER_TYPE="$(cfg '.tracker.type' 'github')"
 if [ "$TRACKER_TYPE" != "github" ]; then
   say "no-op: tracker.type is '$TRACKER_TYPE' — the label roles are github-only vocabulary"
