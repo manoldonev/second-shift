@@ -152,7 +152,8 @@ The interview resolved 2 gaps."
   ``run: `<command>` → <decisive output>``, `cited (convention|adr): <path:line>` or
   `cited (kb): <kb-page>`. Run a command when one can be run. Use `cited (kb)` for a fact from the
   answer of the knowledge source. Escape a `|` in the evidence as `\|`. The evidence does not
-  count toward the 40 words. A row that records your own choice is not `codebase-derived`. Ask
+  count toward the 40 words, and neither do the `Inputs:`, `Outputs:` and `Errors:` sentences of a
+  contract row. A row that records your own choice is not `codebase-derived`. Ask
   the operator.
   Write the alternatives you weighed in an `Options weighed:` list under the table, one bullet per
   row: `- D-n: <option A> or <option B>. <the decider that the Provenance cell names> chose <X>.`
@@ -161,8 +162,12 @@ The interview resolved 2 gaps."
   table, write one short block per `reversible-default-and-flag` region: `OR-n default:` then the
   default, who chose it, and what reversing it costs. Use a list when there is more than one
   default.
-- **Surface Inventory** — every surface `decided (D-n)` or `out-of-scope — <reason>`. Write the
-  Surface cell in at most 10 words. Write an `out-of-scope` reason in one sentence.
+- **Surface Inventory** — every surface `decided (D-n)`, `contract (D-n)` or
+  `out-of-scope — <reason>`. Mark `contract` on each interface that code outside the change calls
+  or parses: an HTTP endpoint, an SDK or library method, an event or message, a CLI or script
+  interface, or output a machine reads. Its cited row states `Inputs:`, `Outputs:` and `Errors:`
+  (`interviewing-baseline`, "The Surface Inventory"). Write the Surface cell in at most 10 words.
+  Write an `out-of-scope` reason in one sentence.
 - **Checks** — start from the repo's verification recipe (its CLAUDE.md, the config's `commands.*`)
   and list only what the configured lanes would miss — the selftest the ticket touches, a script its
   ACs name — one command per line; or the empty form.
@@ -243,7 +248,8 @@ cannot check:
 - **Provenance** — when it refuses an `intent` row's provenance, ask the decision, or reclassify
   the row honestly; never edit the Kind cell to clear the lint.
 - **Surface inventory** — the empty form is for work that renders nothing, not a way to clear the
-  section.
+  section. It is wrong when the change adds an interface that other code calls or parses: that is a
+  `contract` row. The lint checks a contract only where you marked one.
 - **Test intent** — re-read the ticket's AC block: the lint cannot see an id you left off the
   `ACs:` line.
 

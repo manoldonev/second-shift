@@ -55,7 +55,7 @@ The ledger records every decision an interview makes, and who made it. It is a m
 **Rules:**
 
 - IDs are stable `D-1..n` and never reused after retirement (same discipline as `AC-n` IDs).
-- Resolution is never empty. Write it as the answer: the chosen value first, then the reason. Use sentences of max 25 words. Never split one decision into several rows to make the cells shorter. Keep a cell to 40 words when no condition is lost. A cell can be longer only to keep a condition. Put each condition in its own sentence. Evidence does not count toward the 40 words. Write the options you weighed in an `Options weighed:` list under the table, not in the cell.
+- Resolution is never empty. Write it as the answer: the chosen value first, then the reason. Use sentences of max 25 words. Never split one decision into several rows to make the cells shorter. Keep a cell to 40 words when no condition is lost. A cell can be longer only to keep a condition. Put each condition in its own sentence. Evidence, and the `Inputs:`, `Outputs:` and `Errors:` sentences of a contract row, do not count toward the 40 words. Write the options you weighed in an `Options weighed:` list under the table, not in the cell.
 - **Precedence when sources disagree:** a row hydrated from a pre-flight `.claude/pipeline-state/{issue}-ledger.md` wins over a ticket comment covering the same decision. Two comments that conflict, or one that is ambiguous, resolve to `deferred` naming the conflict in the Resolution cell — never to a `ticket-sourced` row that picks a side. The issue's own text ranks above its parent ticket's text. Where they conflict, recommend the issue's text and ask the operator, quoting the parent's sentence; never settle it with a `ticket-sourced` row.
 - **Explicit empty form** for trivial work — the section must still exist, containing exactly this line instead of a table:
 
@@ -128,8 +128,9 @@ does not fix, the name of a new thing — is not `codebase-derived`: ask it, and
 `user-answered` or `user-delegated`. A row that mixes the two gives `run:` evidence for the fact
 behind its choice.
 
-`ledger-lint.sh --receipt` checks these forms only, never that a cited page exists. The in-plan
-ledger is not linted for them.
+`ledger-lint.sh --receipt` checks these forms only, never that a cited page exists. The one
+exception is a row that a `contract` surface cites: there each `cited (convention|adr)` path must
+exist in the repo (see "The Surface Inventory"). The in-plan ledger is not linted for them.
 
 ### Open Regions
 
@@ -178,14 +179,32 @@ independent axis, a mandated `## Surface Inventory` section on the receipt:
 | S-1 | First paint while the list is still loading | decided (D-1) |
 | S-2 | Empty state when the user has imported nothing | decided (D-2) |
 | S-3 | Print stylesheet for the report | out-of-scope — nothing here is printed |
+| S-4 | `POST /imports`, called by the web client | contract (D-4) |
 ```
 
 Enumerate every screen, route, state and artifact a user or operator ends up looking at —
-loading, empty, partial, error, not-found, first paint, the copy on each. Disposition is a
-closed two-value enum: `decided` **must cite the `D-n` that decides it** (an uncited claim
-that a decision exists is the inventory's version of a silent assumption), and
-`out-of-scope` **must carry the reason**. A listed surface that is neither is the gap this
-section exists to count.
+loading, empty, partial, error, not-found, first paint, the copy on each. Enumerate also every
+interface that code outside the change calls or parses: an HTTP endpoint, an SDK or library
+method, an event or message, a CLI or script interface (its args, flags and exit codes), and
+output that a machine reads. Disposition is a closed three-value enum: `decided` **must cite the
+`D-n` that decides it** (an uncited claim that a decision exists is the inventory's version of a
+silent assumption), `contract` marks a caller-facing interface and cites the `D-n` that holds its
+shape, and `out-of-scope` **must carry the reason**. A listed surface that is none of these is the
+gap this section exists to count.
+
+A `contract` surface's shape lives in the cited `D-n` row, never in the `S-n` row, because only
+the D-n rows bind the build. The cited row's Resolution carries three labeled sentences:
+
+```
+| D-4 | Import create request | POST /imports. Inputs: name (string, required), tags (string[], optional). Outputs: 201 with the import id. Errors: 409 on a duplicate name, 422 on a missing name. | user-answered | intent |
+```
+
+Each label may read `none — <reason>`. The lint refuses a contract that cites an `open` row or a
+row without all three labels. It also refuses a `cited (convention|adr)` path in that row that
+does not exist in the repo, relative to its root. So "mirror X" resolves to a file in this repo, or
+the row spells the shape out. A `cited (kb)` pointer is not a repo path and is not checked. A shape
+that a repo convention fixes is a `fact` row with its evidence. A shape that is a choice is an
+`intent` row with a human decider.
 
 What it buys is bounded and worth stating: it cannot tell you the enumeration was complete.
 It turns a surface nobody thought about into a surface nobody *listed* — which a reader and
@@ -196,6 +215,9 @@ Explicit empty form, for work with no user-visible surface at all (a lint, a CI 
 ```
 No user-visible surface — this change renders nothing a user reads.
 ```
+
+The empty form is wrong when the change adds an interface that other code calls or parses: list
+that interface as a `contract` row. The lint cannot see this misuse, so the marking is yours.
 
 ### Checks
 

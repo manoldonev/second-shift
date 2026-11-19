@@ -21,8 +21,8 @@
 #   ACs: AC-1 AC-2        the id list
 #
 # Only the id itself is dropped: an issue number or a second id later in the row or line is still a
-# hit. Two more forms are data only where they belong: `decided (D-1)` in a line that opens such a
-# table row, and an [AC-1] tag in a line that opens a plan task (`- [ ] 1.1 …`). A line that calls ok,
+# hit. Two more forms are data only where they belong: `decided (D-1)` or `contract (D-1)` in a line
+# that opens such a table row, and an [AC-1] tag in a line that opens a plan task (`- [ ] 1.1 …`). A line that calls ok,
 # bad, pass or fail with a string is a test title and is read whole, so an id in a title is a hit
 # whatever its shape.
 #
@@ -94,7 +94,7 @@ hits() {
         gsub(/(^|["\047]|\\n)[ \t]*(- AC-[0-9]+|AC-[0-9]+:)/, " ", t)
         gsub(/(^|["\047]|\\n)[ \t]*\^?ACs:([ \t]+AC-[0-9]+)+/, " ", t)
         if (task) gsub(/\[AC-[0-9]+\]/, " ", t)
-        if (row) gsub(/decided[ \t]*\(D-[0-9]+\)/, " ", t)
+        if (row) gsub(/(decided|contract)[ \t]*\(D-[0-9]+\)/, " ", t)
       }
       if (t ~ hit) { if (list) print FILENAME ":" FNR ":" $0; else n++ }
     }

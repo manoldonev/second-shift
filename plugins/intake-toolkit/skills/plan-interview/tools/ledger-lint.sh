@@ -48,8 +48,12 @@
 # sibling of `## Open Regions`. The register a ledger records is whatever the
 # interview chose to admit, so "the register is empty" is an exit criterion the
 # interview grades itself against. The inventory is the other side: an
-# enumeration of the surfaces and states the work implies, each one either
-# `decided` (citing the D-n that decides it) or `out-of-scope` (with a reason).
+# enumeration of the surfaces and states the work implies, each one `decided`
+# (citing the D-n that decides it), `contract` (the same citation, for an interface
+# that code outside the change calls or parses) or `out-of-scope` (with a reason).
+# A contract's cited row must not be `open`, must carry an `Inputs:`, an `Outputs:` and
+# an `Errors:` sentence, and each `cited (convention|adr)` path in it must exist in the
+# repo the receipt sits in (its main checkout, found through the git common dir).
 # It cannot tell you the enumeration was complete — but it turns a surface
 # nobody thought about into a surface nobody LISTED, which is a thing a reader
 # and a script can both see.
@@ -183,7 +187,8 @@ FACT_PROVENANCE='codebase-derived|ticket-sourced'
 DISPOSITION_ENUM='pause-and-ask|reversible-default-and-flag'
 OPEN_EMPTY_FORM='No open regions. Every decision in scope is settled.'
 OPEN_EMPTY_FORM_OLD='No open regions — every decision in scope is ratified.'   # older records carry it; still accepted
-SURFACE_DISPOSITION_ENUM='decided|out-of-scope'
+SURFACE_DISPOSITION_ENUM='decided|contract|out-of-scope'
+CONTRACT_LABELS='Inputs Outputs Errors'
 SURFACE_EMPTY_FORM='No user-visible surface — this change renders nothing a user reads.'
 CHECKS_EMPTY_FORM='No ticket-specific checks. The configured checks cover this change.'
 CHECKS_EMPTY_FORM_OLD='No ticket-specific checks — the configured lanes cover this change.'   # older records carry it; still accepted
@@ -304,6 +309,8 @@ fi
 # ---- Check 2/3: rows or explicit empty form ----------------------------------
 ROW_COUNT=0
 declare -a ROW_IDS=()
+declare -a ROW_RESOLUTIONS=()
+declare -a ROW_KINDS=()
 declare -a OPEN_CITATIONS=()
 
 # An N-column row splits into N+1 cells: the leading empty before the first pipe,
@@ -349,6 +356,10 @@ while IFS= read -r line; do
   resolution="$(trim "${cells[3]}")"
   provenance="$(trim "${cells[4]}")"
   ROW_IDS+=("$id")
+  ROW_RESOLUTIONS+=("$resolution")
+  row_kind=""
+  if (( RECEIPT == 1 )); then row_kind="$(trim "${cells[5]}")"; fi
+  ROW_KINDS+=("$row_kind")
   ROW_COUNT=$((ROW_COUNT + 1))
   [[ -n "$decision" ]] || violate "$id row has an empty Decision cell"
   [[ -n "$resolution" ]] || violate "$id row has an empty Resolution cell"
@@ -522,6 +533,7 @@ if (( RECEIPT == 1 )); then
   # that leaves a listed surface unaccounted for.
   declare -a SURFACE_IDS=()
   declare -a SURFACE_CITATIONS=()
+  declare -a CONTRACT_CITATIONS=()
   if ! grep -qiE '^(#{1,6}[[:space:]]+|\*\*)[[:space:]]*surface inventory' "$PLAN" && mandated 'Surface Inventory'; then
     violate "missing mandated receipt section: Surface Inventory (enumerate the surfaces and states this work implies — each one 'decided (D-n)' or 'out-of-scope — <reason>' — or state the explicit empty form '$SURFACE_EMPTY_FORM')"
   fi
@@ -551,15 +563,16 @@ if (( RECEIPT == 1 )); then
       s_token="${BASH_REMATCH[1]}"
     fi
     case "$s_token" in
-      decided)
+      decided|contract)
         # An uncited `decided` is the inventory's version of a silent assumption:
         # it claims a decision exists without naming one, so nothing downstream
         # can check that it does.
         d_ref="$(printf '%s' "$s_disp" | grep -oE 'D-[0-9]+' | head -n1 || true)"
         if [[ -z "$d_ref" ]]; then
-          violate "$s_id row: disposition 'decided' must cite the ledger row that decides it (a D-n id)"
+          violate "$s_id row: disposition '$s_token' must cite the ledger row that decides it (a D-n id)"
         else
           SURFACE_CITATIONS+=("$s_id $d_ref")
+          [[ "$s_token" == decided ]] || CONTRACT_CITATIONS+=("$s_id $d_ref")
         fi
         ;;
       out-of-scope)
@@ -604,6 +617,55 @@ if (( RECEIPT == 1 )); then
       if (( found == 0 )); then
         violate "$cited_row row cites decision '$cited_decision', which the Decision Ledger does not declare"
       fi
+    done
+  fi
+
+  # A `contract` surface is one that code outside the change calls or parses. Only D-n rows bind
+  # the build, so the cited row carries the shape: a parked row decides none, and a convention
+  # pointer the repo does not hold is one the build cannot read. `cited (kb)` names a page, not
+  # a repo path, so it is not resolved.
+  CT_ROOT=""
+  CT_ROOT_READ=0
+  if (( ${#CONTRACT_CITATIONS[@]} > 0 )); then
+    for citation in "${CONTRACT_CITATIONS[@]}"; do
+      cited_row="${citation%% *}"
+      cited_decision="${citation##* }"
+      idx=-1
+      for i in "${!ROW_IDS[@]}"; do
+        if [[ "${ROW_IDS[$i]}" == "$cited_decision" ]]; then idx=$i; break; fi
+      done
+      (( idx >= 0 )) || continue
+      if [[ "${ROW_KINDS[$idx]}" == open ]]; then
+        violate "$cited_row row: contract surface cites $cited_decision, an open row — a caller-facing shape is decided at intake, so decide it and cite the row that does"
+        continue
+      fi
+      ct_res="${ROW_RESOLUTIONS[$idx]}"
+      for label in $CONTRACT_LABELS; do
+        [[ "$ct_res" =~ (^|[^A-Za-z0-9_])${label}:[[:space:]]*[^[:space:]] ]] || \
+          violate "$cited_row row: contract surface cites $cited_decision, whose Resolution has no '$label:' sentence — state the shape as 'Inputs: …', 'Outputs: …' and 'Errors: …', each of them 'none — <reason>' when there is none"
+      done
+      while IFS= read -r ref; do
+        [[ -n "$ref" ]] || continue
+        path="$(trim "${ref#*):}")"
+        path="${path//\`/}"
+        while [[ "$path" =~ [.,\;\)]$ ]]; do path="${path%?}"; done
+        [[ "$path" =~ ^(.*):[0-9]+(-[0-9]+)?$ ]] && path="${BASH_REMATCH[1]}"
+        if [[ "$path" == /* || "/$path/" == *"/../"* ]]; then
+          violate "$cited_row row: contract surface cites $cited_decision, whose evidence names a path outside this repo: $path — cite a file in this repo, relative to its root, or spell the shape out"
+          continue
+        fi
+        if (( CT_ROOT_READ == 0 )); then
+          CT_ROOT_READ=1
+          if common="$(git -C "$(dirname "$PLAN")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
+            CT_ROOT="$(dirname "$common")"
+          fi
+        fi
+        if [[ -z "$CT_ROOT" ]]; then
+          violate "$cited_row row: contract surface cites $cited_decision, whose evidence names $path, and the receipt is not in a git checkout — the path is checked against the repo the receipt sits in"
+        elif [[ ! -e "$CT_ROOT/$path" ]]; then
+          violate "$cited_row row: contract surface cites $cited_decision, whose evidence names a path this repo does not have: $path — fix the pointer, or spell the shape out"
+        fi
+      done < <(grep -oiE "${EVIDENCE_EDGE}cited[[:space:]]*\\((convention|adr)\\):[[:space:]]*[^[:space:]]+" <<< "$ct_res" || true)
     done
   fi
 

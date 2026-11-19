@@ -532,6 +532,101 @@ err=$(bash "$LINT" --receipt "$TMP/surface-dupe.md" 2>&1 >/dev/null || true)
   && pass "(ll-ar) duplicated S-n → 1, named" \
   || fail "(ll-ar) duplicate surface rows — rc=$rc err=$err"
 
+echo "[ledger-lint-selftest] receipt mode: a contract surface states its shape"
+
+# The lint resolves a contract row's cited paths against the repo root it finds from the
+# receipt's own directory, so these receipts sit in a real git checkout.
+CT_REPO="$TMP/ct-repo"
+mkdir -p "$CT_REPO/.claude/pipeline-state" "$CT_REPO/docs" "$TMP/ct-nogit"
+git init -q "$CT_REPO"
+printf '# API conventions\n\nRoutes are kebab-case.\n' > "$CT_REPO/docs/api-conventions.md"
+printf 'outside the repo\n' > "$TMP/outside.md"
+CT_SHAPE='Inputs: name (required), tags (optional). Outputs: the created import id. Errors: 409 on a duplicate name.'
+ct_lint() { # ct_lint <ledger-rows> <surface-rows> [open-rows] [receipt-dir] — sets rc, err
+  local dir="${4:-$CT_REPO/.claude/pipeline-state}"
+  printf '%s\n' "$1" > "$TMP/ct-rows.md"
+  receipt_with "$TMP/ct-rows.md" "${3:-$OPEN_EMPTY}" "$2" > "$dir/ct.md"
+  rc=$(lint_rc --receipt "$dir/ct.md")
+  err=$(bash "$LINT" --receipt "$dir/ct.md" 2>&1 >/dev/null || true)
+}
+ct_ok() { # ct_ok <label> <ledger-rows> <surface-rows>
+  ct_lint "$2" "$3"
+  [[ "$rc" -eq 0 ]] \
+    && pass "(ll-ct) $1 → 0" \
+    || fail "(ll-ct) $1 — rc=$rc err=$err"
+}
+ct_bad() { # ct_bad <label> <ledger-rows> <surface-rows> <expected stderr fragment> [open-rows] [receipt-dir]
+  ct_lint "$2" "$3" "${5:-}" "${6:-}"
+  [[ "$rc" -eq 1 ]] && grep -qF "$4" <<< "$err" \
+    && pass "(ll-ct) $1 → 1, named" \
+    || fail "(ll-ct) $1 — rc=$rc err=$err"
+}
+
+ct_ok 'a contract row citing an intent row with all three labels' \
+  "| D-1 | Import create request | POST /imports. $CT_SHAPE | user-answered | intent |" \
+  '| S-1 | Import create endpoint | contract (D-1) |'
+ct_ok 'a contract row citing a fact row whose convention path exists' \
+  "| D-1 | Import route shape | kebab-case. $CT_SHAPE cited (convention): docs/api-conventions.md:3 | codebase-derived | fact |" \
+  '| S-1 | Import create endpoint | contract (D-1) |'
+ct_ok 'a cited path with no line suffix' \
+  "| D-1 | Import route shape | kebab-case. $CT_SHAPE cited (adr): docs/api-conventions.md | codebase-derived | fact |" \
+  '| S-1 | Import create endpoint | contract (D-1) |'
+ct_ok "labels that read 'none — <reason>'" \
+  '| D-1 | Cache purge script | Inputs: none — it reads no argument. Outputs: none — it writes nothing. Errors: exit 1 when the cache is locked. | user-answered | intent |' \
+  '| S-1 | The purge script exit codes | contract (D-1) |'
+ct_ok "a 'cited (kb)' pointer, which names no repo path" \
+  "| D-1 | Import event payload | $CT_SHAPE cited (kb): <kb-page> | codebase-derived | fact |" \
+  '| S-1 | The import.created event | contract (D-1) |'
+ct_ok "an unlabeled row cited 'decided', not 'contract'" \
+  '| D-1 | Empty-list copy | "Nothing imported yet" | user-answered | intent |' \
+  '| S-1 | Empty state for the import list | decided (D-1) |'
+
+ct_bad 'a contract row citing no decision row' \
+  "| D-1 | Import create request | $CT_SHAPE | user-answered | intent |" \
+  '| S-1 | Import create endpoint | contract |' \
+  "disposition 'contract' must cite the ledger row"
+for label in Inputs Outputs Errors; do
+  case "$label" in
+    Inputs) shape='Outputs: the created import id. Errors: 409 on a duplicate name.' ;;
+    Outputs) shape='Inputs: name (required), tags (optional). Errors: 409 on a duplicate name.' ;;
+    Errors) shape='Inputs: name (required), tags (optional). Outputs: the created import id.' ;;
+  esac
+  ct_bad "a contract row whose cited row has no '$label:' sentence" \
+    "| D-1 | Import create request | POST /imports. $shape | user-answered | intent |" \
+    '| S-1 | Import create endpoint | contract (D-1) |' \
+    "whose Resolution has no '$label:' sentence"
+done
+ct_bad "a contract row whose cited row has an empty 'Errors:' label" \
+  '| D-1 | Import create request | Inputs: name (required). Outputs: the import id. Errors: | user-answered | intent |' \
+  '| S-1 | Import create endpoint | contract (D-1) |' \
+  "whose Resolution has no 'Errors:' sentence"
+ct_bad 'a contract row citing an open row' \
+  '| D-1 | Import create request | parked under OR-1 | deferred | open |' \
+  '| S-1 | Import create endpoint | contract (D-1) |' \
+  'an open row' \
+  '| OR-1 | Import request shape | pause-and-ask |'
+ct_bad "a cited (convention) path the repo does not have" \
+  "| D-1 | Import route shape | $CT_SHAPE cited (convention): docs/missing-conventions.md:3 | codebase-derived | fact |" \
+  '| S-1 | Import create endpoint | contract (D-1) |' \
+  'names a path this repo does not have: docs/missing-conventions.md'
+ct_bad "a missing (adr) path beside an existing (convention) one" \
+  "| D-1 | Import route shape | $CT_SHAPE cited (convention): docs/api-conventions.md:3, cited (adr): docs/adr/0009-imports.md:4 | codebase-derived | fact |" \
+  '| S-1 | Import create endpoint | contract (D-1) |' \
+  'names a path this repo does not have: docs/adr/0009-imports.md'
+ct_bad "a cited path that climbs out of the repo" \
+  "| D-1 | Import route shape | $CT_SHAPE cited (convention): ../outside.md:1 | codebase-derived | fact |" \
+  '| S-1 | Import create endpoint | contract (D-1) |' \
+  'names a path outside this repo: ../outside.md'
+ct_bad "an absolute cited path, though the file exists" \
+  "| D-1 | Import route shape | $CT_SHAPE cited (convention): $CT_REPO/docs/api-conventions.md:3 | codebase-derived | fact |" \
+  '| S-1 | Import create endpoint | contract (D-1) |' \
+  "names a path outside this repo: $CT_REPO/docs/api-conventions.md"
+GIT_CEILING_DIRECTORIES="$TMP" ct_bad "a contract receipt outside any git checkout" \
+  "| D-1 | Import route shape | $CT_SHAPE cited (convention): docs/api-conventions.md:3 | codebase-derived | fact |" \
+  '| S-1 | Import create endpoint | contract (D-1) |' \
+  'is not in a git checkout' \
+  '' "$TMP/ct-nogit"
+
 # (ll-as) MODE ISOLATION for the new section, matching (ll-y). The inventory is
 # receipt-only, so an in-plan ledger must lint clean by default — otherwise every
 # ExitPlanMode in every consumer repo starts failing on a section the plan contract
