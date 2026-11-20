@@ -84,15 +84,15 @@ review.
 
    <!-- LOCKSTEP-BEGIN review-correctness -->
    Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers. Check that each of them still works with the change. When the change adds a rule over stored data, read the data that the rule meets. Check the rule against the data that already exists. Walk every path through the change: each branch, each early return, each error and each empty input. Report each problem as a finding with its file:line and a concrete scenario: the input or state, and the wrong outcome it produces. A problem with no scenario is not a finding.
-   A completeness or correctness problem is a `[blocker]` when it must change before merge. A maintainability, test-coverage or repo-convention problem is a `[note]` only, never a `[blocker]`.
-   A finding that shows existing data or an existing caller breaking under the change is a `[blocker]`. The ticket's scope list, a record row or parity with an older version never makes it a note. It drops to a note only when the ticket or a record row names that exact case, accepts it, and names who decided. The ticket's own text counts as the operator's. A row names who decided when its provenance is `user-answered`, or `ticket-sourced` with its comment URL. A `user-delegated` or `codebase-derived` row never accepts a break. The finding then quotes that line. A finding that shows the change does not do what the ticket asks, for input that existing callers send, is a completeness `[blocker]`. A requirement is an outcome, a behavior, an acceptance criterion or an external surface the ticket states. An internal structure that the ticket's scope or prose prescribes is not a requirement: its absence is never a completeness `[blocker]`, and it gets no finding.
-   Over-engineering is always a `[note]`: a new abstraction, layer, option, extension point or generalization that nothing needs. A need is a present caller in the checkout, or an external surface the ticket asks for. An external surface is something a party outside the diff's own code reads or calls: a config key, an entry point or command, an API, or a stored or on-disk format. It needs no named caller. A ticket line, a record row or any other decision that prescribes the mechanism is not a need and never removes the finding; quote that decision in the finding. A need expected only in the future is not a need either. Name the simpler shape, and cite the callers or show that there are none.
-   The review runs in two passes. Pass 1 is the completeness and correctness review, from the ticket and the code alone. Pass 1 does not open the decision record, the plan or the PR description. It reads the diff with the plans directory excluded. It writes its findings to the scratch directory before pass 2 starts. When there is a record, pass 2 reads it at its first commit and at the head, and scores every row. A record row never removes, dismisses or downgrades a pass-1 finding. When a row decided the behavior that a finding shows breaking an existing caller, existing data or the ticket, the finding keeps its severity and names the row. Only two record grounds make a pass-1 finding a note: the accepted break above, and the test intent's exemption of an acceptance criterion from a test. A pass-1 finding is never posted as `Dismissed.` or `Suppressed.` on a record's ground.
+   Report only relevant findings. A finding is relevant when a distinguished engineer who knew of it would definitely address it before merge. Every reported finding makes the verdict `needs-work`, a `[note]` the same as a `[blocker]`. The tag names the kind of problem, never whether it gates. A completeness or correctness problem is a `[blocker]`. A maintainability, test-coverage or repo-convention problem is a `[note]` only, never a `[blocker]`.
+   A finding that shows existing data or an existing caller breaking under the change is a `[blocker]`. The ticket's scope list, a record row or parity with an older version never removes it or makes it a note. It is not a finding only when the ticket or a record row names that exact case, accepts it, and names who decided. The ticket's own text counts as the operator's. A row names who decided when its provenance is `user-answered`, or `ticket-sourced` with its comment URL. A `user-delegated` or `codebase-derived` row never accepts a break. The Evidence cell of the accepting row quotes the acceptance. A break that only the ticket text accepts gets one line in `## Notes` that quotes that text. A finding that shows the change does not do what the ticket asks, for input that existing callers send, is a completeness `[blocker]`. A requirement is an outcome, a behavior, an acceptance criterion or an external surface the ticket states. An internal structure that the ticket's scope or prose prescribes is not a requirement: its absence is never a completeness `[blocker]`, and it gets no finding.
+   Over-engineering is always a `[note]`: a new abstraction, layer, option, extension point or generalization that nothing needs. A need is a present caller in the checkout, or an external surface the ticket asks for. An external surface is something a party outside the diff's own code reads or calls: a config key, an entry point or command, an API, or a stored or on-disk format. It needs no named caller. A ticket line, a record row or any other decision that prescribes the mechanism is not a need. A need expected only in the future is not a need either. Name the simpler shape, and cite the callers or show that there are none. When the ticket's own text prescribes the mechanism, the operator decided it: it is not a finding, and it gets one line in `## Notes` that starts with its file:line and quotes that text. Quote any other prescribing decision in the finding.
+   The review runs in two passes. Pass 1 is the completeness and correctness review, from the ticket and the code alone. Pass 1 does not open the decision record, the plan or the PR description. It reads the diff with the plans directory excluded. It writes its findings to the scratch directory before pass 2 starts. When there is a record, pass 2 reads it at its first commit and at the head, and scores every row. A record row never removes, dismisses or downgrades a pass-1 finding. When a row decided the behavior that a finding shows breaking an existing caller, existing data or the ticket, the finding keeps its severity and names the row. Only three record grounds take a pass-1 finding out of `## Findings`: the accepted break above, the test intent's exemption of an acceptance criterion from a test, and an over-engineering `[note]` on a mechanism that a row prescribes when the row names who decided, as above. An exemption gets one line in `## Notes` that quotes it. A prescribed mechanism gets one line in `## Notes` that starts with its file:line and quotes the row. A dismissed or suppressed finding is never listed.
    <!-- LOCKSTEP-END review-correctness -->
 
    End pass 1 with the notes pass. Report maintainability, test-coverage and repo-convention
-   problems in the diff as `[note]`s with file:line. Report only what you would post. A note never
-   gates. Write every pass-1 finding to a file in this session's scratchpad. Then start step 4.
+   problems in the diff as `[note]`s with file:line. Report only the relevant ones. A note gates
+   like a blocker. Write every pass-1 finding to a file in this session's scratchpad. Then start step 4.
 
    Dispatch no reviewer, except the one design-fidelity reviewer of step 7.
 4. **Pass 2: read the record at its first commit and at the head.** The first commit is the commit that
@@ -109,8 +109,8 @@ review.
      commit was rewritten, and that alone is a blocker.
 
    Check every row of the record against the diff. The record's test intent can exempt an
-   acceptance criterion from a test. Then the pass-1 finding that the criterion has no test becomes
-   a `[note]` that quotes the exemption.
+   acceptance criterion from a test. Then the pass-1 finding that the criterion has no test leaves
+   `## Findings`, and `## Notes` gets one line that quotes the exemption.
 5. **Look at what the scheduler would have given you.** Read `git --no-replace-objects diff $FIRST..HEAD` and check
    each item below. Each item is a question that the diff must answer, whatever the stack.
    - Deleted or renamed test files. A top-level `tests/`, `__tests__/`, `test_*.py`,
@@ -159,7 +159,8 @@ review.
    give that proof. A PR built through `/dev-pipeline:build` took the `--handoff` path. On that
    path, the latest lane comment on the ticket is a `build-handoff` comment, and the body has no
    `## second-shift run` block. Nothing ran the check there. Say so in `## Notes` as
-   `fails without the change: not run on the handoff path`. This is a note, never a blocker.
+   `fails without the change: not run on the handoff path`. It is a line in `## Notes`, never a
+   finding.
 6. **Score EVERY row of the record** against the code. The scores are `honored`, `violated`,
    `departed` or `undeterminable`. A departed row was edited: name who decided, per its
    provenance. For an undeterminable row, say what you could not read. A violated or
@@ -176,9 +177,10 @@ review.
    A row can name a deferred, unmeasured or inherited cost, load or performance risk. Still score
    that row on whether the code matches it. The row is the operator's decision. A score never
    overrides it. Its risk is also required performance work: the review states the worst-case
-   bound as a finding. A bound that breaks an existing caller or existing data is a `[blocker]`
-   under the severity rule of step 3. Any other bound is a `[blocker]` when it breaks what the row
-   decided, and a `[note]` otherwise. The row permits the out-of-diff reads that check the bound.
+   bound. A bound that breaks an existing caller or existing data is a `[blocker]` under the
+   severity rule of step 3. Any other bound is a `[blocker]` when it breaks what the row decided.
+   A bound within the risk that the row accepts, when the row names who decided, is one line in
+   `## Notes` that starts with its file:line and quotes the row. Otherwise it is a `[note]` when it is relevant, and one line in `## Notes` when it is not. The row permits the out-of-diff reads that check the bound.
    The row can name a file that the diff does not touch. That fact scores the row. It does not
    bound the risk.
 7. **Design frames.** The `## Design frames` (or `## Design`) section of the record can have
@@ -210,16 +212,16 @@ review.
    - `## Summary`, right after those lines. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
    - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
    - Fold the rows table. Put the line `<details><summary><N> rows: <k> honored, <k> departed, <k> violated, <k> undeterminable</summary>` and a blank line before the table, and the line `</details>` after it. N is the number of rows in the table, and each k is the number of rows with that score. Keep the scores in that order and leave out a score with no rows. Always write `rows`. Never write `<details open>`. A verdict that folds the table has a `## Summary`, so every row that is not honored stays visible. A table without the fold also passes.
-   - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Suppressed findings are `[note]`s. Each finding id appears once in the verdict. A section with no findings holds the single line `None.`.
-   - After its id and one space, a finding names its file:line and its defect: `- [blocker] B1 path:line — <defect>`. Its first continuation line is `Scenario: <input or state> → <wrong outcome>`. A finding that a dispatched reviewer raised names that reviewer in brackets before its file:line: `- [blocker] B1 [Reviewer] path:line — <defect>`. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) or as a process note names its rule, and its file:line only where it has one. No finding carries a confidence number.
-   - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. Nothing in it counts toward the verdict.
-   - `## Summary` and `## Notes` carry no over-engineering observation that `## Findings` does not list as a finding. Write each one as a `[note]` in `## Findings`. The folded `dev: lane vs blind` block is exempt.
+   - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Dismissed and suppressed findings are not listed. Each finding id appears once in the verdict. A section with no findings holds the single line `None.`.
+   - After its id and one space, a finding names its file:line and its defect: `- [blocker] B1 path:line — <defect>`. Its first continuation line is `Scenario: <input or state> → <wrong outcome>`. A finding that a dispatched reviewer raised names that reviewer in brackets before its file:line: `- [blocker] B1 [Reviewer] path:line — <defect>`. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) names its rule, and its file:line only where it has one. No finding carries a confidence number.
+   - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. It also holds one line for each thing the review must show that is not a finding: a stale or wrong PR title or description, a break that only the ticket text accepts, and a test-intent exemption. Nothing in it counts toward the verdict.
+   - `## Summary` and `## Notes` carry no over-engineering observation that `## Findings` does not list as a finding. Write each relevant one as a `[note]` in `## Findings`, and leave out the rest. The folded `dev: lane vs blind` block is exempt.
 
    `Ready to merge?` is never written anywhere in the body.
 
-   A `[blocker]` is something in the diff that must change before merge. The PR title and description are not the diff: a stale or wrong one is at most a `[note]`, never a `[blocker]`, and never makes a verdict `needs-work`. A `[note]` requires nothing.
+   Every finding is relevant: something in the diff that a distinguished engineer who knew of it would definitely address before merge. A `[blocker]` and a `[note]` both make the verdict `needs-work`. The tag names the kind of problem. The PR title and description are not the diff: a stale or wrong one is never a finding and never makes a verdict `needs-work`.
 
-   `verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no `[blocker]` and no `reason:` line. `verdict: needs-work` carries at least one `[blocker]`, a `violated` or `undeterminable` row, or a `reason:` line; under that line the rows need not be scored, and the findings may be `None.`.
+   `verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no finding and no `reason:` line. `verdict: needs-work` carries at least one finding, `[blocker]` or `[note]`, a `violated` or `undeterminable` row, or a `reason:` line; under that line the rows need not be scored, and the findings may be `None.`.
    <!-- LOCKSTEP-END verdict-grammar -->
 
    <!-- LOCKSTEP-BEGIN kb-contributions -->
@@ -242,13 +244,11 @@ review.
    - Start the Evidence cell of a row that the build deleted with `Deleted by the build.` Then name who decided.
    - Put longer detail in `## Notes`.
    In `## Findings`:
-   - Put blockers first and notes after them. Put dismissed and suppressed notes last.
-   - Start the text after the dash of such a note with `Dismissed.` or `Suppressed.` Then give the reason in one sentence.
+   - Put blockers first and notes after them.
    - Give the defect in the first sentence of each finding.
    - Put the evidence on continuation lines. Indent them two spaces.
-   - End each blocker with the continuation line `Fix: <one instruction>`.
-   - Do not give a note a Fix line. A note requires nothing.
-   - Write a note in at most three lines. Write a dismissed or suppressed note in one line.
+   - End each finding, a note too, with the continuation line `Fix: <one instruction>`.
+   - Write a note in at most four lines, its Fix line included.
    In `## Notes`:
    - Use one `###` sub-heading for each topic. Write at most six sentences under it.
    - Write an inventory, such as the mutation run, as a list.
@@ -275,8 +275,8 @@ review.
 
    Run the block as one Bash call, with every placeholder replaced by the literal value.
 
-   The joined draft is the body you check and post, unchanged. The script merges plain's blockers
-   by `run.sh`'s rules, makes a plain-only blocker turn an approve into a needs-work, and ends the
+   The joined draft is the body you check and post, unchanged. The script merges plain's findings
+   by `run.sh`'s rules, makes a plain-only finding turn an approve into a needs-work, and ends the
    body with a folded `dev: lane vs blind` block under `## Notes`. The block sets every finding of
    both reviews side by side, holds the blind review's draft as written, and reads "not measured" for this
    session's cost and time. When the plain review did not

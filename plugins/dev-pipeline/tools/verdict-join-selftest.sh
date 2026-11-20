@@ -6,7 +6,8 @@
 #
 # INVARIANTS GUARDED: a plain blocker within 3 lines of a Critical bullet tags it [lane+blind]; any other is added
 # under Critical as [blind] and flips Ready to merge from With fixes or Yes to No, but never touches an existing No;
-# plain's notes stay out of the report; a report with no Critical section gets one; with no plain draft the report
+# plain's notes stay out of the report; under --format verdict a plain note near no lane finding is added as a [blind]
+# note and flips an approve, and one near a lane finding is not listed again; a report with no Critical section gets one; with no plain draft the report
 # stands and its Notes say why; every report ends with the folded dev block: a list pairing every finding of both
 # reviews one to one by site, disagreements first, grouped under a bold outcome line, one line per pair leading with its site, plain's draft as written, and a machine line whose matrix sums.
 #
@@ -170,9 +171,10 @@ OUT="$(bash "$TOOL" "$T/lane-v.md" "$T/plain-v.md")"; RJ="$(devjs "$OUT")"
 OUTR="$(bash "$TOOL" "$T/lead.md" "$T/plain.md" --format report)"; RR="$(devjs "$OUTR")"
 v3ok "$RJ" && v3ok "$RR" && [ "$(jq -r .format <<<"$RJ")" = verdict ] && [ "$(jq -r .format <<<"$RR")" = report ] \
   && ok "(r22) the machine line is v3 and carries a findings array and every v2 field, under --format verdict and --format report" || bad "(r22) verdict=$RJ report=$RR"
-WANT='[{"src":"blind","id":"B3","class":"blocker","path":"src/c.ts","line":3,"pair":null,"posted_as":"B2"},{"src":"lane","id":"B1","class":"blocker","path":"src/a.ts","line":10,"pair":1},{"src":"blind","id":"B1","class":"blocker","path":"src/a.ts","line":9,"pair":1},{"src":"blind","id":"B2","class":"blocker","path":"src/a.ts","line":11,"pair":1},{"src":"lane","id":"N1","class":"note","path":"src/b.ts","line":5,"pair":null},{"src":"blind","id":null,"class":"note","path":null,"line":null,"pair":null},{"src":"lane","id":"N2","class":"dismissed","path":"src/z.ts","line":40,"pair":null}]'
+WANT='[{"src":"blind","id":"B3","class":"blocker","path":"src/c.ts","line":3,"pair":null,"posted_as":"B2"},{"src":"lane","id":"B1","class":"blocker","path":"src/a.ts","line":10,"pair":1},{"src":"blind","id":"B1","class":"blocker","path":"src/a.ts","line":9,"pair":1},{"src":"blind","id":"B2","class":"blocker","path":"src/a.ts","line":11,"pair":1},{"src":"lane","id":"N1","class":"note","path":"src/b.ts","line":5,"pair":null},{"src":"blind","id":null,"class":"note","path":null,"line":null,"pair":null,"posted_as":"N3"},{"src":"lane","id":"N2","class":"dismissed","path":"src/z.ts","line":40,"pair":null}]'
 [ "$(jq -c .findings <<<"$RJ")" = "$WANT" ] && [ "$(jq .findings_omitted <<<"$RJ")" = 0 ] && grep -qx -- '- \[blocker\] B2 \[blind\] src/c.ts:3 — off by one' <<<"$OUT" \
-  && ok "(r23) one entry per finding in the dev list's order: two blind blockers merged onto lane B1 share its pair, the added one is posted_as B2, a lone dismissal comes last, a missing id or site is null" \
+  && grep -qx -- '- \[note\] N3 \[blind\] the docs are stale' <<<"$OUT" \
+  && ok "(r23) one entry per finding in the dev list's order: two blind blockers merged onto lane B1 share its pair, the added one is posted_as B2, the siteless blind note is posted_as N3, a lone dismissal comes last, a missing id or site is null" \
   || bad "(r23) findings=$(jq -c .findings <<<"$RJ")"
 WANT='[{"src":"blind","id":"B2","class":"blocker","path":"src/c.ts","line":3,"pair":null,"posted_as":"[blind]"},{"src":"lane","id":null,"class":"blocker","path":"src/a.ts","line":10,"pair":1},{"src":"blind","id":"B1","class":"blocker","path":"src/a.ts","line":12,"pair":1},{"src":"lane","id":null,"class":"note","path":"src/b.ts","line":5,"pair":null},{"src":"blind","id":"N1","class":"note","path":"src/d.ts","line":1,"pair":null}]'
 [ "$(jq -c .findings <<<"$RR")" = "$WANT" ] \
@@ -228,6 +230,61 @@ CHECK="$(bash "$HERE/verdict-check.sh" "$T/joined-ready.md" "$T/rec-ready.md" "$
   && grep -qxF '  Scenario: click save → the banner still says "Ready to merge"' <<<"$OUT" \
   && ok "(r29) a blind blocker quoting Ready to merge? is added without the question mark, and the joined verdict passes verdict-check" \
   || bad "(r29) rc=$RC: $CHECK"
+
+printf '%s\n' 'verdict: approve' "reviewed: $(printf 'a%.0s' $(seq 40))" '' '## Summary' '' 'Mergeable as it is.' 'Nothing to do.' '' '## Decision record rows' '' \
+  '| Row | Score | Evidence |' '| --- | --- | --- |' '| D-1 | honored | ok |' '' '## Findings' '' 'None.' '' '## Notes' '' 'A process note.' > "$T/lane-approve.md"
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [note] N1 src/u.ts:7 — the helper repeats a literal the repo keeps as a constant' \
+  '  Scenario: the constant changes → this helper keeps the old value' '  Fix: use the constant' '- [note] N2 src/v.ts:2 — a second convention break' > "$T/plain-notes.md"
+OUT="$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-notes.md")"; printf '%s\n' "$OUT" > "$T/joined-notes.md"; RJ="$(devjs "$OUT")"
+CHECK="$(bash "$HERE/verdict-check.sh" "$T/joined-notes.md" "$T/rec-ready.md" "$T/rec-ready.md")"; RC=$?
+ABOVE="$(printf '%s\n' "$OUT" | sed '/^<details><summary>dev: lane vs blind/,$d')"
+[ "$RC" -eq 0 ] && [ "$(head -n 1 <<<"$OUT")" = 'verdict: needs-work' ] && grep -qx 'Not mergeable yet.' <<<"$ABOVE" && grep -qx 'Fix the \[blind\] findings in Findings.' <<<"$ABOVE" \
+  && grep -qxF -- '- [note] N1 [blind] src/u.ts:7 — the helper repeats a literal the repo keeps as a constant' <<<"$ABOVE" \
+  && grep -qxF '  Fix: use the constant' <<<"$ABOVE" && grep -qxF -- '- [note] N2 [blind] src/v.ts:2 — a second convention break' <<<"$ABOVE" && ! grep -qx 'None.' <<<"$ABOVE" \
+  && jq -e '.flipped == true and .plain_only == 2 and .plain_notes_dropped == 0 and ([.findings[] | select(.src == "blind") | .posted_as] == ["N1","N2"])' <<<"$RJ" >/dev/null \
+  && ok "(r30) an unmatched blind note is added as a [blind] note with its continuation, flips an approve, is counted in plain_only, and the joined verdict passes verdict-check" \
+  || bad "(r30) rc=$RC check=$CHECK json=$RJ"
+
+printf '%s\n' 'verdict: needs-work' "reviewed: $(printf 'a%.0s' $(seq 40))" '' '## Decision record rows' '' '| Row | Score | Evidence |' '| --- | --- | --- |' '| D-1 | honored | ok |' '' \
+  '## Findings' '' '- [blocker] B1 src/w.ts:40 — the retry loops forever' '  Scenario: a 409 → no exit' '  Fix: stop after three tries' \
+  '- [note] N4 src/u.ts:8 — a literal the repo keeps as a constant' '  Fix: use the constant' > "$T/lane-mixed.md"
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [note] N1 src/u.ts:6 — the same literal' '- [note] N2 src/w.ts:41 — the loop has no bound' '- [note] N3 src/x.ts:1 — a new one' > "$T/plain-near.md"
+OUT="$(bash "$TOOL" "$T/lane-mixed.md" "$T/plain-near.md")"; RJ="$(devjs "$OUT")"; printf '%s\n' "$OUT" > "$T/joined-near.md"
+ABOVE="$(printf '%s\n' "$OUT" | sed '/^<details><summary>dev: lane vs blind/,$d')"
+bash "$HERE/verdict-check.sh" "$T/joined-near.md" "$T/rec-ready.md" "$T/rec-ready.md" >/dev/null && [ "$(grep -c '^- \[note\]' <<<"$ABOVE")" -eq 2 ] \
+  && grep -qxF -- '- [note] N5 [blind] src/x.ts:1 — a new one' <<<"$ABOVE" && ! grep -q 'the same literal\|the loop has no bound' <<<"$ABOVE" \
+  && jq -e '.plain_only == 1 and .plain_notes_dropped == 0 and .flipped == false' <<<"$RJ" >/dev/null \
+  && ok "(r31) a blind note within 3 lines of a lane note or blocker is not listed again; an unmatched one takes the id after the lane's highest N" \
+  || bad "(r31) json=$RJ findings=$(grep '^- \[' <<<"$ABOVE" | tr '\n' '|')"
+
+OUT="$(bash "$TOOL" "$T/lead-clean.md" "$T/plain-notes.md" --format report)"
+printf '%s\n' "$OUT" | grep -qxF '**Ready to merge?** Yes' && ! printf '%s\n' "$OUT" | sed '/^<details><summary>dev: lane vs blind/,$d' | grep -q 'src/u.ts' \
+  && jq -e '.plain_only == 0 and .plain_notes_dropped == 2 and .flipped == false' <<<"$(devjs "$OUT")" >/dev/null \
+  && ok "(r32) --format report adds no blind note and keeps Ready to merge as it was" || bad "(r32) $(devjs "$OUT")"
+
+printf '%s\n' 'verdict: approve' "reviewed: $(printf 'a%.0s' $(seq 40))" '' '## Summary' '' 'Mergeable as it is.' 'Nothing to do.' '' '## Decision record rows' '' \
+  '| Row | Score | Evidence |' '| --- | --- | --- |' '| D-1 | honored | ok |' '' '## Findings' '' 'None.' '' '## Notes' '' \
+  '- `src/u.ts:7` — the record prescribes the helper: "keep the literal local to the helper"' 'A process note that names src/v.ts:2 after its first word.' > "$T/lane-prescribed.md"
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [note] N1 src/u.ts:8 — the helper is an abstraction nothing needs' > "$T/plain-prescribed.md"
+OUT="$(bash "$TOOL" "$T/lane-prescribed.md" "$T/plain-prescribed.md")"; printf '%s\n' "$OUT" > "$T/joined-prescribed.md"; RJ="$(devjs "$OUT")"
+CHECK="$(bash "$HERE/verdict-check.sh" "$T/joined-prescribed.md" "$T/rec-ready.md" "$T/rec-ready.md")"; RC=$?
+OUT2="$(bash "$TOOL" "$T/lane-prescribed.md" "$T/plain-notes.md")"; RJ2="$(devjs "$OUT2")"
+ABOVE="$(printf '%s\n' "$OUT" | sed '/^<details><summary>dev: lane vs blind/,$d')"
+ABOVE2="$(printf '%s\n' "$OUT2" | sed '/^<details><summary>dev: lane vs blind/,$d')"
+[ "$RC" -eq 0 ] && [ "$(head -n 1 <<<"$OUT")" = 'verdict: approve' ] && ! grep -q '^- \[note\]' <<<"$ABOVE" \
+  && jq -e '.flipped == false and .plain_only == 0 and .plain_notes_dropped == 1' <<<"$RJ" >/dev/null \
+  && [ "$(head -n 1 <<<"$OUT2")" = 'verdict: needs-work' ] && grep -qxF -- '- [note] N1 [blind] src/v.ts:2 — a second convention break' <<<"$ABOVE2" \
+  && ! grep -q '^- \[note\] .*src/u.ts' <<<"$ABOVE2" && jq -e '.plain_only == 1 and .plain_notes_dropped == 1' <<<"$RJ2" >/dev/null \
+  && ok "(r33) a blind note within 3 lines of a lane Notes line that starts with a site is left out and counted in plain_notes_dropped; a site later in a Notes line does not match" \
+  || bad "(r33) rc=$RC check=$CHECK json=$RJ json2=$RJ2"
+
+sed 's/^- `src\/u.ts:7` — .*$/- `src\/u.ts:7` — mutant: guard removed, killed/' "$T/lane-prescribed.md" > "$T/lane-inventory.md"
+OUT="$(bash "$TOOL" "$T/lane-inventory.md" "$T/plain-prescribed.md")"; RJ="$(devjs "$OUT")"
+ABOVE="$(printf '%s\n' "$OUT" | sed '/^<details><summary>dev: lane vs blind/,$d')"
+[ "$(head -n 1 <<<"$OUT")" = 'verdict: needs-work' ] && grep -qxF -- '- [note] N1 [blind] src/u.ts:8 — the helper is an abstraction nothing needs' <<<"$ABOVE" \
+  && jq -e '.flipped == true and .plain_only == 1 and .plain_notes_dropped == 0' <<<"$RJ" >/dev/null \
+  && ok "(r34) a lane Notes line that starts with a site but quotes no decision leaves out no blind note: the note is added and the approve flips" \
+  || bad "(r34) json=$RJ findings=$(grep '^- \[' <<<"$ABOVE" | tr '\n' '|')"
 
 echo "verdict-join-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

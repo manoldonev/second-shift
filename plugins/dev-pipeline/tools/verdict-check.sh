@@ -25,9 +25,9 @@
 #   indented two or more spaces, and a section with no findings holds the single line `None.`; the
 #   rest of a finding's line is free text, and no finding id appears twice;
 #   `## Panel` (optional, not parsed: earlier verdicts carry one) and `## Notes` (optional, free prose).
-# `Ready to merge?` anywhere fails. An approve has no [blocker], no violated or undeterminable score
-# and no reason line; a needs-work has a [blocker], a violated or undeterminable score, or a reason
-# line. Every `D-n` row of either record version — only unindented lines `| D-n |` — is
+# `Ready to merge?` anywhere fails. Every finding gates, a [note] the same as a [blocker]: an approve
+# has no finding, no violated or undeterminable score and no reason line; a needs-work has a finding,
+# a violated or undeterminable score, or a reason line. Every `D-n` row of either record version — only unindented lines `| D-n |` — is
 # scored, except under a reason line. A row that was `deferred` at the first commit, citing an `OR-n`
 # its Open Regions table marks `pause-and-ask`, and is `user-delegated` at the head is scored
 # `violated` when it is scored: only the requester decides it.
@@ -165,10 +165,11 @@ END {
   else if (nones > 0 && (finds > 0 || nones > 1)) fail("Findings not in the grammar", "None. is the only line of a section with no findings")
   if (v == "approve") {
     if (blockers > 0) fail("approve with a blocker", blockers " [blocker] line(s)")
+    if (finds > blockers) fail("approve with a note", finds - blockers " [note] line(s)")
     if (badrows != "") fail("approve with a violated or undeterminable row", badrows)
     if (reason != "") fail("approve with reason: " reason)
   }
-  if (v == "needs-work" && reason == "" && blockers == 0 && badrows == "") fail("needs-work with no blocker")
+  if (v == "needs-work" && reason == "" && finds == 0 && badrows == "") fail("needs-work with no finding")
   if ("## Summary" in seen) {
     want = (v == "approve") ? "Mergeable as it is." : "Not mergeable yet."
     if (sfirst != want) fail("Summary line 1 does not match the verdict", "want " want)

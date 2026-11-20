@@ -841,37 +841,55 @@ def in_range(finding: dict, truth: dict) -> bool:
     return False
 
 
-def judged(finding: dict, truth: dict) -> bool:
+def gates(review: dict) -> bool:
+    return review.get("arm") in ("lane", JOINED)
+
+
+def notes_send_back(review: dict) -> bool:
+    """A stored lane record from before every finding gated can approve with a [note]; --rescore reuses it,
+    and that note sent nothing back."""
+    return gates(review) and review.get("verdict") == "needs-work"
+
+
+def judged(finding: dict, truth: dict, notes_back: bool) -> bool:
     if in_range(finding, truth):
         return True
-    return finding["severity"] == "blocker" and finding.get("path") is None \
+    return (notes_back or finding["severity"] == "blocker") and finding.get("path") is None \
         and any(path_level(loc) for loc in truth.get("locations") or [])
 
 
 async def judge_findings(truth: dict, review: dict, judge) -> dict[str, bool]:
     """The judge runs on a finding only when its path:line falls inside a planted range, within the window,
-    or its path names a path-level location's file. On a case with a path-level location, a [blocker] that
-    names no path goes to the judge too."""
+    or its path names a path-level location's file. On a case with a path-level location, a send-back
+    finding that names no path goes to the judge too: any finding of a lane or joined needs-work, else a
+    [blocker]."""
     if truth["class"] == CONTROL:
         return {}
-    picks = [f for f in review.get("findings", []) if judged(f, truth)]
+    picks = [f for f in review.get("findings", []) if judged(f, truth, notes_send_back(review))]
     verdicts = await asyncio.gather(*(judge(truth["description"], f["text"]) for f in picks))
     return {f["id"]: bool(ok) for f, ok in zip(picks, verdicts)}
 
 
 def score_review(truth: dict, review: dict, matched: dict[str, bool]) -> dict:
+    """On the lane and joined arms every finding gates, so a [note] of a needs-work is send-back as a
+    [blocker] is, and a note on an approve sent nothing back. The plain arm's prompt lets a note ride on an
+    approve, so there only a [blocker] sends back and a note counts on P5."""
     s = {"right": 0, "wrong": 0, "harm": 0, "noise": 0, "how": ""}
     cls = truth["class"]
     if review["status"] == "gate-stop":
         s["harm" if cls == CONTROL else "right"] = 1
         s["how"] = "gate"
         return s
+    gating = gates(review)
+    notes_back = notes_send_back(review)
     findings = review.get("findings", [])
     rows_back = [r for r, sc in (review.get("rows") or {}).items() if sc in SENDBACK_SCORES]
     blockers = [f for f in findings if f["severity"] == "blocker"]
+    notes = [f for f in findings if f["severity"] == "note"]
+    sendback = findings if notes_back else blockers
     if cls == CONTROL:
-        if blockers or rows_back:
-            s["harm"], s["how"] = 1, "blocker" if blockers else "row"
+        if sendback or rows_back:
+            s["harm"], s["how"] = 1, "blocker" if blockers else "note" if sendback else "row"
         return s
     row = truth.get("row")
 
@@ -882,11 +900,11 @@ def score_review(truth: dict, review: dict, matched: dict[str, bool]) -> dict:
         s["right"], s["how"] = 1, "blocker"
     elif cls == "P2" and row in rows_back:
         s["right"], s["how"] = 1, "row"
-    elif cls == "P5" and any(hit(f) for f in findings if f["severity"] == "note"):
+    elif (notes_back or (not gating and cls == "P5")) and any(hit(f) for f in notes):
         s["right"], s["how"] = 1, "note"
-    if review.get("verdict") == "approve" and not s["right"] and cls != "P5":
+    if review.get("verdict") == "approve" and not s["right"] and (gating or cls != "P5"):
         s["wrong"] = 1
-    s["noise"] = sum(1 for f in blockers if not hit(f))
+    s["noise"] = sum(1 for f in sendback if not hit(f))
     return s
 
 

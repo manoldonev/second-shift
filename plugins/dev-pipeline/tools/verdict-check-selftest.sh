@@ -2,8 +2,8 @@
 # verdict-check-selftest.sh — behavioral selftest for tools/verdict-check.sh.
 #
 # INVARIANTS GUARDED: a real PR's two verdicts as posted are rejected against its record at each
-# head and at its first commit (round 1 names "needs-work with no blocker", round 2 "Findings not in
-# the grammar"); each rule passes and fails; a needs-work with any of the three line-3 reasons passes; a row the build
+# head and at its first commit (round 1 names "needs-work with no finding", round 2 "Findings not in
+# the grammar"); each rule passes and fails; a [note] gates like a [blocker]; a needs-work with any of the three line-3 reasons passes; a row the build
 # deleted or added is still owed a score; a folded rows table passes only under a summary that counts it and
 # beside a ## Summary, and a bare table still passes; a user-delegated edit of a row parked under a pause-and-ask
 # region passes only scored violated; every failed rule is printed, not only the first; a record
@@ -39,7 +39,7 @@ echo "== verdict-check.sh =="
 
 # ---- (ac1) a real PR's verdicts as posted, against its record at each head and at its first commit ----
 OUT="$(bash "$TOOL" "$FX/pr983-round1.md" "$FX/record-979-at-7100d01b.md" "$FX/record-979-at-7100d01b.md")"; RC=$?   # 1be8b826's record is byte-identical to 7100d01b's
-fails_with "(ac1) round 1 (needs-work on one Warning) is rejected" "needs-work with no blocker"
+fails_with "(ac1) round 1 (needs-work on one Warning) is rejected" "needs-work with no finding"
 has "Decision record rows not in the grammar" && has "unknown section: ## review-lead" && has "Ready to merge? in the body" \
   && ok "(ac1) round 1 also names its prose in the rows section, its extra sections and 'Ready to merge?'" || bad "(ac1) round 1: $(tr '\n' '|' <<<"$OUT")"
 OUT="$(bash "$TOOL" "$FX/pr983-round2.md" "$FX/record-979-at-c9ff84e4.md" "$FX/record-979-at-7100d01b.md")"; RC=$?
@@ -47,10 +47,12 @@ fails_with "(ac1) round 2 (approve beside a must-fix Warning) is rejected" "Find
 ! has "record row not scored" && ! has "row not in the record" && ok "(ac1) round 2 scored D-8, the row its build added, and every other row" || bad "(ac1) round 2 rows: $(tr '\n' '|' <<<"$OUT")"
 
 # ---- each rule passing ----
-check approve "$(body approve "$HEAD_ROWS" $'- [note] N1 a thing to know\n  continued on an indented line\n\n- [note] N2 suppressed (confidence 40)')"
-passes "(v1) a consistent approve passes: every row of both versions scored, notes only, continuation lines indented"
-check nw-blocker "$(body needs-work "$HEAD_ROWS" $'- [blocker] B1 fix this before merge\n- [note] N1 and this is optional')"
+check approve "$(body approve "$HEAD_ROWS" 'None.')"
+passes "(v1) a consistent approve passes: every row of both versions scored, no finding"
+check nw-blocker "$(body needs-work "$HEAD_ROWS" $'- [blocker] B1 fix this before merge\n- [note] N1 and fix this too')"
 passes "(v2) a needs-work with a [blocker] passes"
+check nw-notes-only "$(body needs-work "$HEAD_ROWS" $'- [note] N1 src/a.ts:3 — the helper repeats the repo\x27s unit constant\n  continued on an indented line\n  Fix: use the constant\n\n- [note] N2 src/b.ts:9 — a second convention break')"
+passes "(v2) a needs-work whose only findings are notes passes: a note gates, continuation lines indented"
 check nw-violated "$(body needs-work $'| D-1 a | violated | x |\n| D-2 c | honored | y |\n| D-3 e | honored | z |' 'None.')"
 passes "(v3) a needs-work with a violated row and no finding passes"
 check nw-undet "$(body needs-work $'| D-1 a | undeterminable | x |\n| D-2 c | honored | y |\n| D-3 e | honored | z |' 'None.')"
@@ -90,8 +92,10 @@ check approve-undet "$(body approve $'| D-1 a | honored | x |\n| D-2 c | honored
 fails_with "(f2) an approve with an undeterminable row" "approve with a violated or undeterminable row: D-3 undeterminable"
 check approve-render "$(printf 'verdict: approve\nreviewed: %s\nreason: render-unavailable\n\n%s' "$SHA" "$(body approve "$HEAD_ROWS" 'None.' | sed 1,2d)")"
 fails_with "(f3) an approve carrying reason: render-unavailable" "approve with reason: render-unavailable"
-check nw-notes "$(body needs-work "$HEAD_ROWS" '- [note] N1 nothing required')"
-fails_with "(f4) a needs-work with nothing to fix" "needs-work with no blocker"
+check approve-note "$(body approve "$HEAD_ROWS" $'- [note] N1 src/a.ts:3 — the helper repeats the repo\x27s unit constant\n  Fix: use the constant\n- [note] N2 src/b.ts:9 — a second one')"
+fails_with "(f1) an approve with a [note]" "approve with a note: 2 [note] line(s)"
+check nw-none "$(body needs-work "$HEAD_ROWS" 'None.')"
+fails_with "(f4) a needs-work with nothing to fix" "needs-work with no finding"
 check deleted "$(body approve $'| D-1 a | honored | x |\n| D-3 e | honored | z |' 'None.')"
 fails_with "(f5) a row the build deleted, left unscored" "record row not scored: D-2"
 check added "$(body approve $'| D-1 a | honored | x |\n| D-2 c | departed | y |' 'None.')"

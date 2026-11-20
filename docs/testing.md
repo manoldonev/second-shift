@@ -752,13 +752,18 @@ A finding's path is the first `path:line` on its first line, else the first toke
 a `/` and a file extension. A finding goes to the bench's judge when its path:line falls inside a
 planted range, within three lines, or its path names the file of a path-level location (a `{file,
 side}` with no range, such as the file where a dropped test belongs). On a case with a path-level
-location, a `[blocker]` that names no path goes to the judge too. It matches the plant when the
+location, a finding that names no path and sends back goes to the judge too: any finding of a lane
+or joined needs-work, else a `[blocker]`. It matches the plant when the
 judge agrees that it describes the plant. The judge's calibration on the known-bug dev set runs
-first. **Right** is a matching `[blocker]`, the planted row scored
-`violated` or `undeterminable` (P2), or a gate stop; on P5 a matching `[note]` is right too.
-**Wrong** is a planted case approved, except on P5. **Harm** is a control the arm sends back, once
-per control. **Noise** is an unmatched `[blocker]` on a planted case. A verdict that breaks its
-arm's contract is unscorable and never counts as an approve.
+first. On the lane and joined arms every finding gates, so a `[note]` of a needs-work sends a case
+back as a `[blocker]` does. A stored lane approve from before that rule can carry a `[note]`, and
+`--rescore` scores it as an approve: the note sent nothing back. The plain arm's prompt lets a note
+ride on an approve, so there only a `[blocker]` sends back. **Right** is a matching `[blocker]`, the
+planted row scored `violated` or `undeterminable` (P2), a gate stop, or a matching `[note]`: on any
+class for a lane or joined needs-work, on P5 only for plain. **Wrong** is a planted case approved, except on P5 for plain. **Harm** is
+a control the arm sends back, once per control. **Noise** is an unmatched finding that sends back on
+a planted case. A verdict that breaks its arm's contract is unscorable and never counts as an
+approve.
 
 **The gate, set before the run:** with three runs per arm, the lane's worst run must beat plain's
 best run on right − wrong − harm, both over every class but P2 and on P1 alone. P2 is reported

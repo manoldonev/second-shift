@@ -66,9 +66,9 @@ FAKE_AS=bot run p5 --repo o/r 7 "$SHA" "$T/nw-ok.md" "$T/rec.md" "$T/rec.md" htt
 [ "$rc" -eq 0 ] && grep -q '^bot repos/o/r/statuses/.* state=failure .*description=needs-work at this head' "$S/posts" \
   && ok "(p5) a passing needs-work posts failure, written as \$GH" || bad "(p5) rc=$rc posts='$(posts)'"
 
-verdict needs-work honored '- [note] N1 optional' nw-noblocker
-run p6 7 "$SHA" "$T/nw-noblocker.md" "$T/rec.md" "$T/rec.md" https://x/pr/7#c3; rc=$?
-[ "$rc" -eq 1 ] && [ -z "$(posts)" ] && grep -q 'needs-work with no blocker' "$S/out" && ok "(p6) a needs-work with nothing to fix posts nothing" || bad "(p6) rc=$rc posts='$(posts)'"
+verdict needs-work honored 'None.' nw-nofinding
+run p6 7 "$SHA" "$T/nw-nofinding.md" "$T/rec.md" "$T/rec.md" https://x/pr/7#c3; rc=$?
+[ "$rc" -eq 1 ] && [ -z "$(posts)" ] && grep -q 'needs-work with no finding' "$S/out" && ok "(p6) a needs-work with nothing to fix posts nothing" || bad "(p6) rc=$rc posts='$(posts)'"
 
 S="$T/p7"; mkdir -p "$S"; touch "$S/fail"
 FAKE_GH="$S" GH="$T/bin/fake-gh" bash "$TOOL" 7 "$SHA" "$T/approve-ok.md" "$T/rec.md" "$T/rec.md" https://x/pr/7#c1 > "$S/out" 2> "$S/err"; rc=$?
