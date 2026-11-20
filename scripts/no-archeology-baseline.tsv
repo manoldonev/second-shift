@@ -11,7 +11,6 @@ plugins/dev-pipeline/skills/run/run-bot-local-selftest.sh	4	debt	selftest labels
 plugins/dev-pipeline/skills/run/run-cases-selftest.sh	19	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-claim-selftest.sh	25	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-detach-selftest.sh	27	debt	selftest labels; fixture ids among them become data rows when swept
-plugins/dev-pipeline/skills/run/run-joined-selftest.sh	3	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-judge-selftest.sh	46	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-record-selftest.sh	102	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-rows-selftest.sh	3	data	fixture record rows and the verdict-check message a case asserts

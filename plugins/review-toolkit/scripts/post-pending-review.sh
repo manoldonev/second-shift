@@ -3,19 +3,26 @@
 #
 # Usage: post-pending-review.sh [--check] [--repo <owner/name>] [--worktree <dir>] <pr> <report>
 #
-# The report's line 1 is its `reviewed-by: second-shift review-lead` line and line 2 its `reviewed: <full sha>` line.
-# That sha is the review's commit_id. It must be the PR's head or one of its commits; when it is not the head, the
-# review is still posted and the output says the PR has moved on. A pending review of the caller's already on the PR
-# blocks the post: nothing is created or deleted. --check runs only these checks, before the offer, and writes nothing.
+# The report is in the lane verdict grammar: line 1 `verdict: approve|needs-work`, line 2 `reviewed: <full sha>`, and
+# `reviewed-by: second-shift review-lead` on line 3, or on line 4 after a `reason:` line. Before any gh call the report
+# must pass dev-pipeline's verdict-check.sh in its no-record mode, found through plain-review-tools.sh; a report that
+# fails it, or a checker that cannot run, is refused and nothing is posted. The sha is the review's commit_id. It must
+# be the PR's head or one of its commits; when it is not the head, the review is still posted and the output says the
+# PR has moved on. A pending review of the caller's already on the PR blocks the post: nothing is created or deleted.
+# --check runs only these checks, before the offer, and writes nothing.
 #
-# The body is the report without its folded `dev: lane vs blind` block; the block's hidden machine line is kept, byte
-# for byte. Each Critical or Warning finding whose first path:line is inside a hunk of `<PR base>...<sha>`, diffed in
-# --worktree, is also one inline comment on the right side. When the base commit cannot be fetched, the review has no
-# inline comments and the output says why. An @-mention outside code is wrapped in backticks, so no one is notified.
+# Each `## Findings` entry whose first path:line is inside a hunk of `<PR base>...<sha>`, diffed in --worktree, is one
+# inline comment on the right side: the defect and its continuation lines, without the id, the site and the
+# [blocker]/[note] tag, with its reviewer tag kept and [blind] shown as [Blind review]. The body is the report without
+# the inline findings. An inline [blocker] keeps one line `- [blocker] B<n> path:line — <first sentence>`, and when a
+# note went inline `## Findings` ends with `<k> notes are inline comments.` A finding not posted inline stays in full.
+# The machine line is kept byte for byte. When the base commit cannot be fetched, the review has no inline comments,
+# the body is the whole report, and the output says why. An @-mention outside code is wrapped in backticks, so no one
+# is notified.
 #
 # Writes: the one review creation, through plain gh. A failed create is reported and never retried.
 # Exit: 0 posted, or --check found it postable · 1 refused or failed, the reason on stderr · 2 usage, or the report
-# lacks its two head lines.
+# lacks its head lines.
 set -uo pipefail
 usage() { echo "usage: post-pending-review.sh [--check] [--repo <owner/name>] [--worktree <dir>] <pr> <report>" >&2; exit 2; }
 REPO="" WT="." CHECK=0
@@ -33,10 +40,23 @@ PR="$1" REPORT="$2"
 case "$PR" in ''|*[!0-9]*) usage ;; esac
 [ -r "$REPORT" ] || { echo "post-pending-review: cannot read the report $REPORT" >&2; exit 2; }
 l1="$(sed -n '1{s/\r$//;p;}' "$REPORT")"; l2="$(sed -n '2{s/\r$//;p;}' "$REPORT")"
-case "$l1" in "reviewed-by: second-shift review-lead"*) : ;; *) echo "post-pending-review: line 1 of $REPORT is not its reviewed-by line" >&2; exit 2 ;; esac
+l3="$(sed -n '3{s/\r$//;p;}' "$REPORT")"; l4="$(sed -n '4{s/\r$//;p;}' "$REPORT")"
+case "$l1" in "verdict: approve"|"verdict: needs-work") : ;; *) echo "post-pending-review: line 1 of $REPORT is not its verdict line" >&2; exit 2 ;; esac
 SHA="${l2#reviewed: }"
 [ "$l2" != "$SHA" ] && [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "post-pending-review: line 2 of $REPORT is not 'reviewed: <full sha>'" >&2; exit 2; }
+case "$l3" in reason:*) by="$l4" ;; *) by="$l3" ;; esac
+case "$by" in "reviewed-by: second-shift review-lead"*) : ;; *) echo "post-pending-review: $REPORT has no 'reviewed-by: second-shift review-lead' line on line 3, or on line 4 after a reason line" >&2; exit 2 ;; esac
 die() { echo "post-pending-review: $*" >&2; exit 1; }
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PT="$(bash "$HERE/plain-review-tools.sh" 2>&1)" || die "the report's format could not be checked: $PT; nothing posted"
+[ -f "$PT/verdict-check.sh" ] || die "the report's format could not be checked: $PT has no verdict-check.sh; nothing posted"
+vc="$(bash "$PT/verdict-check.sh" "$REPORT" 2>&1)"; vrc=$?
+case "$vrc" in
+  0) : ;;
+  1) die "the report fails verdict-check.sh, so nothing is posted: $(tr '\n' ';' <<<"$vc" | sed 's/;$//; s/;/; /g')" ;;
+  *) die "the report's format could not be checked (verdict-check.sh exit $vrc: $(tr '\n' ' ' <<<"$vc" | sed 's/ *$//')); nothing posted" ;;
+esac
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/post-pending-review.XXXXXX")" || die "no temp dir"
 trap 'rm -rf "$T"' EXIT
@@ -124,54 +144,70 @@ counts="$(awk -v dir="$T" -v inline="$inline" '
     return out
   }
   function fence(s) { return s ~ /^ ? ? ?(```|~~~)/ }
-  function text(t,   tag, l, p, d) {
-    sub(/^- /, "", t)
-    if (match(t, /^\[blind\] /)) { tag = "[Blind review]"; t = substr(t, RLENGTH + 1) }
-    else {
-      if (match(t, /^\[lane\+blind\] /)) t = substr(t, RLENGTH + 1)
-      if (match(t, /^\[[A-Za-z0-9 _.\/-]+\] /)) { tag = substr(t, 1, RLENGTH - 1); t = substr(t, RLENGTH + 1) }
-    }
+  # tag(t) is the reviewer tag an inline comment keeps; defect(t) is the text without the tags and the site
+  function tag(t) {
+    if (t ~ /^\[blind\] /) return "[Blind review]"
+    sub(/^\[lane\+blind\] /, "", t)
+    return match(t, /^\[[A-Za-z0-9 _.\/-]+\] /) ? substr(t, 1, RLENGTH - 1) : ""
+  }
+  function defect(t,   l, p, d) {
+    sub(/^\[(blind|lane\+blind)\] /, "", t); sub(/^\[[A-Za-z0-9 _.\/-]+\] /, "", t)
     p = index(t, DASH)
     if (p) d = substr(t, p + DL)
-    else { d = t; l = loc(d); if (l != "" && (p = index(d, l))) d = substr(d, 1, p - 1) substr(d, p + length(l)); gsub(/\(confidence: [0-9]+\)/, "", d) }
+    else { d = t; l = loc(d); if (l != "" && (p = index(d, l))) d = substr(d, 1, p - 1) substr(d, p + length(l)) }
     gsub(/^[ \t]+|[ \t]+$/, "", d); gsub(/[ \t][ \t]+/, " ", d)
-    return tag == "" ? d : tag " " d
+    return d
+  }
+  function sentence(t,   r, p) {
+    if (match(t, /\.( |$)/)) t = substr(t, 1, RSTART)
+    if (length(t) > 160) { r = substr(t, 1, 160); for (p = 160; p > 0 && substr(r, p, 1) != " "; p--) ; if (p > 1) t = substr(r, 1, p - 1) "…" }
+    return t
   }
   function inhunk(p, n,   k) { for (k = 1; k <= nh; k++) if (hp[k] == p && hs[k] <= n && n <= he[k]) return 1; return 0 }
+  function out(s) { if (s ~ /^<!-- plain-vs-lane: /) b[++nb] = s; else if (fence(s)) { b[++nb] = s; infence = !infence } else b[++nb] = infence ? s : unmention(s) }
+  function countline() {
+    if (!ninote) return
+    while (nb > 0 && b[nb] !~ /[^ \t]/) nb--
+    out(""); out(ninote == 1 ? "1 note is an inline comment." : ninote " notes are inline comments."); out("")
+  }
   BEGIN {
     DASH = " — "; DL = length(DASH)
     while ((getline l < (dir "/hunks")) > 0) { split(l, h, "\t"); nh++; hp[nh] = h[1]; hs[nh] = h[2] + 0; he[nh] = h[3] + 0 }
   }
-  { sub(/\r$/, "") }
-  NR <= 2 { b[++nb] = $0; next }
-  dev {
-    if ($0 ~ /^<details>/) depth++
-    else if ($0 ~ /^<\/details>/ && --depth == 0) dev = 0
-    else if ($0 ~ /^<!-- plain-vs-lane: /) b[++nb] = $0
-    next
+  { sub(/\r$/, ""); raw[++n] = $0
+    if ($0 ~ /^## /) { sec = $0; sub(/[ \t]+$/, "", sec); cur = 0; if (fstart && !fend) fend = n; if (sec == "## Findings") fstart = n; next }
+    if (sec == "## Findings" && match($0, /^- \[(blocker|note)\] [BN][0-9]+ /)) {
+      nf++; first[n] = nf; fe[nf] = n; fk[nf] = substr($0, 4, 1); fid[nf] = substr($0, 1, RLENGTH - 1); sub(/^.* /, "", fid[nf])
+      ft[nf] = substr($0, RLENGTH + 1); fc[nf] = ""; cur = nf; next
+    }
+    if (sec == "## Findings" && cur && $0 ~ /^[ \t]+[^ \t]/) { c = $0; sub(/^[ \t]+/, "", c); fc[cur] = fc[cur] "\n" c; fe[cur] = n; next }
+    if ($0 ~ /[^ \t]/) cur = 0
   }
-  /^<details><summary>dev: lane vs blind/ { dev = 1; depth = 1; next }
-  /^<!-- plain-vs-lane: / { b[++nb] = $0; next }
-  { if (fence($0)) { b[++nb] = $0; infence = !infence } else b[++nb] = infence ? $0 : unmention($0) }
-  /^## / { sec = $0 ~ /^## (Critical|Warnings)/; cur = 0; next }
-  sec && /^- / && !/^- None\.?[ \t]*$/ { nf++; ft[nf] = $0; fc[nf] = ""; cur = nf; next }
-  sec && cur && /^[ \t]+[^ \t]/ { c = $0; sub(/^[ \t]+/, "", c); fc[cur] = fc[cur] "\n" c; next }
-  { cur = 0 }
   END {
-    while (nb > 2 && b[nb] !~ /[^ \t]/) nb--
-    for (k = 1; k <= nb; k++) print b[k] > (dir "/body")
-    close(dir "/body")
     printf "" > (dir "/index")
     for (k = 1; k <= nf; k++) {
       l = loc(ft[k]); if (l == "" || !inline) continue
-      p = l; sub(/:[0-9]+$/, "", p); n = substr(l, length(p) + 2) + 0
-      if (!inhunk(p, n)) continue
-      f = dir "/c." k; ni++
-      m = split(text(ft[k]) fc[k], cl, "\n")
+      p = l; sub(/:[0-9]+$/, "", p); ln = substr(l, length(p) + 2) + 0
+      if (!inhunk(p, ln)) continue
+      isin[k] = 1; site[k] = l; ni++; if (fk[k] == "n") ninote++
+      f = dir "/c." k; t = tag(ft[k]); d = defect(ft[k])
+      m = split((t == "" ? d : t " " d) fc[k], cl, "\n")
       for (j = 1; j <= m; j++) printf "%s%s", unmention(cl[j]), (j < m ? "\n" : "") > f
-      close(f); print p "\t" n "\t" f > (dir "/index")
+      close(f); print p "\t" ln "\t" f > (dir "/index")
     }
     close(dir "/index")
+    for (i = 1; i <= n; i++) {
+      if (i == fend) countline()
+      if ((i in first) && isin[k = first[i]]) {
+        if (fk[k] == "b") out("- [blocker] " fid[k] " " site[k] DASH sentence(defect(ft[k])))
+        i = fe[k]; continue
+      }
+      out(raw[i])
+    }
+    if (!fend) countline()
+    while (nb > 0 && b[nb] !~ /[^ \t]/) nb--
+    for (k = 1; k <= nb; k++) print b[k] > (dir "/body")
+    close(dir "/body")
     print ni + 0, nf - ni
   }' "$REPORT")" || die "the report could not be read"
 read -r NIN NBODY <<<"$counts"

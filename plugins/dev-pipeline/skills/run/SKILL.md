@@ -12,7 +12,7 @@ first commit → up to `run.maxRounds` rounds of a fresh BUILD session, the sche
 fresh REVIEW. A review round runs two sessions blind to the record side by side: pass 1, with the
 prompt in `pass-1-review.md` beside `R`, and a plain review, with the prompt in `plain-review.md`.
 The REVIEW session then runs pass 2 on the pass-1 findings. The scheduler joins its draft with the
-plain review's and posts the one verdict, which ends with a folded `dev: lane vs blind` block.
+plain review's and posts the one verdict, which ends with one `lane vs blind:` line and a hidden machine line.
 `bash R -h` prints the header: usage,
 env, phases and the exit table. It is the truth; this file only says what is yours to do.
 

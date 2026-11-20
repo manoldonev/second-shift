@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # plain-review-tools.sh — prints the tools dir of the dev-pipeline plugin that review-lead's plain review runs from:
-# plain-review.sh (the session) and verdict-join.sh (the join). The plain review and its join live in dev-pipeline,
-# beside run.sh's; this resolves them from the repo layout or the plugin cache.
+# plain-review.sh (the session) and verdict-join.sh (the join). review-lead and post-pending-review.sh also run that
+# dir's verdict-check.sh on the report; each checks that the file is there, since an older dev-pipeline's checker has
+# no one-argument mode and exits 2. The plain review, its join and the checker live in dev-pipeline, beside run.sh's;
+# this resolves them from the repo layout or the plugin cache.
 #
 # Usage: plain-review-tools.sh
 # Env: SECOND_SHIFT_DEV_PIPELINE_ROOT overrides the search.

@@ -138,10 +138,10 @@ so every line is effectively policy. (Doc routing does NOT go here; that's
 `doc-routing.md` above.)
 
 **`## Knowledge-base contributions` is the review's sink, and it writes nowhere.** Declared,
-every lane verdict carries the block in its `## Notes` under the lead line
-`Knowledge-base contributions:`, one proposal per line, or the single line
-`Knowledge-base contributions: none`. The lane's review session writes it itself. Every ad hoc
-`review-lead` report carries the same proposals in a `### Knowledge-base contributions` block. The proposals are drafts you file: second-shift ships the
+a lane verdict carries the block in its `## Notes` under the lead line
+`Knowledge-base contributions:`, one proposal per line. When no candidate passes, the verdict has
+no block. The lane's review session writes it itself. An ad hoc `review-lead` report carries the
+same proposals in its own `## Notes`, under the same rule. The proposals are drafts you file: second-shift ships the
 mechanism and writes to no knowledge base. Each proposal must pass your inclusion test; a
 candidate that fails it is not listed. They come from three places: the gaps intake's knowledge
 source reported (the record's `## Knowledge source`, "Authoring the intake-context surface"

@@ -5,6 +5,13 @@
 #
 # Usage:
 #   verdict-check.sh <body-file> <record-at-head> <record-at-first>
+#   verdict-check.sh <body-file>       (no-record mode: review-lead's report, which scores no record)
+#
+# The no-record mode takes the same grammar without `## Decision record rows`, which it fails, and requires the
+# `reviewed-by:` line and `## Summary`. Both modes fail a `## Summary` of more than 8 non-blank lines, a `## Notes` of
+# 150 words or more, a `[note]` finding of more than 4 lines, and the line `Knowledge-base contributions: none`. The
+# Notes count leaves out the knowledge-base block (from its lead line to the end of the section) and the lines the
+# join writes: `Joined review:`, `lane vs blind:` and the hidden `<!-- plain-vs-lane: … -->` line.
 #
 # The body has these parts, in this order and nothing else (the grammar run.sh's review prompt and
 # review/SKILL.md state):
@@ -36,14 +43,16 @@
 # starting with the rule's stable name) · 2 usage, or a file cannot be read (nothing is evaluated).
 set -uo pipefail
 
-[ $# -eq 3 ] || { echo "usage: verdict-check.sh <body-file> <record-at-head> <record-at-first>" >&2; exit 2; }
+[ $# -eq 3 ] || [ $# -eq 1 ] || { echo "usage: verdict-check.sh <body-file> [<record-at-head> <record-at-first>]" >&2; exit 2; }
 for f in "$@"; do
   [ -f "$f" ] && [ -r "$f" ] || { echo "verdict-check: cannot read $f — nothing evaluated" >&2; exit 2; }
 done
-ids="$(cat "$2" "$3" | tr -d '\r' | sed -n -E 's/^\|[[:space:]]*(D-[0-9]+)[[:space:]]*\|.*/\1/p' | sort -u -t- -k2,2n | tr '\n' ' ')" \
+norec=0 ids="" asked=""
+[ $# -eq 1 ] && norec=1
+[ "$norec" = 1 ] || ids="$(cat "$2" "$3" | tr -d '\r' | sed -n -E 's/^\|[[:space:]]*(D-[0-9]+)[[:space:]]*\|.*/\1/p' | sort -u -t- -k2,2n | tr '\n' ' ')" \
   || { echo "verdict-check: cannot read the record files — nothing evaluated" >&2; exit 2; }
 # shellcheck disable=SC2016  # an awk program, not shell
-asked="$(awk '
+[ "$norec" = 1 ] || asked="$(awk '
   { sub(/\r$/, ""); s = $0; gsub(/\\\|/, "\001", s) }
   s !~ /^\|[ \t]*(D|OR)-[0-9]+[ \t]*\|/ { next }
   { n = split(s, c, "|"); for (i = 2; i <= n; i++) gsub(/^[ \t]+|[ \t]+$/, "", c[i]) }
@@ -89,14 +98,18 @@ function fold_summary(s,    body, list, nl, it, kw, i, j, k, p, total) {
   }
   fnrows = total
 }
+function endnote() { if (notelines > 4) fail("note longer than four lines", noteid " has " notelines " lines"); notelines = 0 }
 { sub(/\r$/, "") }
 /Ready to merge\?/ { fail("Ready to merge? in the body", "line " NR) }
+/^[ \t]*Knowledge-base contributions: none[ \t]*$/ { fail("Knowledge-base contributions: none in the body", "line " NR ": leave the block out when it has no proposal") }
 NR == 1 { if ($0 ~ /^verdict: (approve|needs-work)$/) v = substr($0, 10); else fail("line 1 is not a verdict line", cut($0)); next }
 NR == 2 { if (!($0 ~ /^reviewed: [0-9a-f]+$/ && length($0) == 50)) fail("line 2 is not a reviewed line", cut($0)); next }
 NR == 3 && $0 ~ /^reason: (render-unavailable|ticket-unreadable|seat-unavailable)$/ { reason = substr($0, 9); next }
-(NR == 3 || (NR == 4 && reason != "")) && /^reviewed-by: second-shift / { next }
+(NR == 3 || (NR == 4 && reason != "")) && /^reviewed-by: second-shift / { by = 1; next }
 /^## / {
+  endnote()
   h = $0; sub(/[ \t]+$/, "", h)
+  if (norec && h == "## Decision record rows") { fail("Decision record rows in a verdict with no record"); seen[h] = 1; sec = -1; next }
   if (!(h in order)) { fail("unknown section", h); sec = -1; next }
   if (h in seen) { fail("section repeated", h); sec = -1; next }
   seen[h] = 1
@@ -106,6 +119,7 @@ NR == 3 && $0 ~ /^reason: (render-unavailable|ticket-unreadable|seat-unavailable
 sec == 0 { if ($0 !~ /^[ \t]*$/) fail("text outside a section", "line " NR ": " cut($0)); next }
 sec == 1 {
   if ($0 ~ /^[ \t]*$/) next
+  slines++
   if (sfirst == "") sfirst = trim($0)
   if ($0 ~ /^[ \t]*\|/) fail("Summary not in the grammar", "line " NR ": a Summary holds no table")
   stext = stext " " $0; next
@@ -145,14 +159,27 @@ sec == 3 {
     fid = substr($0, 1, RLENGTH - 1); sub(/^.* /, "", fid)
     if (fid in fids) fail("finding id repeated", fid); fids[fid] = 1
   }
-  if ($0 ~ /^- \[blocker\] B[0-9]+ /) { blockers++; finds++; infind = 1; next }
-  if ($0 ~ /^- \[note\] N[0-9]+ /) { finds++; infind = 1; next }
-  if (infind && $0 ~ /^  /) next
+  if ($0 ~ /^- \[blocker\] B[0-9]+ /) { endnote(); blockers++; finds++; infind = 1; next }
+  if ($0 ~ /^- \[note\] N[0-9]+ /) { endnote(); finds++; infind = 1; notelines = 1; noteid = fid; next }
+  if (infind && $0 ~ /^  /) { if (notelines) notelines++; next }
   fail("Findings not in the grammar", "line " NR ": " cut($0)); next
 }
+sec == 5 {
+  if ($0 ~ /^(### )?Knowledge-base contributions/) kb = 1
+  if (kb || $0 ~ /^(<!-- plain-vs-lane: |Joined review: |lane vs blind: )/) next
+  nwords += NF; next
+}
 END {
+  endnote()
+  if (slines > 8) fail("Summary longer than eight lines", slines " non-blank lines")
+  if (nwords >= 150) fail("Notes of 150 words or more", nwords " words, not counting the knowledge-base block and the join lines")
+  if (norec) {
+    if (!by) fail("missing reviewed-by line", "line 3, or line 4 after a reason line")
+    if (!("## Summary" in seen)) fail("missing section", "## Summary")
+  }
   if (NR < 2) fail("line 2 is not a reviewed line", "the body has fewer than two lines")
-  if (!("## Decision record rows" in seen)) fail("missing section", "## Decision record rows")
+  if (norec) {}
+  else if (!("## Decision record rows" in seen)) fail("missing section", "## Decision record rows")
   else if (ts < 2) fail("Decision record rows not in the grammar", "no | Row | Score | Evidence | table")
   if (fd == 1) fail("Decision record rows not in the grammar", "the rows fold has no </details> line after the table")
   if (fd > 0 && fnrows != "") {
@@ -178,4 +205,4 @@ END {
   if (reason == "") for (i = 1; i <= n; i++) if (idl[i] != "" && !(idl[i] in scored)) fail("record row not scored", idl[i])
   exit bad
 }'
-awk -v ids="$ids" -v asked="$asked" "$prog" "$1"
+awk -v ids="$ids" -v asked="$asked" -v norec="$norec" "$prog" "$1"

@@ -53,7 +53,7 @@ Before classifying findings, understand the codebase's current maturity. If `.cl
 The panel named throughout this skill is the **plugin-shipped generic registry**. The consumer repo tunes it through `<repo-root>/.claude/second-shift.config.json` (env override `SECOND_SHIFT_CONFIG`) under the `reviewers` key. Read that file at the start of Routing and compute the **effective registry**:
 
 - `reviewers.add[]` — repo-local reviewer agents living in the repo's `.claude/agents/` (referenced **bare**, e.g. `orders-reviewer`). Each entry declares `dimensions[]` (a routing/dedup hint — treat those dimensions as the reviewer's domain when deciding whether to spawn it and when merging its findings). Register these alongside the plugin panel; spawn them per their declared domain the same way the conditional reviewers below are spawned.
-- `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; omit its Verdicts row.
+- `reviewers.remove[]` — plugin-shipped reviewers disabled in this repo (e.g. `db-reviewer` in a pure-FE repo). Never spawn a removed reviewer; it gets no `Not reviewed:` entry.
 - `reviewers.modelOverrides{}` — per-reviewer model-tier override applied when dispatching (e.g. `security-reviewer: opus` in one repo, `sonnet` in another). Pass the `reviewers` group as `config.reviewers` (see Pre-flight); the `code-review.mjs` fan-out resolves each reviewer's tier from `modelOverrides` and `tierMap`, else from its shipped table.
 
 If the config is absent or has no `reviewers` block, the effective registry is exactly the plugin panel. Repo-local `add` reviewers are referenced **bare**, and plugin-shipped reviewers **qualified** (`docs/namespaces.md` rule 2) — that asymmetry is the disambiguation between roots, and it is what the panel above is spelled to satisfy. The names in the panel are dispatch names: they reach `agent({ agentType })` through `code-review.mjs`, so a bare plugin name there is not a stylistic choice but an agent type that does not resolve. `check-reviewer-references.sh` enforces both halves.
@@ -119,9 +119,10 @@ The Scope Completeness Gate (see Synthesis Rules) is the one exception — its F
 13. Apply Scope Completeness Gate (hard gate — see below)
 14. Cross-reviewer self-check (see below)
 15. Write the knowledge-base contributions, when the repo declares a sink (see Knowledge-base contributions below)
-16. Synthesize report
-17. Join the plain review's blockers into the report (see "The plain review" below), and give the joined report
-18. Offer to post the report on the branch's PR as a pending review (see "Posting the report" below)
+16. Synthesize the report in the verdict format (see "Report format" below)
+17. Join the plain review's findings into the report (see "The plain review" below)
+18. Check the joined report's format, and give it (see "Check the format" below)
+19. Offer to post the report on the branch's PR as a pending review (see "Posting the report" below)
 
 ## Review Depth Routing
 
@@ -156,7 +157,9 @@ If a plan/spec was provided as input, read it — you'll verify the implementati
 - **Scope creep**: Was anything built that isn't in the plan? Over-engineering found here is also a finding (see Over-engineering is a finding, under Step 3).
 - **Misunderstandings**: Does the implementation match the plan's intent?
 
-Report plan compliance issues separately from code quality issues.
+Each problem these checks find is a finding in `## Findings`: a missing requirement or a misunderstanding is a
+completeness `[blocker]`, and scope creep that nothing needs is an over-engineering `[note]`. A plan or a decision
+record informs the findings only: the report never scores its rows and never has a `## Decision record rows` section.
 
 > **Note:** This section covers a written plan/spec file. GitHub-issue scope completeness is a separate, stricter check enforced by `scope-completeness-reviewer` (see Reviewer Routing). The two are complementary — a plan can drift from an issue, and either drift is a problem.
 
@@ -166,8 +169,8 @@ Report plan compliance issues separately from code quality issues.
 calibration may carry a `## Knowledge-base contributions` section: the knowledge base the review
 proposes additions to, the inclusion test a proposal must pass (prose you apply), and optionally a
 proposal format. When the section is absent, empty or TODO-bodied, it is absent: the report carries
-no `### Knowledge-base contributions` block and nothing below runs. When it is there, every report
-you write carries the block.
+no contributions block and nothing below runs. When it is there, the rule under "Report format"
+(the `kb-contributions` block) decides what the report carries.
 
 **Candidates come from two inputs, and you dispatch no provider.**
 
@@ -187,21 +190,13 @@ No record, or a record whose section reads `Knowledge source: none declared` or
 
 **The inclusion test decides.** Apply the declared test, as written, to every candidate, and list
 only those that pass. A candidate that fails it is not listed, not even as considered. When nothing
-passes, or the diff gives the test nothing to judge, the block is the single line
-`Knowledge-base contributions: none`.
-
-**Format.** The format the section declares replaces this default — one line per proposal:
-
-```
-- <kb-page> — <what to add or correct> (<lookup gap | change gap | kb stale | kb ahead>)
-```
+passes, or the diff gives the test nothing to judge, the report has no contributions block.
 
 `<kb-page>` is the page the record names, or the page the addition belongs on.
 
-**Never a finding.** A proposal is a draft the operator files in the knowledge base. It does not
-enter Synthesis — no dedup, confidence filter or triage — never appears under Critical, Warnings or
-Suggestions, and never moves "Ready to merge?". Re-derive the full list on every round from the
-record and the diff at the head you review; Prior Round Context does not narrow it.
+**Never a finding.** A proposal does not enter Synthesis — no dedup, confidence filter or triage —
+never appears in `## Findings`, and never changes the verdict. Re-derive the full list on every
+round from the record and the diff at the head you review; Prior Round Context does not narrow it.
 
 ## Reviewer Routing
 
@@ -220,8 +215,7 @@ itself, in one pass over the diff, against the checklist in
 - **test-coverage-reviewer** — the test-adequacy dimension
 
 Each name is in the effective registry and is dispatchable on demand or by config; routing does
-not select them. Their Verdicts rows are required, and read `Lead pass — ✅/❌` (see Verdict
-rules).
+not select them. The lead pass reviews them on every round, so they get no `Not reviewed:` entry.
 
 ### Conditionally spawn (never suppressed by depth routing)
 
@@ -258,11 +252,11 @@ WHICH reviewer: the provider map below decides, as it does for an unarmed diff a
 
 The no-provider row is a **default, not a fallback to nothing**: a repo with no design axis configured still gets design-system-discipline review on its web components, from the figma family because that is the family the lane builds with when no provider is set.
 
-**What this dimension asserts.** Both reviewers are design-blind by contract — they verify *the abstraction is right*, not that it matches an unseen design. This dimension covers design-token discipline, logical-vs-physical style props, real-component reuse over hand-rolled primitives, copy drift against a discoverable spec, and library conformance: each override, wrapper prop and justification comment checked against the installed UI library's source, with the installed line cited, every conformance finding a Warning. **It is not a pixel check** — the pixel loop belongs to the implementing session's self-verify artifact, to the pipeline's REVIEW session on a design-armed run (which renders every screen at the head and compares it with its frame, and cannot approve without that render), and to the human reviewer.
+**What this dimension asserts.** Both reviewers are design-blind by contract — they verify *the abstraction is right*, not that it matches an unseen design. This dimension covers design-token discipline, logical-vs-physical style props, real-component reuse over hand-rolled primitives, copy drift against a discoverable spec, and library conformance: each override, wrapper prop and justification comment checked against the installed UI library's source, with the installed line cited, every conformance finding a `[note]`. **It is not a pixel check** — the pixel loop belongs to the implementing session's self-verify artifact, to the pipeline's REVIEW session on a design-armed run (which renders every screen at the head and compares it with its frame, and cannot approve without that render), and to the human reviewer.
 
-**Toolkit-absent on an ARMED spec is a VOID, not a note.** The always-spawn row above is not a preference that degrades — the reviewer cannot be dispatched, so the round cannot be certified. Do not select a substitute, do not proceed with the rest of the panel, and do not answer "Ready to merge?". Emit the Step 4b-void "review did not run" report instead, naming the reviewer the provider map required and stating that `design-toolkit` is not installed in this session. The pipeline's REVIEW session cannot approve on this shape. **Toolkit-absent is the pre-dispatch way in, not the only one**: a fidelity reviewer that IS dispatched on an armed spec and is still dark after Step 4b's re-dispatch voids the round on the same ground — see Step 4b-void case 2.
+**Toolkit-absent on an ARMED spec is a VOID, not a note.** The always-spawn row above is not a preference that degrades — the reviewer cannot be dispatched, so the round cannot be certified. Do not select a substitute, do not proceed with the rest of the panel, and give no verdict. Emit the Step 4b-void "review did not run" report instead, naming the reviewer the provider map required and stating that `design-toolkit` is not installed in this session. The pipeline's REVIEW session cannot approve on this shape. **Toolkit-absent is the pre-dispatch way in, not the only one**: a fidelity reviewer that IS dispatched on an armed spec and is still dark after Step 4b's re-dispatch voids the round on the same ground — see Step 4b-void case 2.
 
-**Toolkit-absent degrade (unarmed diffs only).** These two agents ship in the `design-toolkit` plugin, not review-toolkit. The condition is that **the dimension was selected** — by *any* row of the map above, the no-provider default included — and the design-toolkit agent type is not available to dispatch in this session. When it holds, **do not select it**; detection is in-session and pre-dispatch, here at Routing. Note it once in the round summary (see "Not-selected ≠ dark" under the Synthesis Rules). Because nothing was ever dispatched, this never reaches `code-review.mjs` and cannot be confused with a dark reviewer.
+**Toolkit-absent degrade (unarmed diffs only).** These two agents ship in the `design-toolkit` plugin, not review-toolkit. The condition is that **the dimension was selected** — by *any* row of the map above, the no-provider default included — and the design-toolkit agent type is not available to dispatch in this session. When it holds, **do not select it**; detection is in-session and pre-dispatch, here at Routing. Name it on the `Not reviewed:` line (see "Not-selected ≠ dark" under the Synthesis Rules). Because nothing was ever dispatched, this never reaches `code-review.mjs` and cannot be confused with a dark reviewer.
 
 Keying this on the *dimension being selected* rather than on `design.provider` being declared is load-bearing, not phrasing: the default row selects a reviewer with no provider key at all, and "no provider declared, design-toolkit not installed" is the ordinary shape of a consumer running review-toolkit alone. A degrade keyed on the key's presence would leave exactly that consumer's dimension silently unrun. The lint's matching exemption (`check-reviewer-references.sh`) is unconditional for the same reason — the two halves of one degrade must agree.
 
@@ -293,17 +287,16 @@ conservatively and say that you did.
 **Security defers when it is spawned.** When the security conditional fires, the lead pass's
 security section is not run — the spawned reviewer owns the dimension, and running both would
 manufacture the duplicate findings Step 1 then has to merge. When it does not fire, the lead pass
-owns it and its Verdicts row reads `Lead pass — ✅/❌` like the other four.
+owns it like the other four.
 
 **Performance defers when it is spawned**, by the same reasoning. When `performance-reviewer` is
 dispatched on demand, the lead pass's performance section is not run and the seat owns the
-dimension — the record-named risks included. Its Verdicts row reads `Pass / Fail`. Otherwise
-the lead pass owns it, the record-named risks included (`lead-pass-checklist.md`, "Performance"),
-and the row reads `Lead pass — ✅/❌`.
+dimension — the record-named risks included. Otherwise the lead pass owns it, the record-named
+risks included (`lead-pass-checklist.md`, "Performance").
 
 **Lead-pass findings are findings.** They enter Synthesis at Step 1 alongside the subagents' and
 are deduplicated, confidence-filtered and triaged by the same rules — no privilege for having been
-found in-session. Label them by dimension in the report exactly as a spawned reviewer's would be
+found in-session. Tag them by dimension in the report exactly as a spawned reviewer's would be
 (`[Performance]`, `[Maintainability]`, `[Complexity]`, `[Test Coverage]`, `[Security]`).
 
 ## Spawning Reviewers
@@ -329,9 +322,9 @@ rejects an empty `reviewers[]` by design (it has nothing to dispatch and returni
 would be indistinguishable from a fully dark panel), so **do not invoke the Workflow at all** when
 the selected set is empty. Run the lead pass and synthesize over its findings alone.
 
-This is not a degraded round and never a `[Coverage gap]`: nothing was selected, so nothing went
-dark (Step 4c). Note the empty selection once in the Review Summary — "no subagent met a trigger
-this round; reviewed by the lead pass" — so the reduced fan-out is visible rather than inferred.
+This is not a degraded round and never a coverage gap: nothing was selected, so nothing went
+dark (Step 4c). It needs no line of its own: no security surface and no issue reference are each
+already an entry on the `Not reviewed:` line, so the reduced fan-out is visible rather than inferred.
 
 ### Special handling: `scope-completeness-reviewer`
 
@@ -355,7 +348,7 @@ If the user's invocation prompt contains scope assertions (e.g., "this is the BE
 ## The plain review
 
 A second, record-blind review runs beside yours: one headless session with Read, Grep and Glob only, in a copy of
-the head with no `.git` and no plans directory. It sees the diff and the ticket and nothing else. Its blockers are
+the head with no `.git` and no plans directory. It sees the diff and the ticket and nothing else. Its findings are
 joined into your report by a script, never by you. This is the same plain review and the same join that the lane's
 `run.sh` runs.
 
@@ -426,11 +419,12 @@ bash "$PT/verdict-join.sh" "<scratch dir>/lead-report.md" "$P" --format report \
 The `set --` line passes the count only when the installed `verdict-join.sh` names `--other-comments` in its usage
 line: an older one exits on a flag it does not know.
 
-Give its output as your report, unchanged. `<scratch dir>/report.md` holds it for "Posting the report". The script tags an agreed blocker `[lane+blind]`, adds a plain-only one
-under `## Critical` as `[blind]`, and turns `Ready to merge?` to `No` when it adds one. It ends the report with a
-folded `dev: lane vs blind` block that sets every finding of both reviews side by side and holds the blind review's draft as
-written. When the plain review did not return, the report stands as you wrote it and its
-`## Notes` says why. Never edit, drop or soften a `[blind]` blocker after the join.
+`<scratch dir>/report.md` holds the joined report for "Check the format" and "Posting the report". The script joins
+it by the lane's rules: it tags an agreed blocker `[lane+blind]`, adds each plain-only blocker and note as a `[blind]`
+finding with the next free id, and turns `verdict: approve` into `verdict: needs-work` when it adds one. It ends
+`## Notes` with one `lane vs blind:` line that counts how the two reviews' findings pair, and a hidden machine line.
+When the plain review did not return, the report stands as you wrote it and its `## Notes` says why. Never edit,
+drop or soften a `[blind]` finding after the join.
 
 **A void round runs no join.** When Step 4b-void voids the round after the plain review started, wait for the
 background run to finish as above. Do not run the join block: it would add the blind blockers to a report that
@@ -445,34 +439,55 @@ if [ -s "$O/verdict.md" ]; then cat "$O/verdict.md"; else echo "It did not retur
 
 A void round offers no post (see "Posting the report").
 
+## Check the format
+
+**Process step 18.** When the join did not run (the plain review is off, or the installed dev-pipeline has none),
+write your report to `<scratch dir>/report.md` first. Then check it with dev-pipeline's checker, in its no-record
+mode:
+
+```bash
+PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" && [ -f "$PT/verdict-check.sh" ] && \
+bash "$PT/verdict-check.sh" "<scratch dir>/report.md"
+```
+
+- **Exit 0:** give the report, unchanged.
+- **Exit 1:** it prints one line per rule the report breaks. Rewrite the report in `<scratch dir>/lead-report.md`
+  to fix each one, run the join block again when it ran before, and check again. Repeat until it exits 0. A rule
+  never removes a finding: shorten the wording instead. Never edit a `[blind]` finding to pass the check.
+- **Any other result** (the tools dir or the checker is missing, or an older checker exits 2 on one argument): give
+  the report with one line above it, `Format not checked: <why>`, and offer no post.
+
+The void "review did not run" report is not checked.
+
 ## Posting the report
 
-**Process step 18, after you give the report.** The report can go on the branch's PR as a pending review: a review
+**Process step 19, after you give the report.** The report can go on the branch's PR as a pending review: a review
 that only the person who ran this session can see, until they edit and submit it in the GitHub UI. It is offered on
 every PR, the reviewer's own or another's. Nothing is posted without the reviewer's yes.
 
 **When there is no offer.** In each case below, offer nothing and end with the one line given:
 
 - A void round (Step 4b-void): `The report was not posted: the review did not run.`
+- The format was not checked ("Check the format"): `The report was not posted: its format was not checked.`
 - No open PR for the branch. Run `gh pr view --json number,state --jq 'select(.state == "OPEN") | .number'`. When
   it prints nothing or fails: `The report was not posted: this branch has no open PR. To post a review of a PR,
   check it out with gh pr checkout <n> and review again.`
 - No person to answer: the session runs headless, or it has no `AskUserQuestion` tool: `The report was not posted:
   no one is here to answer the offer.`
 
-**The report to post.** `<scratch dir>/report.md` holds the joined report. When the join did not run (the plain
-review is off, or the installed dev-pipeline has none), write the report you gave to that file first. It has no
-machine line and is posted the same way.
+**The report to post.** `<scratch dir>/report.md` holds the checked report. A report with no join has no
+`lane vs blind:` line and no machine line, and is posted the same way.
 
-**Just before the offer,** check the PR's head and commits against the report's line 2, with nothing written:
+**Just before the offer,** check the report's format and the PR's head and commits against the report's line 2,
+with nothing written:
 
 ```bash
 bash "<skill dir>/../../scripts/post-pending-review.sh" --check <pr number> "<scratch dir>/report.md"
 ```
 
 On a non-zero exit there is no offer: say `The report was not posted:` and the reason the script printed. That covers
-a reviewed sha that is not one of the PR's commits (an unpushed commit, a rebased branch) and a pending review of
-yours already on the PR. On exit 0, the script may print `the PR has moved on: …`; give that line, as printed, above
+a report that fails `verdict-check.sh` or that it cannot check, a reviewed sha that is not one of the PR's commits
+(an unpushed commit, a rebased branch) and a pending review of yours already on the PR. On exit 0, the script may print `the PR has moved on: …`; give that line, as printed, above
 the offer.
 
 **The offer.** Ask one `AskUserQuestion`. The question: `Post this report on PR #<n> as a pending review?` The first
@@ -488,9 +503,10 @@ bash "<skill dir>/../../scripts/post-pending-review.sh" --worktree "$(git rev-pa
 ```
 
 The script reads the sha from the report's line 2 and runs the same checks again just before it posts, so a push
-after the offer still gets its moved-on line. Give everything it printed,
-as it printed it. On exit 0, the review is posted; its output names the review, the inline comments, and a PR that
-has moved on past the reviewed head. On any other exit, say `The report was not posted:` and the reason the script
+after the offer still gets its moved-on line. Each finding whose site is inside the diff becomes an inline comment,
+and the review body leaves it out: an inline note goes, and an inline blocker keeps one pointer line. Give
+everything it printed, as it printed it. On exit 0, the review is posted; its output names the review, the inline
+comments, and a PR that has moved on past the reviewed head. On any other exit, say `The report was not posted:` and the reason the script
 printed. Never run it again, and never post the report another way: not through `gh-bot.sh`, not as an issue
 comment, not under another account. A pending review that already exists is the reviewer's to submit or delete in
 the GitHub UI.
@@ -511,6 +527,12 @@ Two severity vocabularies coexist across the review/planning agents. When a find
 
 The right-hand columns are the existing `reviewer-baseline` prose → `REVIEW_RESULT` block mapping (see [`reviewer-baseline`](../reviewer-baseline/SKILL.md), "Severity vocabulary mapping"); this table only adds the planning-agent column so the three are reconciled, not a third vocabulary. (`db-reviewer`'s own "Suggestion" tier is informational — treat as Note/Pre-existing.)
 
+These are the reviewers' input severities, not the report's. The report has two tags, set by the lane's tag rule:
+a completeness or correctness problem is a `[blocker]`; a maintainability, test-coverage, over-engineering or
+repo-convention problem is a `[note]`. A finding is listed only when it is relevant: a distinguished engineer who
+knew of it would definitely address it before merge. Every listed finding makes the verdict `needs-work`, a
+`[note]` the same as a `[blocker]`. An irrelevant finding is left out, not demoted.
+
 ### Step 1: Deduplicate (before triage)
 
 Before triaging, merge duplicate findings:
@@ -518,18 +540,20 @@ Before triaging, merge duplicate findings:
 - If security-reviewer and db-reviewer both flag the same missing `userId` filter → keep the db-reviewer's finding (more specific), drop the duplicate
 - If performance-reviewer and pipeline-reviewer both flag the same N+1 query → merge into one finding, credit both
 - Same file:line from multiple reviewers = one finding, pick the best description
-- **Exception**: Do not merge a `[Pre-existing]` finding with a `[Critical/Warning]` finding at the same location. Keep both — the new finding in the main sections, the pre-existing in the pre-existing section
+- **Exception**: Do not merge a `[Pre-existing]` finding into a new finding at the same location. Keep the new finding, and leave the pre-existing one out (Step 3)
 - If two findings from different reviewers have the same root cause but different file:line locations, group them under one finding with both locations listed and the higher severity
 
 ### Step 2: Confidence-based filter
 
 - Findings with confidence ≥80: proceed to normal triage
-- Findings with confidence <80: omit from main report sections (reviewers filter at source, but double-check). Collect all suppressed findings from reviewers into the "Suppressed" report section.
-- `[Pre-existing]` findings: always include regardless of confidence — route to "Pre-existing gaps" section
+- Findings with confidence <80: left out of the report (reviewers filter at source, but double-check). A suppressed finding is never listed.
+- `[Pre-existing]` findings: left out of the report (Step 3)
+
+The report carries no confidence number.
 
 ### Step 2b: Fidelity seat summary lines
 
-When `design-faithful-reviewer` or `figma-faithful-reviewer` ran, carry its `summary` into the Review Summary as one line per seat holding, verbatim and compacted, the source-absent line (`Installed source not present; library conformance not checked.`), each `unable to verify — pointer needed` gap, and the per-override disposition lines. They are not findings and change no verdict; they are what tells the reader the conformance check ran and what it could not reach. A seat whose `summary` carries none of them gets no line.
+When `design-faithful-reviewer` or `figma-faithful-reviewer` ran, carry its `summary` into `## Notes` as one line per seat holding, verbatim and compacted, the source-absent line (`Installed source not present; library conformance not checked.`), each `unable to verify — pointer needed` gap, and the per-override disposition lines. They are not findings and change no verdict; they are what tells the reader the conformance check ran and what it could not reach. A seat whose `summary` carries none of them gets no line.
 
 ### Step 3: Triage (BEFORE writing the report)
 
@@ -537,13 +561,13 @@ For every finding from a sub-reviewer, classify it:
 
 | Classification       | Criteria                                                                                 | Action                                                                                                            |
 | -------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **New gap**          | The PR introduces a pattern/vulnerability that doesn't exist elsewhere in the codebase   | Keep as Critical or Warning                                                                                       |
-| **Pre-existing gap** | The PR follows an existing codebase pattern that happens to be imperfect — never a finding the diff is the first to depend on (lead-pass rule 4, Duplicate delivery included): citing a sibling does not downgrade it | Downgrade to `## Pre-existing gaps (not blocking this PR)` section — note it for a future initiative, not this PR |
-| **Aspirational**     | The reviewer demands infrastructure that doesn't exist yet (auth, tests, shared clients) | Omit or move to `## Future improvements` — do NOT fail the review                                                 |
+| **New gap**          | The PR introduces a pattern/vulnerability that doesn't exist elsewhere in the codebase   | Keep as a finding, `[blocker]` or `[note]` by the tag rule                                                        |
+| **Pre-existing gap** | The PR follows an existing codebase pattern that happens to be imperfect — never a finding the diff is the first to depend on (lead-pass rule 4, Duplicate delivery included): citing a sibling does not downgrade it | Leave it out of the report — it is not this PR's                                                                  |
+| **Aspirational**     | The reviewer demands infrastructure that doesn't exist yet (auth, tests, shared clients) | Leave it out of the report — do NOT fail the review                                                               |
 
 **A dismissal cites the artifact that makes the finding harmless.** Downgrading or omitting a reviewer finding needs a citation — the schema showing the persisted shape, the guard that already rejects the input, the sibling that establishes the pattern. A rationale with no artifact behind it ("harmless over JSON") is not a dismissal; the finding stays at the reviewer's severity. For a finding the diff is the first to depend on (lead-pass rule 4, Duplicate delivery included), a sibling is not that artifact: a pattern nobody depended on is not an established pattern, and sibling handlers without commit-point dedup do not clear a new delivery source.
 
-**Over-engineering is a finding.** Every over-engineering observation, from a reviewer or from the lead pass, goes in Critical, Warnings or Suggestions, or in `## Suppressed` when its confidence alone is below the threshold. The Review Summary, Strengths, the Reasoning line and Plan Compliance carry no over-engineering observation that the finding sections do not. "The ticket prescribed it" and "a style trade-off" never move a finding out of the finding sections or down a tier: a structure the ticket or a plan prescribes is not a need for it, so quote that line in the finding.
+**Over-engineering is a finding.** Every relevant over-engineering observation, from a reviewer or from the lead pass, is a `[note]` in `## Findings`. `## Summary` and `## Notes` carry no over-engineering observation that `## Findings` does not. "The ticket prescribed it" and "a style trade-off" never move a finding out of `## Findings`: a structure the ticket or a plan prescribes is not a need for it, so quote that line in the finding.
 
 **Examples of false positives to catch:**
 
@@ -554,14 +578,14 @@ For every finding from a sub-reviewer, classify it:
 
 ### Step 4: Scope Completeness Gate
 
-If `scope-completeness-reviewer` was spawned and returned `FAIL` or `BLOCKED`, the consolidated "Ready to merge?" verdict **MUST** be "No" regardless of any other reviewer's verdict. This is a hard gate, not a heuristic. (`BLOCKED` means the subagent could not fetch the issue — treat it identically to `FAIL`.)
+If `scope-completeness-reviewer` was spawned and returned `FAIL` or `BLOCKED`, the verdict **MUST** be `verdict: needs-work` regardless of any other reviewer's verdict. This is a hard gate, not a heuristic. `FAIL` gates through its findings below. `BLOCKED` means the subagent could not read the ticket: line 3 of the report is `reason: ticket-unreadable`.
 
-- **The gate binds what the PR claims.** In partial mode (the PR body links the issue without a closing keyword), an item no hunk attempts comes back `[not delivered]`. It is not a finding: list those items in one Review Summary line, `Not delivered by this PR (linked as <verb>): <items>`, and they never move "Ready to merge?". An item the PR attempts and gets wrong is `[unsatisfied]` in either mode.
-- Each `[unsatisfied]` scope item, and each decision row scored `violated`, `undeterminable` or `departed` with no named decider, is included as a `Critical [Scope completeness]` finding in the Critical section, with the unsatisfied item, the reason, and the question "is this item covered by the diff somewhere I missed, or does it need to be added to the PR or explicitly deferred in the issue body?"
+- **The gate binds what the PR claims.** In partial mode (the PR body links the issue without a closing keyword), an item no hunk attempts comes back `[not delivered]`. It is not a finding: list those items in one `## Summary` line, `Not delivered by this PR (linked as <verb>): <items>`, and they never change the verdict. An item the PR attempts and gets wrong is `[unsatisfied]` in either mode.
+- Each `[unsatisfied]` scope item, and each decision row scored `violated`, `undeterminable` or `departed` with no named decider, is a `[blocker] [Scope completeness]` finding, with the unsatisfied item, the reason, and the question "is this item covered by the diff somewhere I missed, or does it need to be added to the PR or explicitly deferred in the issue body?"
 - The orchestrator's prompt (the user's invocation) does not override this gate. Claims like "that's deferred" or "out of scope here" are not evidence — only the diff covering the item, or the issue body explicitly deferring it (with a linked follow-up issue), satisfies a scope item.
 - If the user pushes back ("but it really is out of scope"), the response is to either (a) cover the item in the diff, or (b) update the issue body with explicit deferral language and re-run the gate. An item that can only be checked after the merge (the next run's transcript, a production metric) is neither: its form is the issue body's `## Post-merge checks` section, where the scope reviewer carries it as `PM-n` instead of scoring it — moving it there is an edit of type (b).
 
-If `scope-completeness-reviewer` returned `N/A — no issue provided`, include a single line in the Review Summary: "No GitHub issue referenced; scope completeness not verified."
+If `scope-completeness-reviewer` returned `N/A — no issue provided`, or no issue was referenced, the `Not reviewed:` line names it: `scope completeness (no issue referenced)`.
 
 ### Step 4b: Dead / dark reviewer accounting
 
@@ -572,7 +596,7 @@ Detect darkness from two distinct signals — never from "the array is shorter t
 1. **Died-after-retry (per-reviewer).** The reviewer is **present** in the returned `reviewers[]` as `{ result: null, ... }` (with `{ retried: true, failed: true }` if it also failed its automatic retry). Exactly that reviewer is dark.
 2. **Budget-skipped (all-or-nothing).** The return carries `budgetExhausted: true` and `reviewers` is **empty by construction**. **Every** selected reviewer (the set you chose during Routing / passed as `args.reviewers`) is dark — compare against that selected set to enumerate them.
 
-**Re-dispatch once, in-session, before recording anything — signal 1 only.** The fan-out's own retry is a **bit-identical** re-run: same prompt, same tier, same agent. Against the dominant death mode — the `maxTurns` cap reached with no text emitted — that is close to deterministic, so "it already retried" is true and irrelevant: what failed was the **prompt**, and this session is the only layer that can change it. So for each reviewer dark by **`died-after-retry`**, dispatch it once more yourself (Agent tool) before writing a `[Coverage gap]` line for it.
+**Re-dispatch once, in-session, before recording anything — signal 1 only.** The fan-out's own retry is a **bit-identical** re-run: same prompt, same tier, same agent. Against the dominant death mode — the `maxTurns` cap reached with no text emitted — that is close to deterministic, so "it already retried" is true and irrelevant: what failed was the **prompt**, and this session is the only layer that can change it. So for each reviewer dark by **`died-after-retry`**, dispatch it once more yourself (Agent tool) before you name it on the `Not reviewed:` line.
 
 Two things must make that prompt distinct from the one that died, and neither is optional:
 
@@ -581,33 +605,31 @@ Two things must make that prompt distinct from the one that died, and neither is
 
 **The tier is not a variable.** Re-dispatch the same agent type at the same declared tier the panel selected (including any `reviewers.modelOverrides` tier). Promoting the model produces a *different* review than the panel selected, which is not the same as recovering the one that died.
 
-**Signal 2 is out of scope for the mandate.** Under `budgetExhausted` nothing was dispatched, so there is no failed prompt to change and nothing to re-dispatch *differently*; that case keeps the `[Coverage gap]` accounting below, plus Step 4b-void.
+**Signal 2 is out of scope for the mandate.** Under `budgetExhausted` nothing was dispatched, so there is no failed prompt to change and nothing to re-dispatch *differently*; that case keeps the coverage-gap accounting below, plus Step 4b-void.
 
-**When the re-dispatch succeeds**, the reviewer is **not** a coverage gap: score its findings like any other reviewer and give its Verdicts row its real verdict. Record the recovery in one **Review Summary** line naming the reviewer, that it went dark, and that an in-session re-dispatch recovered it — e.g. "db-reviewer went dark in the fan-out; an in-session re-dispatch recovered it, and its verdict below is that run's."
+**When the re-dispatch succeeds**, the reviewer is **not** a coverage gap: score its findings like any other reviewer's. Record the recovery in one `## Notes` line naming the reviewer, that it went dark, and that an in-session re-dispatch recovered it.
 
-For each reviewer **still dark after** the re-dispatch (and for every reviewer dark by signal 2):
-
-- Add a `[Coverage gap]` line to the **Review Summary** naming the reviewer, its unreviewed domain, the reason (`died-after-retry` or `budget-exhausted`), and — for signal 1 — that the in-session re-dispatch was made and also came back dark.
-- In the **Verdicts** table, its row reads **`Dark (no output)`** in the Verdict column (with `—` findings / confidence) — never Pass, never Fail, never omitted.
-- The **"Ready to merge?"** reasoning MUST acknowledge the reduced coverage (e.g. "db-reviewer + unit-test-mutation-reviewer were dark this round; merge readiness is assessed without them").
+For each reviewer **still dark after** the re-dispatch (and for every reviewer dark by signal 2), name it on the
+`Not reviewed:` line with its unreviewed domain and the reason (`died-after-retry` or `budget-exhausted`) — and, for
+signal 1, that the in-session re-dispatch also came back dark. Never omit it, and never count it as clean.
 
 **What a still-dark reviewer costs depends on which one it is.** A domain that survived two prompt-distinct attempts is genuinely unreviewed, but the consequence is not uniform — for most reviewers the lead pass or a sibling still covered something, and for a few it did not. The set is fixed here, not consumer-configurable:
 
 | Still dark after the re-dispatch | Consequence |
 | --- | --- |
-| `scope-completeness-reviewer` | **"Ready to merge? = No"** — Step 4's rule, unchanged and never converted into a void. |
-| `security-reviewer` | **"Ready to merge? = No"**. This one is not a judgment call: "Security defers when it is spawned" means the lead pass **did not run** its own security section precisely because this reviewer was spawned. Its death therefore leaves the dimension covered by nobody, which is not the shape the visibility calibration was written for. |
-| `performance-reviewer`, when it was dispatched on demand | **"Ready to merge? = No"**, on the same ground: "Performance defers when it is spawned", so its death leaves the dimension — and any record-named cost risk it was sent to trace — covered by nobody. |
+| `scope-completeness-reviewer` | **`verdict: needs-work`, line 3 `reason: seat-unavailable`** — Step 4's gate, never converted into a void. |
+| `security-reviewer` | **`verdict: needs-work`, line 3 `reason: seat-unavailable`**. This one is not a judgment call: "Security defers when it is spawned" means the lead pass **did not run** its own security section precisely because this reviewer was spawned. Its death therefore leaves the dimension covered by nobody, which is not the shape the visibility calibration was written for. |
+| `performance-reviewer`, when it was dispatched on demand | **`verdict: needs-work`, line 3 `reason: seat-unavailable`**, on the same ground: "Performance defers when it is spawned", so its death leaves the dimension — and any record-named cost risk it was sent to trace — covered by nobody. |
 | the design-fidelity reviewer on an **armed** spec | **Void the round** — see Step 4b-void case 2. |
-| `db-reviewer`, `pipeline-reviewer`, `a11y-reviewer`, `unit-test-mutation-reviewer`, any repo-local `reviewers.add` reviewer | **Visibility**, as above: the `[Coverage gap]` line and the "Ready to merge?" acknowledgement, no forced answer. |
+| `db-reviewer`, `pipeline-reviewer`, `a11y-reviewer`, `unit-test-mutation-reviewer`, any repo-local `reviewers.add` reviewer | **Visibility**: the `Not reviewed:` entry, no forced verdict. |
 
-Outside those first three rows a dark reviewer does not by itself force "Ready to merge? = No" — it forces **visibility**: the human deciding to merge must be told which domains went unreviewed. That calibration is for a *partial* panel, and Step 4b-void below is where it stops applying.
+Outside those first three rows a dark reviewer does not by itself force `needs-work` — it forces **visibility**: the human deciding to merge must be told which domains went unreviewed. That calibration is for a *partial* panel, and Step 4b-void below is where it stops applying.
 
 ### Step 4b-void: an all-dark selected set voids the round only when nothing else reviewed it
 
-The rule above is calibrated for one reviewer dying. When every **selected subagent** dies it reads exactly the same, and that is the case where the report can be worthless: a complete-looking review, a coverage-gap note, and a "Ready to merge?" verdict resting on coverage that was never produced. An unattended run then merges on a review that reviewed nothing.
+The rule above is calibrated for one reviewer dying. When every **selected subagent** dies it reads exactly the same, and that is the case where the report can be worthless: a complete-looking review, a `Not reviewed:` entry, and a verdict resting on coverage that was never produced. An unattended run then merges on a review that reviewed nothing.
 
-**Void applies to the selected subagents, and only voids what it can void.** A completed lead pass means the round reviewed something — the four collapsed dimensions, plus security when its conditional did not fire — so an all-dark selected set on top of a completed lead pass is **not** a void. It is a partial-coverage round: keep Step 4b's behavior (a `[Coverage gap]` line per dark reviewer, `Dark (no output)` rows, "Ready to merge?" reasoning that names the missing domains) and answer the verdict from what the lead pass and any surviving results actually cover.
+**Void applies to the selected subagents, and only voids what it can void.** A completed lead pass means the round reviewed something — the four collapsed dimensions, plus security when its conditional did not fire — so an all-dark selected set on top of a completed lead pass is **not** a void. It is a partial-coverage round: keep Step 4b's behavior (a `Not reviewed:` entry per dark reviewer, and its consequence table) and give the verdict from what the lead pass and any surviving results actually cover.
 
 **When the round IS void — the two cases:**
 
@@ -616,23 +638,23 @@ The rule above is calibrated for one reviewer dying. When every **selected subag
    - **pre-dispatch**, the case its own section states: the reviewer cannot be dispatched at all (`design-toolkit` absent), detected at Routing;
    - **post-dispatch**: it was dispatched, went dark by `died-after-retry`, and was **still dark after** the Step 4b re-dispatch. A panel of five green reviewers beside it certifies every dimension except the one the ticket was armed for, which is the same hole the pre-dispatch case names. Do the re-dispatch first — a recovered fidelity reviewer is not a void, it is coverage.
 
-**The scope gate is a hard No, not a void.** A dark `scope-completeness-reviewer` is unchanged by any of this: Step 4 keeps its full force — a `FAIL`, a `BLOCKED` (which is treated identically to `FAIL`), or a dark return all make "Ready to merge?" **No**. It is a real verdict on a round that really happened, so it is never converted into a void, and never into a silent pass because the lead pass covered its other dimensions. The lead pass cannot substitute for it: reading the issue's scope in the same context that wrote the diff is the bias the gate exists to isolate.
+**The scope gate is a hard `needs-work`, not a void.** A dark `scope-completeness-reviewer` is unchanged by any of this: Step 4 keeps its full force — a `FAIL`, a `BLOCKED` (`reason: ticket-unreadable`), or a dark return (`reason: seat-unavailable`) all make the verdict `needs-work`. It is a real verdict on a round that really happened, so it is never converted into a void, and never into a silent pass because the lead pass covered its other dimensions. The lead pass cannot substitute for it: reading the issue's scope in the same context that wrote the diff is the bias the gate exists to isolate.
 
 Darkness is still counted across **both** of Step 4b's signals: a reviewer present in `reviewers[]` as `{ result: null, … }` (died-after-retry), or `budgetExhausted: true` with `reviewers: []` (every selected reviewer dark by construction). An **empty selection** is neither — nothing was selected, so nothing is dark, and a round with no fan-out is never void on that ground (see "Empty selection: no fan-out at all").
 
-**What a void emits.** Do **not** write the report structure below. Emit instead a short **"review did not run"** report that names the full dark set, its reason (`died-after-retry` / `budget-exhausted`), and the range that went unreviewed — and **do not answer "Ready to merge?"** at all.
+**What a void emits.** Do **not** write the report format below. Emit instead a short **"review did not run"** report that names the full dark set, its reason (`died-after-retry` / `budget-exhausted`), and the range that went unreviewed — and **give no verdict line** at all. It is not checked and never posted.
 
-This deliberately overrides the "Always give a clear verdict" rule under Rules, for this one case and no other. Answering "No" would be the tempting shape, and it is wrong in a way that is worse than silence: "No" asserts that a review found problems, which is false in the other direction, and it sends the author hunting for findings that do not exist. There is no verdict to give, because there was no review. Say that.
+This deliberately overrides the "Always give a clear verdict" rule under Rules, for this one case and no other. Answering `needs-work` would be the tempting shape, and it is wrong in a way that is worse than silence: "No" asserts that a review found problems, which is false in the other direction, and it sends the author hunting for findings that do not exist. There is no verdict to give, because there was no review. Say that.
 
 ### Step 4c: Not-selected ≠ dark
 
-A reviewer that was **never selected** is a different case from a dark reviewer: nothing failed, the trigger simply did not fire, so it is **not** a `[Coverage gap]` and its Verdicts row is omitted, not `Dark (no output)`. Reserve that rendering for reviewers that were selected and produced no usable result. Three not-selected cases still must not be invisible, because in each one a whole dimension is silently absent while the round looks green:
+A reviewer that was **never selected** is a different case from a dark reviewer: nothing failed, the trigger simply did not fire, so it is **not** a coverage gap. Any other reviewer that was not selected gets no `Not reviewed:` entry. Three not-selected cases still must not be invisible, because in each one a whole dimension is silently absent while the round looks green. Each is one entry on the `Not reviewed:` line:
 
-- **Unmatched web-component surface.** No changed path matched `$WEB_COMPONENT_GLOBS`, so neither `a11y-reviewer` nor the design-fidelity dimension was routed. Note once in the Review Summary, **including the resolved globs** so a mis-scoped config is diagnosable from the line itself — e.g. "a11y + design-fidelity not routed: no changed path matched `reviewers.webComponentGlobs` (`**/*.{tsx,jsx,vue,svelte,css,scss,less}`)". When the key is an explicit `[]`, the note reads "a11y + design-fidelity not routed: `reviewers.webComponentGlobs` is `[]` (declared: no web-component surface)" instead of printing an empty list. A genuinely non-FE diff is the overwhelmingly common case; escalating it would make every backend PR noisy.
-- **Security conditional did not fire.** No auth / tenancy / session / upload / query-construction surface in the diff and no `review-context/security-reviewer.md` in the repo, so `security-reviewer` was not selected. Note once in the Review Summary, naming what carried the dimension instead — e.g. "security-reviewer not selected: no security surface in the diff; security dimension covered by the lead pass". Never silent: the reader has to be able to tell "no security surface" from "nobody looked".
-- **Design-toolkit not installed.** A changed path *did* match and the provider map selected a fidelity reviewer — by any row, **the no-provider default included** — but the design-toolkit agent type is not available to dispatch (Routing detected this pre-dispatch). Note once: "design-fidelity dimension not run — design-toolkit not installed". `a11y-reviewer` is unaffected and still spawns. The trigger is selection, not a declared `design.provider`: on the default row no provider is declared and the dimension is still selected, so a provider-keyed condition would make this note unreachable for the commonest consumer.
+- **Unmatched web-component surface.** No changed path matched `$WEB_COMPONENT_GLOBS`, so neither `a11y-reviewer` nor the design-fidelity dimension was routed. The entry **includes the resolved globs** so a mis-scoped config is diagnosable from the line itself — e.g. "a11y + design-fidelity (no changed path matched `reviewers.webComponentGlobs` `**/*.{tsx,jsx,vue,svelte,css,scss,less}`)". When the key is an explicit `[]`, the entry reads "a11y + design-fidelity (`reviewers.webComponentGlobs` is `[]`: no web-component surface)" instead of printing an empty list. A genuinely non-FE diff is the overwhelmingly common case; escalating it would make every backend PR noisy.
+- **Security conditional did not fire.** No auth / tenancy / session / upload / query-construction surface in the diff and no `review-context/security-reviewer.md` in the repo, so `security-reviewer` was not selected. The entry names what carried the dimension instead — e.g. "security-reviewer (no security surface; the lead pass covered it)". Never silent: the reader has to be able to tell "no security surface" from "nobody looked".
+- **Design-toolkit not installed.** A changed path *did* match and the provider map selected a fidelity reviewer — by any row, **the no-provider default included** — but the design-toolkit agent type is not available to dispatch (Routing detected this pre-dispatch). The entry: "design-fidelity (design-toolkit not installed)". `a11y-reviewer` is unaffected and still spawns. The trigger is selection, not a declared `design.provider`: on the default row no provider is declared and the dimension is still selected, so a provider-keyed condition would make this entry unreachable for the commonest consumer.
 
-All three are **a note, never a blocker, and never silent** — and none is a red.
+All three are **visible, never a finding, and never silent** — and none changes the verdict.
 
 ### Step 5: Cross-Reviewer Self-Check
 
@@ -645,108 +667,99 @@ Check for combinations like:
 - Schema change with no corresponding DTO update or vice versa
 - Public-facing change with no input validation AND no test coverage
 
-**Scope limit:** Max 2 cross-cutting findings per review. These must be concrete and evidence-based — not speculative. Label them `[Cross-cutting]` in the report and include in the Critical or Warning section as appropriate.
+**Scope limit:** Max 2 cross-cutting findings per review. These must be concrete and evidence-based — not speculative. Tag them `[Cross-cutting]` in `## Findings`, a `[blocker]` or a `[note]` by the tag rule.
 
 ### Step 6: Plan/Spec Compliance (if plan provided)
 
-Apply **Plan/Spec Awareness** above — the three checks (missing requirements, scope creep, misunderstandings) and the separate-reporting rule.
+Apply **Plan/Spec Awareness** above — the three checks (missing requirements, scope creep, misunderstandings), each problem a finding.
 
-### Report structure
+### Report format
 
-Line 1 of the report, above `## Review Summary`, is `reviewed-by: second-shift review-lead (v<release>)`. `<release>` is the content of `<skill dir>/../../.claude-plugin/release`. When that file is absent, the line is `reviewed-by: second-shift review-lead`. Line 2 is `reviewed: <head sha>`: the full sha the plain review uses as `<head sha>`, what `git rev-parse HEAD` printed for the head you review. Write it as a plain line, never as a `## ` heading: the join passes every line above the first `## ` through unchanged, and a heading there would be read as a report section.
+The report is the lane's verdict format without the record rows. The terminal shows it whole, and the posted
+review is the same text without the findings posted inline ("Posting the report"). There is no second report.
+`verdict-check.sh` in its no-record mode checks it ("Check the format").
 
-Combine all findings into one report with this structure:
+The report has these parts, in this order and nothing else:
 
-```
-## Review Summary
-One paragraph. Give your overall assessment in short sentences. If a plan was provided, say whether the code follows it.
-No over-engineering observation here, in Strengths or in the Reasoning line that the finding sections do not carry.
+- Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <head sha>`: the full
+  sha the plain review uses as `<head sha>`, what `git rev-parse HEAD` printed for the head you review. An optional
+  line 3 is exactly `reason: seat-unavailable` (a gate reviewer still dark, Step 4b) or `reason: ticket-unreadable`
+  (the scope reviewer could not read the ticket, Step 4). The next line is
+  `reviewed-by: second-shift review-lead (v<release>)`. `<release>` is the content of
+  `<skill dir>/../../.claude-plugin/release`; when that file is absent, the line is
+  `reviewed-by: second-shift review-lead`. Write these as plain lines: the join passes every line above the first
+  `## ` through unchanged.
+- `## Summary`. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a
+  needs-work. Then, when the gate ran in partial mode, the one `Not delivered by this PR (linked as <verb>): <items>`
+  line (Step 4). Then the one `Not reviewed: <entries>` line, separated by `; `: each reviewer still dark (Step 4b),
+  each of the three not-selected cases (Step 4c), and a missing issue reference (Step 4). Leave the line out when
+  everything ran. Then each action the human must take, one per line, or `Nothing to do.` Write no table. Use at
+  most eight lines.
+- `## Findings`. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are
+  indented two or more spaces. After its id, a finding names its reviewer in brackets, its file:line and its defect:
+  `- [blocker] B1 [Security] path:line — <defect>`. Its first continuation line is
+  `Scenario: <input or state> → <wrong outcome>`. A finding with no file:line names its reviewer and its defect.
+  Dismissed, suppressed, pre-existing and aspirational findings are not listed. Each finding id appears once. A
+  section with no findings holds the single line `None.`.
+- `## Notes` (optional): the one-line items the rules above require (a recovered reviewer, a fidelity seat's
+  summary), what changed a finding, and the knowledge-base block last. The join adds its lines after them.
 
-## Strengths
-What the code does well — be specific. Acknowledge good patterns, solid testing, clean design.
-This section is REQUIRED even if there are critical findings.
+`Ready to merge?` is never written anywhere in the report. There is no Strengths, Suggestions, Plan Compliance,
+Data provenance, Pre-existing gaps, Suppressed or Verdicts section, and no `## Decision record rows`.
 
-## Critical (must fix before merge)
-Only findings where the PR introduces a NEW risk or regression.
-Each finding includes: [Reviewer] file:line (confidence: N) — description.
-- [Security] finding...
-- [Pipeline] finding...
-- [Scope completeness] finding...
+`verdict: approve` means mergeable as it is: there is no finding and no `reason:` line. `verdict: needs-work`
+carries at least one finding, `[blocker]` or `[note]`, or a `reason:` line; under that line the findings may be
+`None.`. A missing plan or ticket requirement and an unverified stored field on the critical path
+(`lead-pass-checklist.md`, "Data provenance") are findings.
 
-## Warnings (should fix)
-- [Performance] finding...
-- [Domain] finding... (from a repo-local reviewer, labeled by its domain)
+The rows-table lines of the style block below do not apply to this report: it has no rows table. The two blocks are
+the lane's own, kept word for word.
 
-## Suggestions (consider)
-- [Complexity] finding...
+<!-- LOCKSTEP-BEGIN verdict-style -->
+Write the verdict for the human who decides the merge.
+Use short sentences. An instruction has at most 20 words. A statement has at most 25 words.
+Write one instruction per sentence. Use the active voice.
+Do not use idioms, hedges or semicolon chains.
+Use the same word for the same thing every time.
+State each fact once. Do not repeat a fact from one section in another.
+In the rows table:
+- Keep each Evidence cell to one or two sentences.
+- Start the Evidence cell with the file:line or the test id. Then say what it shows.
+- Start the Evidence cell of a departed row with `Decided by <who> (<provenance>).` Then give the commit of the edit and the new resolution.
+- If the edit of a departed row names no decider, start its Evidence cell with `No decider named.`
+- Start the Evidence cell of a row that the build added with `Added by the build, <provenance>.`
+- Start the Evidence cell of a row that the build deleted with `Deleted by the build.` Then name who decided.
+- Put longer detail in `## Notes`.
+In `## Findings`:
+- Put blockers first and notes after them.
+- Give the defect in the first sentence of each finding.
+- Put the evidence on continuation lines. Indent them two spaces.
+- End each finding, a note too, with the continuation line `Fix: <one instruction>`.
+- Write a note in at most four lines, its Fix line included.
+In `## Notes`:
+- Use one `###` sub-heading for each topic. Write at most six sentences under it.
+- Write an inventory, such as the mutation run, as a list.
+- Put the knowledge-base block last.
+- Do not write a sub-heading that has nothing under it.
+- Leave out a topic that changed no score or finding.
+- Keep `## Notes` under 150 words, not counting the knowledge-base block.
+A limit never removes a row, a finding or a knowledge-base proposal. If they do not fit, shorten the wording.
+<!-- LOCKSTEP-END verdict-style -->
 
-## Plan Compliance (if plan/spec provided)
-- Missing: [requirements not implemented — a structure the plan only prescribes is not one]
-- Extra: [code not in the plan — over-engineering here is also a finding row]
-- Mismatches: [implementation differs from spec]
-If all requirements met: "Implementation matches the plan."
+<!-- LOCKSTEP-BEGIN kb-contributions -->
+Knowledge-base contributions: when the repo's review-context.md has a `## Knowledge-base contributions` section, write a contributions block last in the verdict's `## Notes`. The candidates are what the record's `## Knowledge source` answer says the knowledge base does not cover (lookup gap), the page a `D-n` row names in `kb-conflict: <kb-page> (kb stale)` or `(kb ahead)`, and what this diff makes true that the knowledge base should state (change gap). Apply the inclusion test that the section declares, as written, to every candidate, and list only the candidates that pass. Write the lead line `Knowledge-base contributions:` with one proposal per line under it, in the format the section declares or as `- <kb-page> — <what to add or correct> (<gap kind>)`. When no candidate passes, write no contributions block. Carry the whole list on every verdict, never only what changed since an earlier one: the earlier verdicts are collapsed once one binds. When review-context.md has no such section, the verdict carries no contributions line. A proposal is a draft the operator files in the knowledge base: never a finding, and it never makes a verdict `needs-work`.
+<!-- LOCKSTEP-END kb-contributions -->
 
-## Data provenance
-The lead pass's provenance table (lead-pass-checklist.md, "Data provenance"), one row per
-persisted field the diff newly depends on. Always emitted; when there is nothing to trace,
-the section is the single line:
-none: the diff consumes no newly read persisted field
+**Reserved wording.** In `## Summary` and `## Notes`, "end-to-end", "verified" and "works" describe only what a
+test the report cites actually executed. Anything established by reading code is "statically traced". Where a
+read-only probe would settle what the trace cannot (a model round-trip in a throwaway script, one read-only query of
+a recent real record), `## Notes` may name one for the human to run; the lead never runs it.
 
-## Pre-existing gaps (not blocking this PR)
-Findings that apply to the entire codebase, not specific to this PR.
-List briefly with suggested future initiative.
+When the user notes that this PR covers only part of a plan, limit the plan checks to the sections the PR claims to
+address.
 
-## Suppressed (below confidence threshold)
-One-line bullets from all reviewers for findings with confidence < 80, so they are visible but not blocking.
-
-## Verdicts
-| Reviewer        | Verdict       | Findings | Confidence Range |
-|-----------------|---------------|----------|------------------|
-| Scope Completeness | Pass / Fail | N | — |
-| Security        | Pass / Fail — or Lead pass — ✅/❌ | N | N-N   |
-| Performance     | Pass / Fail — or Lead pass — ✅/❌ | N | N-N |
-| Database        | Pass / Fail   | N        | N-N              |
-| Complexity      | Lead pass — ✅/❌ | N     | N-N              |
-| Maintainability | Lead pass — ✅/❌ | N     | N-N              |
-| Test Coverage   | Lead pass — ✅/❌ | N     | N-N              |
-| Pipeline        | Pass / Fail   | N        | N-N              |
-| Unit Test Mutation | Pass / Fail | N      | N-N              |
-| Accessibility   | Pass / Fail   | N        | N-N              |
-| Design Faithful | Pass / Fail   | N        | N-N              |
-| Figma Faithful  | Pass / Fail   | N        | N-N              |
-| \<repo-local domain reviewer(s)\> | Pass / Fail | N | N-N          |
-
-**Ready to merge?** Yes / No / With fixes
-
-**Reasoning:** [1-2 sentence technical assessment]
-
-### Knowledge-base contributions
-Only when review-context.md declares the section (see Knowledge-base contributions above).
-Knowledge-base contributions:
-- <kb-page> — <what to add or correct> (change gap)
-Or, when no candidate passes the inclusion test, the single line:
-Knowledge-base contributions: none
-```
-
-**Reserved wording.** In the Ready to merge? verdict and its Reasoning line, "end-to-end",
-"verified" and "works" describe only what a test the report cites actually executed. Anything
-established by reading code is "statically traced". Where a read-only probe would settle what the
-trace cannot (a model round-trip in a throwaway script, one read-only query of a recent real
-record), the Reasoning may name one for the human to run; the lead never runs it. Grounding prose
-elsewhere in the report that uses "verify" in the checking sense is untouched.
-
-**Verdict rules**:
-
-- A reviewer's verdict should be ✅ PASS if its only findings are pre-existing gaps. ❌ FAIL only if the PR introduces new issues with confidence ≥ 80. The same rule decides the ✅/❌ on a `Lead pass` row.
-- Only include rows for reviewers that were spawned. If a domain reviewer wasn't triggered, omit it from the table. **A reviewer that was spawned but went dark (Step 4b) is NOT omitted — its row reads `Dark (no output)`.**
-- **Exception — the four lead-pass rows.** Performance, Complexity, Maintainability and Test Coverage are never spawned and are never omitted: each carries a row reading `Lead pass — ✅/❌`, so a reader can tell a dimension that was reviewed in-session from one that was skipped. Security takes the same rendering on the rounds its conditional did not fire, and the ordinary `Pass / Fail` when it did. Performance reads `Pass / Fail` on the rounds it was dispatched on demand. A single `Lead pass` summary row may be added **in addition to** those rows, never instead of them.
-- The two design-fidelity rows are **mutually exclusive at runtime** — the provider map selects exactly one, so a real report carries at most one of them. Both are listed above because the table is the registry template, not a claim about any single round.
-- **Confidence Range column**: Scan each reviewer's findings for `(confidence: N)` values; report `min–max`. If a reviewer had no findings, write `—`.
-- **Scope Completeness gate**: if it FAILed or BLOCKED, "Ready to merge?" is **No** regardless of every other row.
-
-**Plan Compliance section**: Omit entirely when no plan/spec was provided as input. If provided but the user notes this PR covers only part of the plan, limit compliance checking to the sections the PR claims to address.
-
-The **Ready to merge?** verdict is your judgment call as the orchestrator — it weighs all reviewer verdicts, the Scope Completeness Gate, plan compliance, and strengths against findings. It has exactly one unreachable state: a round voided under Step 4b-void emits no report in this structure at all, so the question is never posed.
+The verdict line has exactly one unreachable state: a round voided under Step 4b-void emits no report in this format
+at all, so no verdict is given.
 
 ## Prior Round Context
 
@@ -757,7 +770,7 @@ The user should provide context like: "Round 2 of 3. Prior findings: [list]. Foc
 When prior round context is provided:
 
 1. **Skip re-flagging resolved findings** — if a prior finding was fixed, don't report it again
-2. **Verify fixes** — confirm prior Critical/Warning findings were actually addressed, not just suppressed
+2. **Verify fixes** — confirm prior findings were actually addressed, not just suppressed
 3. **Focus on new issues** — findings introduced by the fix commits since last round
 4. **Reduce reviewer lineup** — only spawn reviewers whose prior findings had blockers/majors, plus any reviewer whose scope is touched by the fix commits. The lead pass still runs every round; scope it to the fix commits the same way
 
@@ -765,10 +778,9 @@ This reduces token waste and prevents redundant findings across review iteration
 
 ## Rules
 
-- If reviewers disagree, note the disagreement and your recommendation
-- If ALL reviewers pass with no findings, say so concisely — include Strengths and verdict, don't pad the report
-- Never invent findings that no reviewer reported (cross-cutting self-check is the one exception — label these clearly)
-- **Always include Strengths** — pick the 2-4 most specific, non-redundant observations across all reviewer Strengths blocks. Consolidate observations about the same file into one bullet. Do not repeat the same observation twice.
+- If reviewers disagree, decide, and write the finding you stand behind
+- Always give a clear verdict. If no finding survives, write `verdict: approve`, `Mergeable as it is.` and `Nothing to do.` — don't pad the report
+- Never invent findings that no reviewer reported (cross-cutting self-check is the one exception — tag these clearly)
 - Repo-local domain reviewer findings about domain correctness take precedence over complexity reviewer suggestions to simplify domain logic
 - Pipeline reviewer findings about contract integrity take precedence over performance suggestions to change worker data flow
 - **Confidence is king** — a finding at confidence 95 from one reviewer outweighs three findings at confidence 80 from others. Prioritize by confidence × severity, not by count
