@@ -49,15 +49,24 @@ review.
    It prints nothing. Never open that file: only the join block reads it. When a read fails, it
    writes no file, and the joined verdict records the count as null. Go on with the review.
 
-   **Start the plain review.** It is the record-blind review that `run.sh` runs beside the lane
-   review: one headless session with Read, Grep and Glob only, in a copy of the head with no `.git`
-   and no plans directory, given the diff and the ticket. Run it unless
-   `bash <this skill's base directory>/../../tools/plain-review.sh enabled` prints `false`. Under
-   github, write the ticket you read in step 1 to a file, as `# <title>`, a blank line, then the
-   body, and pass it as `--ticket <file>`. Under jira, pass `--jira-key <KEY>` instead: the session
-   may then read that issue with `getJiraIssue`, look up its cloudId with
-   `getAccessibleAtlassianResources`, and call nothing else. Then run this with
-   `run_in_background`, never in the foreground:
+   **Start pass 1 and the plain review.** Each is a record-blind session that `run.sh` also runs:
+   one headless session with Read, Grep and Glob only, in a copy of the head with no `.git` and no
+   plans directory, given the diff and the ticket. Pass 1 reviews the ticket, the diff and the code
+   with the pass-1 prompt. The plain review is the second, plain reviewer whose draft step 8 joins.
+   Under github, write the ticket you read in step 1 to a file, as `# <title>`, a blank line, then
+   the body, and pass it as `--ticket <file>`. Under jira, pass `--jira-key <KEY>` instead: each
+   session may then read that issue with `getJiraIssue`, look up its cloudId with
+   `getAccessibleAtlassianResources`, and call nothing else. Then run each of these two blocks with
+   `run_in_background`, never in the foreground. Pass 1:
+
+   ```bash
+   bash <this skill's base directory>/../../tools/plain-review.sh run --prompt <this skill's base directory>/../run/pass-1-review.md \
+     --out <your scratch dir>/pass-1 --worktree "$(git rev-parse --show-toplevel)" \
+     --base "origin/<base>" --head <headRefOid> <--ticket <file> | --jira-key <KEY>> --record <record file name> \
+     --deny-read "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" --deny-read <your scratch dir>
+   ```
+
+   The plain review:
 
    ```bash
    bash <this skill's base directory>/../../tools/plain-review.sh run --worktree "$(git rev-parse --show-toplevel)" \
@@ -67,35 +76,29 @@ review.
 
    Shell variables do not survive from one Bash call to the next, so every block here names its
    paths literally: put in this skill's base directory, the `headRefOid` sha and your scratch dir
-   as you hold them. With no `--out`, the run writes to
-   `plain-review.sh out-dir <headRefOid>`, which step 8 derives again from the same sha. The run
-   first clears what an earlier run left there. Never open the files in that dir yourself: only the
-   join block reads them, so your draft is your own review alone.
-3. **Pass 1: review the diff from the ticket and the code alone.** Until step 4, do not open the
-   decision record, the plan, the PR description, a PR comment or an earlier verdict. The diff is
-   `origin/<base>...HEAD`, where `<base>` is the PR's base branch. Read it without the plans
-   directory: `git --no-replace-objects diff origin/<base>...HEAD -- . ':(exclude)<plansDir>'`. Review it yourself, in
-   this session, against the ticket. Read `.claude/second-shift/review-context.md` at the head
-   when it exists. It is the repo's context for this review.
+   as you hold them. The plain review has no `--out`, so it writes to
+   `plain-review.sh out-dir <headRefOid>`, which step 8 derives again from the same sha. Each run
+   first clears what an earlier run left in its out dir. Never open the files in the plain review's
+   dir yourself: only the join block reads them, so your draft is your own review.
+3. **Pass 1 is the blind session, never this session.** Do not review the diff for pass 1
+   yourself, and do not open the decision record, the plan, the PR description, a PR comment or an
+   earlier verdict while pass 1 runs. Wait for the pass-1 run to finish. Its findings are
+   `<your scratch dir>/pass-1/verdict.md`. Pass 1 has failed when the run exits non-zero, or when
+   that file has no `## Findings` line. `<your scratch dir>/pass-1/why` then says why. Run the
+   pass-1 block once more. If it fails again, do not start pass 2: wait for the plain review to
+   finish, tell the operator that pass 1 returned no findings and why, post nothing, and end the
+   turn. A `## Findings` section that holds `None.` is a finding-free pass 1, not a failure.
 
-   <!-- LOCKSTEP-BEGIN review-completeness -->
-   Review the diff for completeness. Check every acceptance criterion of the ticket against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a completeness finding, not a test-coverage problem, so it can be a `[blocker]`.
-   <!-- LOCKSTEP-END review-completeness -->
+   Read `.claude/second-shift/review-context.md` at the head when it exists. It is the repo's
+   context for this review. Dispatch no reviewer, except the one design-fidelity reviewer of step 7.
+4. **Pass 2: read the record at its first commit and at the head.** Start it only on the pass-1
+   findings of step 3. The diff is `origin/<base>...HEAD`, where `<base>` is the PR's base branch.
 
-   <!-- LOCKSTEP-BEGIN review-correctness -->
-   Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers. Check that each of them still works with the change. When the change adds a rule over stored data, read the data that the rule meets. Check the rule against the data that already exists. Walk every path through the change: each branch, each early return, each error and each empty input. Report each problem as a finding with its file:line and a concrete scenario: the input or state, and the wrong outcome it produces. A problem with no scenario is not a finding.
-   Report only relevant findings. A finding is relevant when a distinguished engineer who knew of it would definitely address it before merge. Every reported finding makes the verdict `needs-work`, a `[note]` the same as a `[blocker]`. The tag names the kind of problem, never whether it gates. A completeness or correctness problem is a `[blocker]`. A maintainability, test-coverage or repo-convention problem is a `[note]` only, never a `[blocker]`.
-   A finding that shows existing data or an existing caller breaking under the change is a `[blocker]`. The ticket's scope list, a record row or parity with an older version never removes it or makes it a note. It is not a finding only when the ticket or a record row names that exact case, accepts it, and names who decided. The ticket's own text counts as the operator's. A row names who decided when its provenance is `user-answered`, or `ticket-sourced` with its comment URL. A `user-delegated` or `codebase-derived` row never accepts a break. The Evidence cell of the accepting row quotes the acceptance. A break that only the ticket text accepts gets one line in `## Notes` that quotes that text. A finding that shows the change does not do what the ticket asks, for input that existing callers send, is a completeness `[blocker]`. A requirement is an outcome, a behavior, an acceptance criterion or an external surface the ticket states. An internal structure that the ticket's scope or prose prescribes is not a requirement: its absence is never a completeness `[blocker]`, and it gets no finding.
-   Over-engineering is always a `[note]`: a new abstraction, layer, option, extension point or generalization that nothing needs. A need is a present caller in the checkout, or an external surface the ticket asks for. An external surface is something a party outside the diff's own code reads or calls: a config key, an entry point or command, an API, or a stored or on-disk format. It needs no named caller. A ticket line, a record row or any other decision that prescribes the mechanism is not a need. A need expected only in the future is not a need either. Name the simpler shape, and cite the callers or show that there are none. When the ticket's own text prescribes the mechanism, the operator decided it: it is not a finding, and it gets one line in `## Notes` that starts with its file:line and quotes that text. Quote any other prescribing decision in the finding.
-   The review runs in two passes. Pass 1 is the completeness and correctness review, from the ticket and the code alone. Pass 1 does not open the decision record, the plan or the PR description. It reads the diff with the plans directory excluded. It writes its findings to the scratch directory before pass 2 starts. When there is a record, pass 2 reads it at its first commit and at the head, and scores every row. A record row never removes, dismisses or downgrades a pass-1 finding. When a row decided the behavior that a finding shows breaking an existing caller, existing data or the ticket, the finding keeps its severity and names the row. Only three record grounds take a pass-1 finding out of `## Findings`: the accepted break above, the test intent's exemption of an acceptance criterion from a test, and an over-engineering `[note]` on a mechanism that a row prescribes when the row names who decided, as above. An exemption gets one line in `## Notes` that quotes it. A prescribed mechanism gets one line in `## Notes` that starts with its file:line and quotes the row. A dismissed or suppressed finding is never listed.
-   <!-- LOCKSTEP-END review-correctness -->
+   <!-- LOCKSTEP-BEGIN review-record-grounds -->
+   The findings of pass 1 are this review's pass-1 findings, with the tags pass 1 gave them. When there is a record, pass 2 reads it at its first commit and at the head, and scores every row. A record row never removes, dismisses or downgrades a pass-1 finding. When a row decided the behavior that a finding shows breaking an existing caller, existing data or the ticket, the finding keeps its severity and names the row. A finding that shows existing data or an existing caller breaking under the change is not a finding when a record row names that exact case, accepts it, and names who decided. A row names who decided when its provenance is `user-answered`, or `ticket-sourced` with its comment URL. A `user-delegated` or `codebase-derived` row never accepts a break. The Evidence cell of the accepting row quotes the acceptance. Only three record grounds take a pass-1 finding out of `## Findings`: the accepted break above, the test intent's exemption of an acceptance criterion from a test, and an over-engineering `[note]` on a mechanism that a row prescribes when the row names who decided, as above. An exemption gets one line in `## Notes` that quotes it. A prescribed mechanism gets one line in `## Notes` that starts with its file:line and quotes the row. A dismissed or suppressed finding is never listed.
+   <!-- LOCKSTEP-END review-record-grounds -->
 
-   End pass 1 with the notes pass. Report maintainability, test-coverage and repo-convention
-   problems in the diff as `[note]`s with file:line. Report only the relevant ones. A note gates
-   like a blocker. Write every pass-1 finding to a file in this session's scratchpad. Then start step 4.
-
-   Dispatch no reviewer, except the one design-fidelity reviewer of step 7.
-4. **Pass 2: read the record at its first commit and at the head.** The first commit is the commit that
+   The first commit is the commit that
    added the record: `FIRST=$(git --no-replace-objects log --format=%H --diff-filter=A -- <record> | tail -n 1)`. Read
    `git --no-replace-objects show $FIRST:<record>`. It shows what was decided before the build started. Then read the
    file at the head. Write `git --no-replace-objects` in every command that reads `FIRST`, as
@@ -178,7 +181,7 @@ review.
    that row on whether the code matches it. The row is the operator's decision. A score never
    overrides it. Its risk is also required performance work: the review states the worst-case
    bound. A bound that breaks an existing caller or existing data is a `[blocker]` under the
-   severity rule of step 3. Any other bound is a `[blocker]` when it breaks what the row decided.
+   severity rule of pass 1. Any other bound is a `[blocker]` when it breaks what the row decided.
    A bound within the risk that the row accepts, when the row names who decided, is one line in
    `## Notes` that starts with its file:line and quotes the row. Otherwise it is a `[note]` when it is relevant, and one line in `## Notes` when it is not. The row permits the out-of-diff reads that check the bound.
    The row can name a file that the diff does not touch. That fact scores the row. It does not
@@ -280,8 +283,7 @@ review.
    body with a folded `dev: lane vs blind` block under `## Notes`. The block sets every finding of
    both reviews side by side, holds the blind review's draft as written, and reads "not measured" for this
    session's cost and time. When the plain review did not
-   return, your verdict stands and `## Notes` says why. When the plain review is off, skip this
-   step and post your own draft.
+   return, your verdict stands and `## Notes` says why.
 
    **Check the draft before you post it.** Write the body to a file. Write the record at `FIRST` to
    another file (`git --no-replace-objects show $FIRST:<record> > <file>`). Then run

@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# plain-review.sh — the record-blind plain review: one headless session that reviews the diff and the ticket and cannot
-# reach the decision record or the plan. Its parts are the only copy: run.sh's plain_* functions call them, and `run`
-# composes them for the review skills (/dev-pipeline:review, /review-toolkit:review-lead).
+# plain-review.sh — the record-blind session: one headless session that reviews the diff and the ticket and cannot
+# reach the decision record or the plan. It runs the plain review, and with the pass-1 prompt the review's blind pass 1.
+# Its parts are the only copy: run.sh's blind-session functions call them, and `run` composes them for the review
+# skills (/dev-pipeline:review, /review-toolkit:review-lead).
 #
 # Usage:
-#   plain-review.sh enabled [<config>]   true|false: RUN_JOINED_REVIEW, else run.joinedReview, default true; exit 2 on
-#                                        any other value
 #   plain-review.sh atlassian-writes   the 14 Atlassian write tools under each namespace, as `,<tool>` items
 #   plain-review.sh deny <base-disallowed> <read-dir>...   the session's --disallowedTools
 #   plain-review.sh tree <worktree> <head> <plans-dir> <dir>     the head as files, with no .git and no plans dir
@@ -18,7 +17,8 @@
 #                                        later shell that holds only the head sha finds it again
 #   plain-review.sh run --worktree <dir> --base <ref> --head <sha> [--out <dir>] [--plans-dir <dir>]
 #                       [--ticket <file> | --jira-key <KEY>] [--record <name>] [--model <m>] [--timeout <s>]
-#                       [--deny-read <path>]...
+#                       [--prompt <file>] [--deny-read <path>]...
+#     --prompt is the session's prompt file (default skills/run/plain-review.md); one that cannot be read is exit 2.
 #     Clears what an earlier run left in <out>, then writes <out>/verdict.md, <out>/ticket (true|false),
 #     <out>/result.json, <out>/start and <out>/end (epoch seconds), <out>/wall (whole seconds, only once the session
 #     has ended), and <out>/why on a failure. Exit 0 a draft · 1 no draft (<out>/why says why) · 2 usage.
@@ -30,17 +30,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMPT_FILE_DEFAULT="$HERE/../skills/run/plain-review.md"
 JIRA_READ="mcp__atlassian__getJiraIssue,mcp__plugin_atlassian_atlassian__getJiraIssue,mcp__claude_ai_Atlassian_Rovo__getJiraIssue"
 JIRA_READ="$JIRA_READ,mcp__atlassian__getAccessibleAtlassianResources,mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources"
-usage() { sed -n '6,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
-
-enabled() { # RUN_JOINED_REVIEW beats the config, as in run.sh
-  local cfg="${1:-${SECOND_SHIFT_CONFIG:-.claude/second-shift.config.json}}" v="${RUN_JOINED_REVIEW:-}"
-  [ -n "$v" ] || { [ -f "$cfg" ] && v="$(jq -r 'if .run.joinedReview == null then "" else (.run.joinedReview | tostring) end' "$cfg" 2>/dev/null)"; }
-  case "$v" in
-    ''|true) echo true ;;
-    false) echo false ;;
-    *) echo "plain-review: run.joinedReview must be true or false, got '$v'" >&2; return 2 ;;
-  esac
-}
+usage() { sed -n '7,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 atlassian_writes() {
   local t n
@@ -81,12 +71,13 @@ ticket_text() {
   esac
 }
 
-# With no ticket, each body line a header `ticket-only: <prefix>` names is dropped, with the blank line after it.
-# index(), never a regex, so no text in a value is read as a pattern
+# With no ticket, each body line a header `ticket-only: <prefix>` names is dropped, with the blank line after it. A
+# lockstep marker line is the repo's, never the session's. index(), never a regex, so no text in a value is read as a pattern
 prompt() {
   awk -v out="$1" -v tf="$2" -v df="$3" -v ticket="$4" '
     function fill(s, k, v,   i, o) { o = ""; while ((i = index(s, k)) > 0) { o = o substr(s, 1, i - 1) v; s = substr(s, i + length(k)) } return o s }
     !body { if ($0 == "---") body = 1; else if (index($0, "ticket-only: ") == 1) only[++no] = substr($0, 14); next }
+    /^<!-- LOCKSTEP-(BEGIN|END) [A-Za-z0-9_-]+ -->$/ { next }
     skip && $0 == "" { skip = 0; next }
     { skip = 0 }
     ticket != "true" { for (k = 1; k <= no; k++) if (index($0, only[k]) == 1) { skip = 1; next } }
@@ -119,18 +110,19 @@ physical() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
 out_dir() { case "$1" in ''|*[!0-9a-f]*) return 2 ;; esac; printf '%s\n' "${TMPDIR:-/tmp}/plain-review-$1"; }
 
 run() {
-  local wt="" base="" head="" out="" plans="" ticket="" jira="" record="" model="" secs=3600 deny=() d
+  local wt="" base="" head="" out="" plans="" ticket="" jira="" record="" model="" secs=3600 pf="$PROMPT_FILE_DEFAULT" deny=() d
   while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || usage
     case "$1" in
       --worktree) wt="${2-}" ;; --base) base="${2-}" ;; --head) head="${2-}" ;; --out) out="${2-}" ;;
       --plans-dir) plans="${2-}" ;; --ticket) ticket="${2-}" ;; --jira-key) jira="${2-}" ;; --record) record="${2-}" ;;
-      --model) model="${2-}" ;; --timeout) secs="${2-}" ;; --deny-read) deny+=("${2-}") ;;
+      --model) model="${2-}" ;; --timeout) secs="${2-}" ;; --prompt) pf="${2-}" ;; --deny-read) deny+=("${2-}") ;;
       *) usage ;;
     esac
     shift 2
   done
   [ -n "$wt" ] && [ -n "$base" ] && [ -n "$head" ] || usage
+  [ -f "$pf" ] && [ -r "$pf" ] || { echo "plain-review: cannot read the prompt file '$pf'" >&2; return 2; }
   [ -n "$out" ] || out="$(out_dir "$head")" || usage
   [ -z "$ticket" ] || [ -z "$jira" ] || usage
   case "$secs" in ''|*[!0-9]*) usage ;; esac
@@ -149,7 +141,7 @@ run() {
   else has=false; ticket_text none > "$out/ticket.md"; fi
   echo "$has" > "$out/ticket"
   git -C "$wt" diff "$base...$head" -- . ":(exclude)$plans" > "$out/diff.diff" 2>/dev/null || { why "the diff could not be read for the blind review"; return; }
-  prompt "$out/scratch/verdict.md" "$out/ticket.md" "$out/diff.diff" "$has" > "$out/prompt.md" || { why "the blind review's prompt could not be written"; return; }
+  prompt "$out/scratch/verdict.md" "$out/ticket.md" "$out/diff.diff" "$has" "$pf" > "$out/prompt.md" || { why "the blind review's prompt could not be written"; return; }
   local dis ms a flags=() reads=()
   reads=("$(physical "$wt")"); for d in ${deny[@]+"${deny[@]}"}; do reads+=("$(physical "$d")"); done
   dis="$(deny "AskUserQuestion,EnterWorktree,ExitWorktree" "${reads[@]}")"
@@ -172,7 +164,6 @@ run() {
 [ $# -ge 1 ] || usage
 cmd="$1"; shift
 case "$cmd" in
-  enabled) enabled "$@" ;;
   atlassian-writes) [ $# -eq 0 ] || usage; atlassian_writes ;;
   deny) [ $# -ge 1 ] || usage; deny "$@" ;;
   tree) [ $# -eq 4 ] || usage; tree "$@" ;;

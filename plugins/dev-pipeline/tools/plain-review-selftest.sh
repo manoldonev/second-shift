@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # plain-review-selftest.sh — behavioral selftest for tools/plain-review.sh, the plain session the review skills run.
-# run.sh composes the same parts; its scenario cases are skills/run/run-joined-selftest.sh.
+# run.sh composes the same parts; its scenario cases are skills/run/run-joined-selftest.sh and run-pass1-selftest.sh.
 #
 # INVARIANTS GUARDED: `run` gives the session a tree of the head with no .git and no plans dir, a prompt with the diff
 # less the plans dir and the ticket less every line naming the record, Read/Grep/Glob only, and a deny on the
 # reviewed checkout and every --deny-read path; with no ticket the prompt says so; a final message carrying a verdict
 # is the draft; no verdict, or a session past --timeout, is exit 1 with the reason in <out>/why; a flag with no value
-# is usage, never a hang; `enabled` reads RUN_JOINED_REVIEW, then run.joinedReview, defaults to true, and refuses any
-# other value; the session is always denied the Atlassian write tools and each transcript dir, and its tree holds none
+# is usage, never a hang; --prompt names the prompt file, plain-review.md without it, and an unreadable one is exit 2;
+# the session is always denied the Atlassian write tools and each transcript dir, and its tree holds none
 # of the PR's Claude config; with no --out, `run` uses `out-dir <head>`, cleared of an earlier run's files.
 #
 # Operator-safe: no network, no real claude. Exit code = number of failed checks.
@@ -42,7 +42,7 @@ case "$FAKE_MODE" in
 esac
 EOF
 chmod +x "$T/claude"
-export PLAIN_CLAUDE="$T/claude" FAKE_DIR="$T"; unset RUN_JOINED_REVIEW
+export PLAIN_CLAUDE="$T/claude" FAKE_DIR="$T"
 
 HOME="$T/home" CLAUDE_CONFIG_DIR="$T/cfg" FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o1" --plans-dir docs/plans \
   --ticket "$T/ticket.md" --record repo-7-decisions.md --deny-read "$T/lane-scratch" --model opus >/dev/null 2>&1; RC=$?
@@ -110,20 +110,27 @@ TMPDIR="$T/tmp" FAKE_MODE=none bash "$TOOL" run --worktree "$R" --base main --he
 bash "$TOOL" out-dir 'not-a-sha' >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 2 ] && ok "(p22) out-dir refuses anything but a hex sha: exit 2" || bad "(p22) rc=$RC"
 
-echo '{"run":{"joinedReview":false}}' > "$T/off.json"; echo '{"run":{"joinedReview":"yes"}}' > "$T/bad.json"; echo '{}' > "$T/none.json"
-[ "$(bash "$TOOL" enabled "$T/none.json")" = true ] && [ "$(bash "$TOOL" enabled "$T/off.json")" = false ] \
-  && [ "$(bash "$TOOL" enabled "$T/missing.json")" = true ] && ok "(p11) enabled: unset or no config is true, false is false" || bad "(p11)"
-bash "$TOOL" enabled "$T/bad.json" >/dev/null 2>&1; RC=$?
-[ "$RC" -eq 2 ] && ok "(p12) enabled refuses a value that is not a boolean: exit 2" || bad "(p12) rc=$RC"
 bash "$TOOL" run --worktree "$R" >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 2 ] && ok "(p13) run without its required flags is usage: exit 2" || bad "(p13) rc=$RC"
 
-echo '{"run":{"joinedReview":true}}' > "$T/on.json"
-[ "$(RUN_JOINED_REVIEW=false bash "$TOOL" enabled "$T/on.json")" = false ] && [ "$(RUN_JOINED_REVIEW=true bash "$TOOL" enabled "$T/off.json")" = true ] \
-  && [ "$(RUN_JOINED_REVIEW='' bash "$TOOL" enabled "$T/off.json")" = false ] \
-  && ok "(p14) RUN_JOINED_REVIEW beats the config both ways; empty falls through to the config" || bad "(p14)"
-RUN_JOINED_REVIEW=yes bash "$TOOL" enabled "$T/on.json" >/dev/null 2>&1; RC=$?
-[ "$RC" -eq 2 ] && ok "(p15) a RUN_JOINED_REVIEW that is not a boolean: exit 2" || bad "(p15) rc=$RC"
+# --prompt: the session gets that file's body, filled as plain-review.md's is; without it, plain-review.md
+printf '%s\n' '<!-- a header comment -->' 'ticket-only: Check the ticket' '---' 'THE PASS-ONE PROMPT. Save to {out}.' '<diff>' '{diff}' '</diff>' \
+  'Check the ticket line by line.' '' '<ticket>' '{ticket}' '</ticket>' > "$T/pass-one.md"
+FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o9" --plans-dir docs/plans \
+  --ticket "$T/ticket.md" --record repo-7-decisions.md --prompt "$T/pass-one.md" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] && [ "$(head -n 1 "$T/prompt")" = "THE PASS-ONE PROMPT. Save to $T/o9/scratch/verdict.md." ] && grep -qx '+two' "$T/prompt" \
+  && grep -qx 'Append two to a.txt.' "$T/prompt" && ! grep -q 'repo-7-decisions\|a header comment\|^---$' "$T/prompt" \
+  && ! grep -q 'You are acting as a reviewer' "$T/prompt" && [ "$(cat "$T/o9/prompt.md")" = "$(cat "$T/prompt")" ] \
+  && ok "(p24) --prompt <file>: the session's prompt is that file's body, with the diff, the stripped ticket and the draft path" || bad "(p24) rc=$RC $(head -c 400 "$T/prompt")"
+FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o10" --plans-dir docs/plans >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] && grep -q '^You are acting as a reviewer for a proposed code change' "$T/prompt" && ! grep -q 'THE PASS-ONE PROMPT' "$T/prompt" \
+  && ok "(p25) with no --prompt the session gets plain-review.md" || bad "(p25) rc=$RC $(head -c 300 "$T/prompt")"
+rm -f "$T/args"
+for pf in "$T/no-such-prompt.md" "$T"; do
+  FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o11" --plans-dir docs/plans --prompt "$pf" >/dev/null 2>"$T/o11.err"; RC=$?
+  [ "$RC" -eq 2 ] && [ ! -e "$T/args" ] && grep -qF "cannot read the prompt file '$pf'" "$T/o11.err" \
+    && ok "(p26) a --prompt that is not a readable file ($(basename "$pf")) is exit 2, and no session runs" || bad "(p26) $pf rc=$RC $(cat "$T/o11.err")"
+done
 
 bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o7" --deny-read >/dev/null 2>&1 & PID=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$PID" 2>/dev/null || break; sleep 1; done

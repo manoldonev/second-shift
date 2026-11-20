@@ -4,7 +4,7 @@
 
 - [ ] 1.1 Scenario cases for a lane round: the pass-1 tree and flags, its prompt, the review session after it with its findings, a pass 1 with no findings block or past its limit, its cost, and a default round with the plain session (plugins/dev-pipeline/skills/run/run-pass1-selftest.sh) [AC-1] [AC-2] [AC-3] [AC-4] [AC-5] [AC-8]
 - [ ] 1.2 Add the pass-1 prompt file and the pass-1 session to the review round of run.sh, and cut the pass-1 section from the review prompt (plugins/dev-pipeline/skills/run/pass-1-review.md, plugins/dev-pipeline/skills/run/run.sh)
-- [ ] 1.3 Teach the fake session of the run suites to answer the pass-1 session, and move each suite to the review that always runs the plain session (plugins/dev-pipeline/skills/run/run-selftest-lib.sh, plugins/dev-pipeline/skills/run/run-joined-selftest.sh)
+- [ ] 1.3 Teach the fake session of the run suites to answer the pass-1 session, and move each suite to the review that always runs the plain session (plugins/dev-pipeline/skills/run/run-selftest-lib.sh, plugins/dev-pipeline/skills/run/run-joined-selftest.sh, plugins/dev-pipeline/skills/run/run-selftest.sh, plugins/dev-pipeline/skills/run/run-verdict-selftest.sh, plugins/dev-pipeline/skills/run/run-rows-selftest.sh, plugins/dev-pipeline/skills/run/run-detach-selftest.sh, plugins/dev-pipeline/skills/run/run-record-selftest.sh)
 
 ## 2. A prompt option for the blind session
 
