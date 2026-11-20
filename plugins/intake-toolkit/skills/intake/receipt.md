@@ -13,8 +13,9 @@ in this same plugin.
 
 ## The exit gates, in order
 
-Run these before writing, in this order. Each runs once per ticket or slice. The probe runs after
-the write ("Probe the record").
+Run these before writing, in this order. Each runs once per ticket or slice, except that gate 3
+runs again for a row a later step adds or changes. The probe runs after the write ("Probe the
+record").
 
 ### 1. Post-merge scan
 
