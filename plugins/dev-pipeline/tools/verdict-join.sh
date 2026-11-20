@@ -13,8 +13,9 @@
 # Every finding gates, so the body takes plain's blockers and notes. A plain blocker at the file of a lane blocker,
 # within 3 lines of it, is that blocker, tagged [lane+blind]. Any other is added after the lane's blockers as [blind],
 # numbered after the lane's highest B id. A plain note within 3 lines of any lane finding is that finding and is not
-# listed again. A plain note within 3 lines of the site that starts a line of the lane's `## Notes` is left out: the
-# lane put a decision the operator made there, and plain never sees the record. Any other plain note is added after
+# listed again. A plain note within 3 lines of the site that starts a line of the lane's `## Notes` that quotes a
+# decision is left out: the lane put a decision the operator made there, and plain never sees the record. A Notes line
+# that starts with a site and quotes nothing, such as an inventory item, leaves out no note. Any other plain note is added after
 # the lane's notes as [blind], numbered after the lane's highest N id. An added
 # finding turns an approve into a needs-work: line 1 becomes `verdict: needs-work`, the Summary's first line `Not
 # mergeable yet.`, and a `Nothing to do.` line names the [blind] findings. --format report adds no note. With no
@@ -309,7 +310,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
       if (lab ~ /^N/ && substr(lab, 2) + 0 > maxn) maxn = substr(lab, 2) + 0
       addl(dismissed(t) ? "d" : "n", lab, t)
     }
-    else if (sec == "## Notes" && match($0, /^(- )?[^ \t]+/) && (nsl = loc(substr($0, RSTART, RLENGTH))) != "") { cur = 0; ns++; nsite[ns] = nsl }
+    else if (sec == "## Notes" && match($0, /^(- )?[^ \t]+/) && (nsl = loc(substr($0, RSTART, RLENGTH))) != "" && (index(substr($0, RLENGTH + 1), "\"") || index(substr($0, RLENGTH + 1), "“"))) { cur = 0; ns++; nsite[ns] = nsl }
     else cur = 0
   }
   END {

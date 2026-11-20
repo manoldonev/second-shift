@@ -43,7 +43,8 @@ grep -qxF "Read it with exactly 'gh issue view 42 --json title,body,comments', a
   && ok "(a) the review reads the ticket itself, and an unreadable ticket is line 3 reason: ticket-unreadable" || bad "(a) the ticket read is missing from the review prompt"
 grep -q 'Its risk is also required performance work: the review states the worst-case bound\.' "$FAKE_GH/prompt-2.txt" \
   && grep -qF 'A bound that breaks an existing caller or existing data is a [blocker] under the severity rule of pass 1.' "$FAKE_GH/prompt-2.txt" \
-  && grep -qF "Any other bound is a [blocker] when it breaks what the row decided. Otherwise it is a [note] when it is relevant, and one line in '## Notes' when it is not." "$FAKE_GH/prompt-2.txt" \
+  && grep -qF "Any other bound is a [blocker] when it breaks what the row decided." "$FAKE_GH/prompt-2.txt" \
+  && grep -qF "Otherwise it is a [note] when it is relevant, and one line in '## Notes' when it is not." "$FAKE_GH/prompt-2.txt" \
   && ! grep -q 'neither a dispatch nor a decline' "$FAKE_GH/prompt-2.txt" \
   && ok "(a) a row's cost risk is a bound the session states: a break of a caller or data blocks, any other bound blocks when it breaks the row, else is a relevant note or a Notes line" || bad "(a) the record-named risk rule is missing, lets a row excuse a break, or still asks for a dispatch"
 P2="$FAKE_GH/prompt-2.txt"
