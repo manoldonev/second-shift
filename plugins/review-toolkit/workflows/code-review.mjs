@@ -186,7 +186,7 @@ const fileList = changedFiles.length ? changedFiles.join(', ') : '(see diff)'
 // because a verbatim retry of a turn-cap death reproduces it. (3) the dark-reviewer contract
 // (review-lead Step 4b): the SESSION re-dispatches once, NARROWED to that reviewer's domain, which
 // this file cannot do because it dispatched against the whole range; only what survives THAT is a
-// coverage gap. A gap is a NOTE for most reviewers, a hard "Ready to merge? = No" for security
+// coverage gap. A gap is a NOTE for most reviewers, a hard `needs-work` (seat-unavailable) for security
 // (whose dimension the lead pass skipped because this fan-out spawned it) and a VOID for design
 // fidelity on an armed spec. When the WHOLE panel goes dark, review-lead voids the round (its
 // Step 4b-void). Guards: workflows/runtime-shim-selftest.mjs executes THIS body against the real

@@ -12,11 +12,4 @@ Reviewer selection happens in-session: choose from the effective reviewer regist
 
 One dispatch substrate — the code-review.mjs Workflow.
 
-## Verdicts
-| Reviewer        | Verdict       | Findings | Confidence Range |
-|-----------------|---------------|----------|------------------|
-| Security        | Pass / Fail   | N        | N-N              |
-| Performance     | Pass / Fail   | N        | N-N              |
-| Database        | Pass / Fail   | N        | N-N              |
-
 end

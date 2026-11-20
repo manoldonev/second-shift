@@ -7,7 +7,9 @@
 # deleted or added is still owed a score; a folded rows table passes only under a summary that counts it and
 # beside a ## Summary, and a bare table still passes; a user-delegated edit of a row parked under a pause-and-ask
 # region passes only scored violated; every failed rule is printed, not only the first; a record
-# that cannot be read is exit 2. The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
+# that cannot be read is exit 2. With the verdict file alone, a review-lead verdict in the lane format passes and a
+# rows section, a review-lead section of the old report or an approve with a finding fails. In both modes a Summary
+# over 8 lines, Notes of 150 words, a note over 4 lines and the none contributions line fail, and each limit passes. The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
 #
 # Operator-safe: no network. Exit code = number of failed checks.
 set -uo pipefail
@@ -222,6 +224,77 @@ FIRSTREC="$T/ask-first.md" HEADREC="$T/ask-delegated.md" check ask-violated "$(b
 passes "(pa2) the same edit scored violated passes"
 FIRSTREC="$T/ask-first.md" HEADREC="$T/ask-answered.md" check ask-answered "$(body needs-work $'| D-1 | honored | x |\n| D-2 | departed | Decided by the requester (user-answered). |\n| D-3 | departed | y |' '- [blocker] B1 a thing')"
 passes "(pa3) the requester's own answer under the region is a departure, not a violation"
+
+# ---- the no-record mode: review-lead's report, the verdict file alone ----
+BYL='reviewed-by: second-shift review-lead (v9)'
+lead() { printf 'verdict: %s\nreviewed: %s\n%s\n\n## Summary\n\n%s\n\n## Findings\n\n%s\n%s' "$1" "$SHA" "$BYL" "$2" "$3" "${4:-}"; }
+check1() { printf '%s\n' "$2" > "$T/$1.md"; OUT="$(bash "$TOOL" "$T/$1.md" 2>"$T/$1.err")"; RC=$?; }
+check1 nr-approve "$(lead approve $'Mergeable as it is.\nNot reviewed: a11y + design-fidelity (no changed path matched the web-component globs).\nNothing to do.' 'None.')"
+passes "(nr1) a review-lead approve in the lane format, with a Not reviewed line, passes with no record"
+check1 nr-nw "$(lead needs-work $'Not mergeable yet.\nFix B1 and N1.' $'- [blocker] B1 [Security] src/a.ts:3 — the token leaks into the log\n  Scenario: a failed login → the token is in the log\n  Fix: redact it\n- [note] N1 [blind] src/b.ts:9 — the helper repeats a constant\n  Fix: use the constant' $'\n## Notes\n\nlane vs blind: 0 agreed, 0 rated differently, 1 lane alone, 1 blind alone; blind flipped the verdict\n<!-- plain-vs-lane: {"v":3} -->')"
+passes "(nr1) a review-lead needs-work with a blocker, a [blind] note and the join's lines passes"
+check1 nr-seat "$(printf 'verdict: needs-work\nreviewed: %s\nreason: seat-unavailable\n%s\n\n## Summary\n\nNot mergeable yet.\nNot reviewed: security-reviewer (dark after a re-dispatch).\n\n## Findings\n\nNone.' "$SHA" "$BYL")"
+passes "(nr1) a review-lead needs-work for a dark gate reviewer passes with reason: seat-unavailable and no finding"
+check1 nr-rows "$(lead approve $'Mergeable as it is.\nNothing to do.' 'None.' | ROWS="$HEAD_ROWS" awk '/^## Findings$/ { print "## Decision record rows"; print ""; print "| Row | Score | Evidence |"; print "| --- | --- | --- |"; print ENVIRON["ROWS"]; print "" } { print }')"
+fails_with "(nr2) a no-record verdict with ## Decision record rows" "Decision record rows in a verdict with no record"
+! has "record row not scored" && ! has "row not in the record" && ok "(nr2) its table rows are not graded against a record" || bad "(nr2) out=$(tr '\n' '|' <<<"$OUT")"
+check1 nr-old "$(printf 'verdict: approve\nreviewed: %s\n%s\n\n## Summary\n\nMergeable as it is.\n\n## Strengths\n\n- tidy\n\n## Findings\n\nNone.\n\n## Suggestions (consider)\n\n- [Complexity] src/a.ts:21 — could be simpler\n\n## Verdicts\n\n| Reviewer | Verdict |\n\n## Notes\n\n**Ready to merge?** Yes' "$SHA" "$BYL")"
+fails_with "(nr3) a Strengths section" "unknown section: ## Strengths"
+has "unknown section: ## Suggestions (consider)" && has "unknown section: ## Verdicts" && has "Ready to merge? in the body" \
+  && ok "(nr3) a Suggestions section, a Verdicts section and a Ready to merge? line are each named" || bad "(nr3) out=$(tr '\n' '|' <<<"$OUT")"
+check1 nr-approve-note "$(lead approve $'Mergeable as it is.\nNothing to do.' $'- [note] N1 src/b.ts:9 — the helper repeats a constant\n  Fix: use the constant')"
+fails_with "(nr4) a no-record approve with a [note]" "approve with a note: 1 [note] line(s)"
+check1 nr-approve-blocker "$(lead approve $'Mergeable as it is.\nNothing to do.' $'- [blocker] B1 [Scope completeness] src/a.ts:3 — a plan requirement is missing\n  Fix: add it')"
+fails_with "(nr4) a no-record approve with a [blocker]" "approve with a blocker: 1 [blocker] line(s)"
+check1 nr-no-by "$(lead approve $'Mergeable as it is.\nNothing to do.' 'None.' | sed 3d)"
+fails_with "(nr5) a no-record verdict with no reviewed-by line" "missing reviewed-by line"
+check1 nr-no-summary "$(printf 'verdict: approve\nreviewed: %s\n%s\n\n## Findings\n\nNone.' "$SHA" "$BYL")"
+fails_with "(nr5) a no-record verdict with no ## Summary" "missing section: ## Summary"
+OUT="$(bash "$TOOL" "$T/no-such-report.md" 2>/dev/null)"; RC=$?
+[ "$RC" -eq 2 ] && ok "(nr6) a missing verdict file in the no-record mode: exit 2" || bad "(nr6) rc=$RC"
+
+# ---- the length limits and the none contributions line, in both modes ----
+lines_of() { seq "$1" | sed 's/^/Line /; s/$/./'; }
+words() { printf 'word%.0s ' $(seq "$1"); }
+SUM8="$(printf 'Mergeable as it is.\nD-2 departed: the build deleted it.\n%s' "$(lines_of 6)")"
+SUM9="$SUM8"$'\nLine 7.'
+check s-8 "$(summ approve "$SUM8" "$HEAD_ROWS" 'None.')"
+passes "(l1) a Summary of eight non-blank lines passes"
+check s-9 "$(summ approve "$SUM9" "$HEAD_ROWS" 'None.')"
+fails_with "(l1) a Summary of nine non-blank lines" "Summary longer than eight lines: 9 non-blank lines"
+check1 nr-s-8 "$(lead approve "$(printf 'Mergeable as it is.\n%s' "$(lines_of 7)")" 'None.')"
+passes "(l1) a no-record Summary of eight lines passes"
+check1 nr-s-9 "$(lead approve "$(printf 'Mergeable as it is.\n%s' "$(lines_of 8)")" 'None.')"
+fails_with "(l1) a no-record Summary of nine lines" "Summary longer than eight lines: 9 non-blank lines"
+JOIN_LINES=$'lane vs blind: 1 agreed, 0 rated differently, 0 lane alone, 0 blind alone\n<!-- plain-vs-lane: {"v":3,"findings":[]} -->'
+KB="Knowledge-base contributions:"$'\n'"- kb/auth.md — $(words 40)(change gap)"
+N149="$(printf '### Process\n\n%s' "$(words 147)")"
+check notes-149 "$(body approve "$HEAD_ROWS" 'None.' "$(printf '\n## Notes\n\n%s\n\nJoined review: the blind review returned no verdict, so this verdict is the lane review alone.\n%s\n\n%s' "$N149" "$KB" "$JOIN_LINES")")"
+passes "(l2) a Notes section of 149 words passes; the knowledge-base block and the join lines are not counted"
+check notes-150 "$(body approve "$HEAD_ROWS" 'None.' "$(printf '\n## Notes\n\n%s word\n\n%s' "$N149" "$JOIN_LINES")")"
+fails_with "(l2) a Notes section of 150 words" "Notes of 150 words or more: 150 words"
+check1 nr-notes-149 "$(lead approve $'Mergeable as it is.\nNothing to do.' 'None.' "$(printf '\n## Notes\n\n%s\n\n%s' "$N149" "$KB")")"
+passes "(l2) a no-record Notes section of 149 words passes"
+check1 nr-notes-150 "$(lead approve $'Mergeable as it is.\nNothing to do.' 'None.' "$(printf '\n## Notes\n\n%s word' "$N149")")"
+fails_with "(l2) a no-record Notes section of 150 words" "Notes of 150 words or more: 150 words"
+NOTE4=$'- [note] N1 src/a.ts:3 — the helper repeats a constant\n  Scenario: the constant changes → the helper keeps the old value\n  The repo keeps it in src/units.ts:1.\n  Fix: use the constant'
+NOTE5="$NOTE4"$'\n  One line too many.'
+BLOCKER6=$'- [blocker] B1 src/w.ts:40 — the retry loops forever\n  Scenario: a 409 → no exit\n  a\n  b\n  c\n  Fix: stop after three tries'
+check note-4 "$(body needs-work "$HEAD_ROWS" "$BLOCKER6"$'\n'"$NOTE4"$'\n\n- [note] N2 src/b.ts:9 — a second one\n  Fix: fix it')"
+passes "(l3) a note of four lines passes, and a blocker has no line limit"
+check note-5 "$(body needs-work "$HEAD_ROWS" "$NOTE5"$'\n- [note] N2 src/b.ts:9 — a second one')"
+fails_with "(l3) a note of five lines" "note longer than four lines: N1 has 5 lines"
+! has "N2" && ok "(l3) the short note after it is not named" || bad "(l3) out=$(tr '\n' '|' <<<"$OUT")"
+check1 nr-note-4 "$(lead needs-work $'Not mergeable yet.\nFix N1.' "$NOTE4")"
+passes "(l3) a no-record note of four lines passes"
+check1 nr-note-5 "$(lead needs-work $'Not mergeable yet.\nFix N1.' "$NOTE5")"
+fails_with "(l3) a no-record note of five lines, the last in the verdict" "note longer than four lines: N1 has 5 lines"
+check kb-none "$(body approve "$HEAD_ROWS" 'None.' $'\n## Notes\n\nKnowledge-base contributions: none')"
+fails_with "(kb1) the line Knowledge-base contributions: none" "Knowledge-base contributions: none in the body"
+check1 nr-kb-none "$(lead approve $'Mergeable as it is.\nNothing to do.' 'None.' $'\n## Notes\n\nKnowledge-base contributions: none')"
+fails_with "(kb1) the none line in a no-record verdict" "Knowledge-base contributions: none in the body"
+check kb-some "$(body approve "$HEAD_ROWS" 'None.' $'\n## Notes\n\n'"$KB")"
+passes "(kb2) a contributions block with a proposal passes"
 
 # ---- every failed rule is printed, not only the first ----
 check many "$(body approve $'| D-1 a | violated | x |' $'- [blocker] B1 a\nprose')"

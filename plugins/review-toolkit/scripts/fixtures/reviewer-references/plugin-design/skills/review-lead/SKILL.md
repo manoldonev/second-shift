@@ -17,11 +17,4 @@ BARE because the Routing regex excludes `:`.
 
 One dispatch substrate — the code-review.mjs Workflow.
 
-## Verdicts
-| Reviewer        | Verdict       | Findings | Confidence Range |
-|-----------------|---------------|----------|------------------|
-| Security        | Pass / Fail   | N        | N-N              |
-| Performance     | Pass / Fail   | N        | N-N              |
-| Design Faithful | Pass / Fail   | N        | N-N              |
-
 end

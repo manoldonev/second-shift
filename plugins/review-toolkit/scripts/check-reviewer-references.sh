@@ -49,7 +49,7 @@
 #                      is why it needs a pre-commit gate rather than a runtime one.
 #                      The expected prefix is DERIVED from the resolving root's own
 #                      .claude-plugin/plugin.json `name`, never hardcoded.
-# Plus DRIFT — the three registries inside SKILL.md itself disagree.
+# Plus DRIFT — the two registries inside SKILL.md itself disagree.
 #
 # Root resolution (env overrides win, for hermetic selftests):
 #   PLUGIN root    = $SECOND_SHIFT_PLUGIN_ROOT   or  $SCRIPT_DIR/..
@@ -229,37 +229,8 @@ routing=$(
         | sort -u
 )
 
-# 3. Verdict table — first column of the verdict table block, human labels
-#    mapped to canonical agent names.
-verdict_labels=$(
-    awk '/Verdict       \| Findings/{flag=1; next} flag && /^\|/{print; next} flag && !/^\|/{exit}' "$SKILL" \
-        | sed -E 's/^\| *([^|]+) *\|.*/\1/' \
-        | sed -E 's/[[:space:]]+$//' \
-        | grep -v '^$'
-)
-verdict=$(
-    echo "$verdict_labels" \
-        | sed -E '
-            s/^Scope Completeness$/scope-completeness-reviewer/;
-            s/^Security$/security-reviewer/;
-            s/^Performance$/performance-reviewer/;
-            s/^Database$/db-reviewer/;
-            s/^Complexity$/complexity-reviewer/;
-            s/^Maintainability$/maintainability-reviewer/;
-            s/^Test Coverage$/test-coverage-reviewer/;
-            s/^Orders$/orders-reviewer/;
-            s/^Pipeline$/pipeline-reviewer/;
-            s/^Unit Test Mutation$/unit-test-mutation-reviewer/;
-            s/^Design Faithful$/design-faithful-reviewer/;
-            s/^Figma Faithful$/figma-faithful-reviewer/;
-            s/^Accessibility$/a11y-reviewer/;
-        ' \
-        | grep -E '^[a-z][a-z0-9-]+-reviewer$' \
-        | sort -u
-)
-
-# Union of the three sub-registries = the plugin registry.
-plugin_registry=$(printf '%s\n%s\n%s\n' "$preflight" "$routing" "$verdict" | sort -u | grep -v '^$' || true)
+# Union of the two sub-registries = the plugin registry.
+plugin_registry=$(printf '%s\n%s\n' "$preflight" "$routing" | sort -u | grep -v '^$' || true)
 
 # --- Config deltas ---------------------------------------------------------
 adds=""
@@ -274,14 +245,10 @@ effective=$( { comm -23 <(printf '%s\n' "$plugin_registry") <(printf '%s\n' "$re
 
 errors=()
 
-# --- DRIFT: the three sub-registries inside SKILL.md must agree ------------
+# --- DRIFT: the two sub-registries inside SKILL.md must agree --------------
 diff_p_r=$(diff <(echo "$preflight") <(echo "$routing") || true)
-diff_p_v=$(diff <(echo "$preflight") <(echo "$verdict") || true)
 if [ -n "$diff_p_r" ]; then
     errors+=("DRIFT: Pre-flight enumeration vs Reviewer Routing differ:"$'\n'"$diff_p_r")
-fi
-if [ -n "$diff_p_v" ]; then
-    errors+=("DRIFT: Pre-flight enumeration vs Verdict table differ:"$'\n'"$diff_p_v")
 fi
 
 # --- (c) REMOVE-UNKNOWN: every remove must name a plugin-shipped reviewer ---
@@ -324,8 +291,7 @@ fi
 #     Scoped to the pre-flight panel deliberately. It is the only sub-registry whose
 #     entries are DISPATCH names; the Routing sub-registry's parse anchors
 #     `\*\*[a-z][a-z0-9-]+-reviewer\*\*`, which a qualified name does not match (so
-#     qualifying it would empty that set and fire DRIFT), and the Verdict table's first
-#     column carries human display labels that are sed-mapped to agent names below.
+#     qualifying it would empty that set and fire DRIFT).
 unqualified_roots=""
 while IFS= read -r raw; do
     [ -z "$raw" ] && continue

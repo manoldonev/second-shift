@@ -1262,7 +1262,7 @@ The verdict comment has these parts, in this order and nothing else:
 - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Dismissed and suppressed findings are not listed. Each finding id appears once in the verdict. A section with no findings holds the single line `None.`.
 - After its id and one space, a finding names its file:line and its defect: `- [blocker] B1 path:line — <defect>`. Its first continuation line is `Scenario: <input or state> → <wrong outcome>`. A finding that a dispatched reviewer raised names that reviewer in brackets before its file:line: `- [blocker] B1 [Reviewer] path:line — <defect>`. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) names its rule, and its file:line only where it has one. No finding carries a confidence number.
 - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. It also holds one line for each thing the review must show that is not a finding: a stale or wrong PR title or description, a break that only the ticket text accepts, and a test-intent exemption. Nothing in it counts toward the verdict.
-- `## Summary` and `## Notes` carry no over-engineering observation that `## Findings` does not list as a finding. Write each relevant one as a `[note]` in `## Findings`, and leave out the rest. The folded `dev: lane vs blind` block is exempt.
+- `## Summary` and `## Notes` carry no over-engineering observation that `## Findings` does not list as a finding. Write each relevant one as a `[note]` in `## Findings`, and leave out the rest. The `lane vs blind:` line is exempt.
 
 `Ready to merge?` is never written anywhere in the body.
 
@@ -1274,7 +1274,7 @@ GRAMMAR
   # stated once here and once in review/SKILL.md step 8
   echo; grep -v 'LOCKSTEP-' <<'KB'
 # LOCKSTEP-BEGIN kb-contributions
-Knowledge-base contributions: when the repo's review-context.md has a `## Knowledge-base contributions` section, write a contributions block last in the verdict's `## Notes`. The candidates are what the record's `## Knowledge source` answer says the knowledge base does not cover (lookup gap), the page a `D-n` row names in `kb-conflict: <kb-page> (kb stale)` or `(kb ahead)`, and what this diff makes true that the knowledge base should state (change gap). Apply the inclusion test that the section declares, as written, to every candidate, and list only the candidates that pass. Write the lead line `Knowledge-base contributions:` with one proposal per line under it, in the format the section declares or as `- <kb-page> — <what to add or correct> (<gap kind>)`. When no candidate passes, write the single line `Knowledge-base contributions: none`. Carry the whole list on every verdict, never only what changed since an earlier one: the earlier verdicts are collapsed once one binds. When review-context.md has no such section, the verdict carries no contributions line. A proposal is a draft the operator files in the knowledge base: never a finding, and it never makes a verdict `needs-work`.
+Knowledge-base contributions: when the repo's review-context.md has a `## Knowledge-base contributions` section, write a contributions block last in the verdict's `## Notes`. The candidates are what the record's `## Knowledge source` answer says the knowledge base does not cover (lookup gap), the page a `D-n` row names in `kb-conflict: <kb-page> (kb stale)` or `(kb ahead)`, and what this diff makes true that the knowledge base should state (change gap). Apply the inclusion test that the section declares, as written, to every candidate, and list only the candidates that pass. Write the lead line `Knowledge-base contributions:` with one proposal per line under it, in the format the section declares or as `- <kb-page> — <what to add or correct> (<gap kind>)`. When no candidate passes, write no contributions block. Carry the whole list on every verdict, never only what changed since an earlier one: the earlier verdicts are collapsed once one binds. When review-context.md has no such section, the verdict carries no contributions line. A proposal is a draft the operator files in the knowledge base: never a finding, and it never makes a verdict `needs-work`.
 # LOCKSTEP-END kb-contributions
 KB
   # the verdict's style, stated once here and once in review/SKILL.md step 8
@@ -1305,7 +1305,7 @@ In `## Notes`:
 - Write an inventory, such as the mutation run, as a list.
 - Put the knowledge-base block last.
 - Do not write a sub-heading that has nothing under it.
-- Write a topic that changed no score or finding in one sentence, or leave it out.
+- Leave out a topic that changed no score or finding.
 - Keep `## Notes` under 150 words, not counting the knowledge-base block.
 A limit never removes a row, a finding or a knowledge-base proposal. If they do not fit, shorten the wording.
 # LOCKSTEP-END verdict-style
@@ -2163,7 +2163,7 @@ while :; do
     "reason: ticket-unreadable") terminal env-not-ready "the review could not read ticket $ISSUE at $HEAD_SHA (reason: ticket-unreadable) — fix the tracker access and re-launch" ;;
     "reason: seat-unavailable") terminal env-not-ready "the review could not dispatch its design-fidelity reviewer at $HEAD_SHA (reason: seat-unavailable) — install or enable design-toolkit and re-launch" ;;
   esac
-  awk '/^<details><summary>dev: lane vs blind/ { exit } { print }' "$STATE/verdict-body.md" > "$STATE/verdict-findings.md" && FINDINGS="$STATE/verdict-findings.md" || FINDINGS="$STATE/verdict-body.md"
+  awk '/^lane vs blind: / { exit } { print }' "$STATE/verdict-body.md" > "$STATE/verdict-findings.md" && FINDINGS="$STATE/verdict-findings.md" || FINDINGS="$STATE/verdict-body.md"
   RED_LOG=""; NEED_BUILD=1
   over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
 done

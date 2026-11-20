@@ -44,14 +44,12 @@ nothing.
 ### Confidence, and what stays visible
 
 Score every finding 0-100 — 90-100 certain, 80-89 high, 60-79 moderate, below 60 speculative.
-**Report only ≥ 80** in the main report sections. Everything you considered and scored below 80
-goes into the report's `## Suppressed` section as a one-line bullet (`file:line — Confidence: N —
-description`), so what you filtered is visible rather than invisible. `[Pre-existing]` findings are
-reported regardless of confidence, in the pre-existing section.
+**Report only ≥ 80.** A finding scored below 80 is not listed, and neither is a `[Pre-existing]`
+one: the report lists only what this PR must address. The confidence score is for your triage; the
+report carries no number.
 
-A populated Suppressed section with no Critical findings is a strong review, not a weak one: it
-says the dimension was read and consciously cleared. Do not manufacture a Warning to prove the
-pass happened.
+A pass with no finding is a strong review, not a weak one. Do not manufacture a finding to prove
+the pass happened.
 
 ### New vs pre-existing
 
@@ -105,7 +103,7 @@ them.
 conditional upsert, overwrite-in-place, insert-new-row (pipeline-reviewer's "Idempotency under
 retry" list) — and the at-most-once, uniqueness or balance invariant a replay or a concurrent run
 breaks. A write with no invariant to name, such as an overwrite by primary key, is cleared by naming
-that pattern in `## Suppressed`, not by silence.
+that pattern to yourself before you move on; it is not listed.
 
 **What clears it.** A replay is a no-op only when it is deduplicated **where the write commits**:
 
@@ -202,9 +200,10 @@ A **persisted field** here is a field of an entity whose schema, model, DDL or m
 repo under review. Third-party API payloads and in-memory JSON are not persisted fields.
 
 For each persisted field the diff newly depends on — it dereferences, sends across a service
-boundary or branches on a field no prior production code read — emit one row into the report's
-`## Data provenance` section; with none, emit the single line `none: the diff consumes no newly
-read persisted field`. At most ~5 rows; identifiers that cross a service boundary come first.
+boundary or branches on a field no prior production code read — trace one row of this table in
+your working notes. The report carries no provenance table: a row's outcome reaches the report
+only as a finding, by the rules below. At most ~5 rows; identifiers that cross a service boundary
+come first.
 
 | Field | Produced at | Persisted by (schema) | Read at | Crosses to | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -306,8 +305,8 @@ Stack-agnostic. Apply each rule in the vocabulary of the repo's actual stack (`#
   cost, load or performance risk — deferred, unmeasured or inherited — that risk is required work
   for this dimension, not a row to match. Whoever owns performance this round (this pass, or the
   dispatched seat) states the worst-case bound as a finding at the severity the rules above give
-  it. A bound the trace shows is small is still stated — as a Suggestion, with the citation that
-  bounds it — so the reader can see the named risk was checked rather than matched. The row's own
+  it. A bound the trace shows is small is still stated — in one `## Notes` line, with the citation
+  that bounds it — so the reader can see the named risk was checked rather than matched. The row's own
   score is still whether the code matches the row: a score never
   overrides the operator's decision, and a bound never stands in for a score.
 
