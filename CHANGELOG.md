@@ -4,6 +4,16 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v19.0.1
+
+### `intake-toolkit` 8.9.0 → 8.9.1
+
+- **fix(intake-toolkit): intake amends the ticket body for a departure the operator chose** (#1364)
+  intake now rewrites the ticket text that an operator-chosen
+  departure departs from, so the lane review grades the chosen behavior
+  instead of blocking on the original text every round.
+  Migration: none.
+
 ## v19.0.0
 
 ### `dev-pipeline` 18.0.0 → 19.0.0
