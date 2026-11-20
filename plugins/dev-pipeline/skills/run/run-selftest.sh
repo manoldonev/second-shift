@@ -284,7 +284,8 @@ grep -qE '[|] [$]5[.]62 [|]' "$FAKE_GH/pr-body.md" && grep -qE '^[|] build-1[.]1
 grep -q 'round(s), [$]5[.]62$' <<<"$OUT" && ! grep -q '5[.]624' "$FAKE_GH/issue-comments" && ! grep -q '5[.]624' <<<"$OUT" && ok "(l3c) the terminal message and closing comment carry the rounded total too" || bad "(l3c) raw total leaked: $(grep -h '5[.]624' "$FAKE_GH/issue-comments" - <<<"$OUT" | head -n 2 | tr '\n' '|')"
 fixture l3d; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=2.43739 LC_NUMERIC=de_DE.UTF-8 run_case "$d"; expect approved "(l3d) a comma-decimal locale"
 grep -qE '^[|] build-1[.]1 [|] 3 [|] [$]2[.]44 [|]' "$FAKE_GH/pr-body.md" && ! grep -q '2,44' "$FAKE_GH/pr-body.md" && ok "(l3d) costs keep a dot decimal whatever the locale" || bad "(l3d) $(grep -E '[$][0-9]' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
-fixture l3e; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=49.627 RUN_COST_CEILING=100 run_case "$d"   # with pass 1's 0.25 and plain's 0.5; expect cost-spent "(l3e) 100.004 against a \$100 ceiling"
+# with pass 1's 0.25 and the plain session's 0.5
+fixture l3e; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=49.627 RUN_COST_CEILING=100 run_case "$d"; expect cost-spent "(l3e) 100.004 against a \$100 ceiling"
 grep -q '[$]100[.]01 exceeds the [$]100 ceiling' <<<"$OUT" && ok "(l3e) a cost-spent figure is rounded up, never to the ceiling itself" || bad "(l3e) $(grep 'exceeds' <<<"$OUT" | tail -n 1)"
 fixture l4; rm "$d/main/.claude/pipeline-state/42-ledger.md"; run_case "$d"; expect env-no-record "(l4) no intake record"; [ "$RC" -eq 3 ] && ok "(l4) [B6 K8] env-no-record exits 3 (resumable)" || bad "(l4) exit $RC"
 # #1023 AC-13: /intake is the only way in, so the refusal names it, not a retired stage skill

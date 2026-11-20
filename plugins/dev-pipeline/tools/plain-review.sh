@@ -19,6 +19,7 @@
 #                       [--ticket <file> | --jira-key <KEY>] [--record <name>] [--model <m>] [--timeout <s>]
 #                       [--prompt <file>] [--deny-read <path>]...
 #     --prompt is the session's prompt file (default skills/run/plain-review.md); one that cannot be read is exit 2.
+#     An <out> inside the worktree or a --deny-read path is exit 2: the session could not read its own tree there.
 #     Clears what an earlier run left in <out>, then writes <out>/verdict.md, <out>/ticket (true|false),
 #     <out>/result.json, <out>/start and <out>/end (epoch seconds), <out>/wall (whole seconds, only once the session
 #     has ended), and <out>/why on a failure. Exit 0 a draft · 1 no draft (<out>/why says why) · 2 usage.
@@ -132,6 +133,11 @@ run() {
   why() { printf '%s\n' "$1" > "$out/why"; return 1; }
   mkdir -p "$out/scratch" || { echo "plain-review: cannot create $out" >&2; return 2; }
   out="$(physical "$out")"
+  local dis ms a flags=() reads=()
+  reads=("$(physical "$wt")"); for d in ${deny[@]+"${deny[@]}"}; do reads+=("$(physical "$d")"); done
+  for d in "${reads[@]}"; do
+    case "$out/" in "${d%/}/"*) echo "plain-review: the out dir $out is inside the denied path $d, so the session could not read its own tree" >&2; return 2 ;; esac
+  done
   rm -rf "$out/tree" "$out/scratch"/* && rm -f "$out"/{why,verdict.md,ticket,ticket.md,diff.diff,prompt.md,result.json,session.err,start,end,wall} \
     || { echo "plain-review: cannot clear $out" >&2; return 2; }
   tree "$wt" "$head" "$plans" "$out/tree" || { why "the blind review's tree could not be written"; return; }
@@ -142,8 +148,6 @@ run() {
   echo "$has" > "$out/ticket"
   git -C "$wt" diff "$base...$head" -- . ":(exclude)$plans" > "$out/diff.diff" 2>/dev/null || { why "the diff could not be read for the blind review"; return; }
   prompt "$out/scratch/verdict.md" "$out/ticket.md" "$out/diff.diff" "$has" "$pf" > "$out/prompt.md" || { why "the blind review's prompt could not be written"; return; }
-  local dis ms a flags=() reads=()
-  reads=("$(physical "$wt")"); for d in ${deny[@]+"${deny[@]}"}; do reads+=("$(physical "$d")"); done
   dis="$(deny "AskUserQuestion,EnterWorktree,ExitWorktree" "${reads[@]}")"
   ms=$((secs - 300)); [ "$ms" -ge 120 ] || ms=120; ms=$((ms * 1000)); [ "$ms" -le 2147483647 ] || ms=2147483647
   while IFS= read -r a; do flags+=("$a"); done < <(args "$out/tree" "$out/scratch" "$dis" "$ms" "$tracker")

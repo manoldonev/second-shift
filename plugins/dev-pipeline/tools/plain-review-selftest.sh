@@ -7,6 +7,7 @@
 # reviewed checkout and every --deny-read path; with no ticket the prompt says so; a final message carrying a verdict
 # is the draft; no verdict, or a session past --timeout, is exit 1 with the reason in <out>/why; a flag with no value
 # is usage, never a hang; --prompt names the prompt file, plain-review.md without it, and an unreadable one is exit 2;
+# an --out inside the worktree or a --deny-read path is exit 2, since the deny would cover the session's own tree;
 # the session is always denied the Atlassian write tools and each transcript dir, and its tree holds none
 # of the PR's Claude config; with no --out, `run` uses `out-dir <head>`, cleared of an earlier run's files.
 #
@@ -131,6 +132,17 @@ for pf in "$T/no-such-prompt.md" "$T"; do
   [ "$RC" -eq 2 ] && [ ! -e "$T/args" ] && grep -qF "cannot read the prompt file '$pf'" "$T/o11.err" \
     && ok "(p26) a --prompt that is not a readable file ($(basename "$pf")) is exit 2, and no session runs" || bad "(p26) $pf rc=$RC $(cat "$T/o11.err")"
 done
+
+mkdir -p "$T/review-scratch/pass-1/scratch"; echo kept > "$T/review-scratch/pass-1/scratch/old"
+for o in "$T/review-scratch/pass-1" "$T/review-scratch"; do
+  FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$o" --plans-dir docs/plans \
+    --deny-read "$T/review-scratch" >/dev/null 2>"$T/o12.err"; RC=$?
+  [ "$RC" -eq 2 ] && [ ! -e "$T/args" ] && [ -e "$T/review-scratch/pass-1/scratch/old" ] && grep -qF 'is inside the denied path' "$T/o12.err" \
+    && ok "(p27) an --out at or inside a --deny-read path ($(basename "$o")) is exit 2, before anything is cleared or run" || bad "(p27) $o rc=$RC $(cat "$T/o12.err")"
+done
+FAKE_MODE=verdict bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$R/out" --plans-dir docs/plans >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 2 ] && [ ! -e "$T/args" ] && ok "(p28) an --out inside the reviewed worktree is exit 2" || bad "(p28) rc=$RC"
+rm -rf "$R/out"
 
 bash "$TOOL" run --worktree "$R" --base main --head "$HEAD_SHA" --out "$T/o7" --deny-read >/dev/null 2>&1 & PID=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$PID" 2>/dev/null || break; sleep 1; done

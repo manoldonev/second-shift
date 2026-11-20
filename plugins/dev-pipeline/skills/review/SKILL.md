@@ -61,7 +61,7 @@ review.
 
    ```bash
    bash <this skill's base directory>/../../tools/plain-review.sh run --prompt <this skill's base directory>/../run/pass-1-review.md \
-     --out <your scratch dir>/pass-1 --worktree "$(git rev-parse --show-toplevel)" \
+     --out "$(bash <this skill's base directory>/../../tools/plain-review.sh out-dir <headRefOid>)-pass-1" --worktree "$(git rev-parse --show-toplevel)" \
      --base "origin/<base>" --head <headRefOid> <--ticket <file> | --jira-key <KEY>> --record <record file name> \
      --deny-read "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" --deny-read <your scratch dir>
    ```
@@ -77,14 +77,16 @@ review.
    Shell variables do not survive from one Bash call to the next, so every block here names its
    paths literally: put in this skill's base directory, the `headRefOid` sha and your scratch dir
    as you hold them. The plain review has no `--out`, so it writes to
-   `plain-review.sh out-dir <headRefOid>`, which step 8 derives again from the same sha. Each run
+   `plain-review.sh out-dir <headRefOid>`, which step 8 derives again from the same sha. Pass 1
+   writes to that dir's sibling with `-pass-1` appended. Its out dir holds its working tree, so it
+   must stay outside every `--deny-read` path: a denied tree leaves pass 1 the diff text alone. Each run
    first clears what an earlier run left in its out dir. Never open the files in the plain review's
    dir yourself: only the join block reads them, so your draft is your own review.
 3. **Pass 1 is the blind session, never this session.** Do not review the diff for pass 1
    yourself, and do not open the decision record, the plan, the PR description, a PR comment or an
    earlier verdict while pass 1 runs. Wait for the pass-1 run to finish. Its findings are
-   `<your scratch dir>/pass-1/verdict.md`. Pass 1 has failed when the run exits non-zero, or when
-   that file has no `## Findings` line. `<your scratch dir>/pass-1/why` then says why. Run the
+   `verdict.md` in the pass-1 out dir. Pass 1 has failed when the run exits non-zero, or when
+   that file has no `## Findings` line. `why` in the same dir then says why. Run the
    pass-1 block once more. If it fails again, do not start pass 2: wait for the plain review to
    finish, tell the operator that pass 1 returned no findings and why, post nothing, and end the
    turn. A `## Findings` section that holds `None.` is a finding-free pass 1, not a failure.

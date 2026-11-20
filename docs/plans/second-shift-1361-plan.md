@@ -10,10 +10,12 @@
 
 - [ ] 2.1 Cases for plain-review.sh run with --prompt, without it, and with an unreadable --prompt file (plugins/dev-pipeline/tools/plain-review-selftest.sh) [AC-6]
 - [ ] 2.2 Add --prompt to plain-review.sh run and drop its enabled command (plugins/dev-pipeline/tools/plain-review.sh)
+- [ ] 2.3 Cases for an --out at or inside the worktree or a --deny-read path (plugins/dev-pipeline/tools/plain-review-selftest.sh)
+- [ ] 2.4 Refuse that out dir with exit 2 before anything is cleared or run (plugins/dev-pipeline/tools/plain-review.sh)
 
 ## 3. The blind pass 1 in /dev-pipeline:review
 
-- [ ] 3.1 The skill runs pass 1 with plain-review.sh run --prompt and starts pass 2 only on its findings (plugins/dev-pipeline/skills/review/SKILL.md)
+- [ ] 3.1 The skill runs pass 1 with plain-review.sh run --prompt, in an out dir outside its denied scratch dir, and starts pass 2 only on its findings (plugins/dev-pipeline/skills/review/SKILL.md)
 
 ## 4. Retire run.joinedReview
 
