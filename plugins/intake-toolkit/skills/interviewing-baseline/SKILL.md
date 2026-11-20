@@ -548,10 +548,13 @@ does. The holds and unchecked forms are additive inside v4: no receipt version n
 
 ### Departures
 
-A row that departs from a ticket criterion at intake (the operator chose a behavior that differs
-from the ticket's `AC-n`) ends its Resolution cell with one sentence that starts
-`Departs from AC-n:` and says how. The Receipt adds that sentence when the record round reports
-the departure and the row lacks it.
+A row that departs from the ticket at intake (the operator chose a behavior that differs from the
+ticket's `AC-n`, or from other text in its body such as a Scope bullet) ends its Resolution cell
+with one sentence that says how. The sentence starts `Departs from AC-n:`, or
+`Departs from the ticket's <part>:` for text outside the AC block. The Receipt adds that sentence
+when the record round reports the departure and the row lacks it. The Receipt then amends the
+ticket body to state the chosen behavior ("Amend the ticket" in `intake/receipt.md`). The review's
+first pass grades the diff against the ticket alone, and no record row clears its finding.
 
 A decision the receipt never covered will sometimes surface during BUILD. That is normal
 operation (P9), not a failure — what must not happen is the run quietly making the call. The

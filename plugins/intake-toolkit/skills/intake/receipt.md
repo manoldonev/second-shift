@@ -237,7 +237,7 @@ Act on its output before the lint runs. The operator chose a change or a departu
   - the answer is knowable from code → resolve it and record a `fact` row;
   - the answer is genuinely undecided → a declared `OR-n` with a disposition.
 - A reported departure that the operator chose → mark its row as a departure if it is not marked
-  yet. Nothing else.
+  yet. Do not ask it again.
 - A reported departure that the operator did not choose → ask the operator, or declare an `OR-n`.
 
 A row is marked as a departure when its Resolution ends with a `Departs from AC-n:` sentence
@@ -245,6 +245,20 @@ A row is marked as a departure when its Resolution ends with a `Departs from AC-
 
 The probe runs once per ticket or slice. Only the resumes of a partial report repeat it. It never
 blocks without an operator question.
+
+## Amend the ticket
+
+The review's first pass grades the diff against the ticket body alone, and no record row clears
+its finding. So a departure that only the record states blocks every review round.
+
+Take every row marked as a departure that the operator chose ("Act on the report" above). Do this
+whether or not the probe ran. For each row, rewrite the text it departs from in the ticket body, in
+place, so that the text states the chosen behavior. Keep the id and the position of that text.
+Change nothing else in the body. The row keeps what the ticket said before.
+
+The operator's choice of the departure authorizes the write. On github:
+`gh issue view <issue> --json body`, edit, `gh issue edit <issue> --body-file <file>`. Under jira,
+edit the description. No departure → no edit.
 
 ## Lint it
 
@@ -283,4 +297,5 @@ sizes and queues):
   (its CLAUDE.md says so), leave every slice unqueued and say so. A ticket that was **not** split is
   never queued by intake: queueing it is the operator's.
 
-Then hand off: name the receipt's path, its lint result, and the command that launches the run.
+Then hand off: name the receipt's path, its lint result, each ticket text you amended, and the
+command that launches the run.
