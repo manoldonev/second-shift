@@ -13,8 +13,9 @@ in this same plugin.
 
 ## The exit gates, in order
 
-Run these before writing, in this order. Each runs once per ticket or slice. The probe runs after
-the write ("Probe the record").
+Run these before writing, in this order. Each runs once per ticket or slice, except that gate 3
+runs again for a row a later step adds or changes. The probe runs after the write ("Probe the
+record").
 
 ### 1. Post-merge scan
 
@@ -52,6 +53,25 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/plan-interview/tools/dup-scan.sh" --issue <is
 
 Under `tracker.type: jira` it prints a not-applicable line and exits `0` — no queue label, no
 corpus.
+
+### 3. Amend the ticket
+
+The review's first pass grades the diff against the ticket body alone, and no record row clears
+its finding. So a departure that only the record states blocks every review round.
+
+Read each `intent` row that the operator chose: `user-answered`, `user-delegated` or
+`ticket-sourced`. Compare it with the whole ticket body: the ACs, the Scope bullets and all other
+text. Where the row chose a behavior that differs from that text, mark the row as a departure if it
+is not marked yet. Then rewrite that text in the ticket body, in place, so that it states the
+chosen behavior. Keep the id and the position of that text. Change nothing else in the body. The
+row's departure sentence keeps the original text.
+
+The operator's choice of the departure authorizes the write, as in the post-merge scan. On github:
+`gh issue view <issue> --json body`, edit, `gh issue edit <issue> --body-file <file>`. Under jira,
+edit the description. No departure → no edit.
+
+A later step that adds or changes an operator-chosen row ("Act on the report", "Lint it") runs
+this gate again over that row, and then lints again.
 
 ## Write the receipt
 
@@ -237,11 +257,11 @@ Act on its output before the lint runs. The operator chose a change or a departu
   - the answer is knowable from code → resolve it and record a `fact` row;
   - the answer is genuinely undecided → a declared `OR-n` with a disposition.
 - A reported departure that the operator chose → mark its row as a departure if it is not marked
-  yet. Nothing else.
+  yet. Do not ask it again.
 - A reported departure that the operator did not choose → ask the operator, or declare an `OR-n`.
 
-A row is marked as a departure when its Resolution ends with a `Departs from AC-n:` sentence
-(`interviewing-baseline`, "Departures").
+A row is marked as a departure when its Resolution ends with a `Departs from AC-n:` or a
+`Departs from the ticket's <part>:` sentence (`interviewing-baseline`, "Departures").
 
 The probe runs once per ticket or slice. Only the resumes of a partial report repeat it. It never
 blocks without an operator question.
@@ -283,4 +303,5 @@ sizes and queues):
   (its CLAUDE.md says so), leave every slice unqueued and say so. A ticket that was **not** split is
   never queued by intake: queueing it is the operator's.
 
-Then hand off: name the receipt's path, its lint result, and the command that launches the run.
+Then hand off: name the receipt's path, its lint result, each ticket text you amended, and the
+command that launches the run.
