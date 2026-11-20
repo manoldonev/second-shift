@@ -82,17 +82,16 @@ grep -q "^verdicts: earlier ones NOT all minimized â€” comment 1 NOT minimized â
 FIXTURE_CONFIG="$CS_BOT_CONFIG" fixture mv5; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; cs_bot; expect approved "(mv5) a run with a bot"
 [ "$(cat "$FAKE_GH/minimized" 2>/dev/null)" = "bot N1" ] && ok "(mv5) [D-6] the minimize is written through the bot" || bad "(mv5) minimized: $(tr '\n' '|' < "$FAKE_GH/minimized" 2>/dev/null)"
 
-# (vc) #991: a verdict binds only when its own comment backs it. Each inconsistent body, posted by both the review and its
-# re-spawn: no status, no BUILD, the re-spawn told which rule broke, a notice linking each rejected verdict, review-unbound
+# (vc) #991: a verdict binds only when its own comment backs it. Each inconsistent body, drafted by both the review and its
+# re-spawn: no status, no BUILD, the re-spawn told which rule broke, nothing posted on the PR, review-unbound
 vc_case() { # vc_case <id> <build plan> <review plan> <rule>
   fixture "$1"; printf '%s\n%s\n%s\n' "$2" "$3" "$3" > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "($1) $3, twice"
   [ "$RC" -eq 5 ] && [ ! -s "$FAKE_GH/statuses" ] && [ "$(cat "$FAKE_GH/calls")" -eq 3 ] && [ ! -f "$FAKE_GH/prompt-4.txt" ] \
     && ok "($1) no status posted and no BUILD spawned" || bad "($1) rc=$RC calls=$(cat "$FAKE_GH/calls") statuses=$(cat "$FAKE_GH/statuses" 2>/dev/null)"
   grep -q '^## Your previous verdict did not bind' "$FAKE_GH/prompt-3.txt" && grep -qF -- "- $4" "$FAKE_GH/prompt-3.txt" && ! grep -q 'previous verdict did not bind' "$FAKE_GH/prompt-2.txt" \
     && ok "($1) the re-spawn prompt names the rule: $4" || bad "($1) prompt-3: $(grep -A3 'previous verdict' "$FAKE_GH/prompt-3.txt" | tr '\n' '|')"
-  [ "$(grep -c 'does not bind' "$FAKE_GH/pr-comment-bodies" 2>/dev/null)" -eq 2 ] && grep -q '^second-shift run .*: the verdict at https://x/pr/7#verdict does not bind' "$FAKE_GH/pr-comment-bodies" \
-    && grep -qF -- "- $4" "$FAKE_GH/pr-comment-bodies" && ! grep -q '^verdict:' "$FAKE_GH/pr-comment-bodies" \
-    && ok "($1) one notice per rejected verdict links it and names the rule, and is no verdict itself" || bad "($1) notices: $(tr '\n' '|' < "$FAKE_GH/pr-comment-bodies" 2>/dev/null)"
+  ! grep -q '^verdict:\|does not bind' "$FAKE_GH/pr-comment-bodies" 2>/dev/null && [ "$(jq length "$FAKE_GH/comments.json")" -eq 0 ] \
+    && ok "($1) the scheduler rejects each draft before posting it: no verdict and no notice reach the PR" || bad "($1) posted: $(tr '\n' '|' < "$FAKE_GH/pr-comment-bodies" 2>/dev/null)"
   grep -qF "breaks the verdict grammar: $4" <<<"$OUT" && ok "($1) the miss names the failed rule" || bad "($1) miss: $(grep 'verdict grammar' <<<"$OUT" | head -n 1)"
 }
 vc_case vc1 build-pr review-bad-approve-blocker "approve with a blocker"

@@ -35,9 +35,6 @@ plugins/intake-toolkit/skills/plan-interview/tools/dup-scan-selftest.sh	24	debt	
 plugins/intake-toolkit/skills/plan-interview/tools/dup-scan.sh	4	data	the calibration table: the selftest's input pairs
 plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint-selftest.sh	64	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh	4	data	the AC and decision-row syntax the tool documents and prints
-plugins/review-toolkit/evals/code-review-bench-eval/planted/corpus-selftest.sh	6	data	fixture record rows and AC ids
-plugins/review-toolkit/evals/code-review-bench-eval/planted/render-selftest.sh	8	data	fixture record rows and AC ids, and the PR number the rendered prompt carries
-plugins/review-toolkit/evals/code-review-bench-eval/planted/score-selftest.sh	8	data	fixture record rows and AC ids
 plugins/review-toolkit/scripts/check-emit-deadline-selftest.sh	8	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/review-toolkit/scripts/check-model-tiers-selftest.sh	5	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/review-toolkit/scripts/check-review-context-sections-selftest.sh	48	debt	selftest labels; fixture ids among them become data rows when swept

@@ -74,7 +74,8 @@ sids="$(for n in 1 2 3 4 5; do arg_after "$FAKE_GH/args-$n.txt" --session-id; do
   && ok "(wa1) [AC-1] each session gets a fresh lowercase v4 --session-id, never reused within or across launches" || bad "(wa1) [AC-1] session ids: $(tr '\n' ' ' <<<"$sids") / (rc2): $asid"
 s1="$(sed -n 1p <<<"$sids")"; s5="$(sed -n 5p <<<"$sids")"
 grep -qF " [run] session: build 1.1 $s1 ~/.claude*/projects/*/$s1.jsonl" <<<"$OUT" && grep -qF " [run] session: review 2.2-retry1 $s5 ~/.claude*/projects/*/$s5.jsonl" <<<"$OUT" \
-  && [ "$(grep -c ' \[run\] session: ' <<<"$OUT")" -eq 5 ] && ok "(wa1) [AC-2] one session line per spawn: role, attempt id, uuid, transcript glob" || bad "(wa1) [AC-2] $(grep 'session:' <<<"$OUT" | tr '\n' '|')"
+  && [ "$(grep -c ' \[run\] session: \(build\|review\) ' <<<"$OUT")" -eq 5 ] && [ "$(grep -c ' \[run\] session: pass1 ' <<<"$OUT")" -eq 3 ] && [ "$(grep -c ' \[run\] session: plain ' <<<"$OUT")" -eq 3 ] \
+  && [ "$(grep -c ' \[run\] session: ' <<<"$OUT")" -eq 11 ] && ok "(wa1) [AC-2] one session line per spawn, the blind sessions of each review attempt included: role, attempt id, uuid, transcript glob" || bad "(wa1) [AC-2] $(grep 'session:' <<<"$OUT" | tr '\n' '|')"
 # (wa2, wa4) AC-5: a foreground run is never watched; a run that ends before its worktree is ready calls nothing
 fixture wa2; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; RUN_WATCH_CMD="$T/bin/watch-fake" run_case "$d"; expect approved "(wa2) a foreground run with RUN_WATCH_CMD set"
 [ ! -f "$FAKE_GH/watch-calls" ] && [ "$(watch_lines)" -eq 1 ] && grep -q ' \[run\] watch: skipped for a foreground run' <<<"$OUT" && ok "(wa2) [AC-5] nothing invoked; the log says the watch was skipped" || bad "(wa2) [AC-5] calls: $(cat "$FAKE_GH/watch-calls" 2>/dev/null) lines: $(grep 'watch:' <<<"$OUT")"

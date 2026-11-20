@@ -371,11 +371,12 @@ The plain review's out dir is never written down: each block derives it again wi
 alone.
 
 **When it runs.** Do not start it when Routing has already voided the round (the design-fidelity reviewer of an armed spec cannot be
-dispatched, Step 4b-void case 2): say in the void report that the blind review did not run. Run this check. If it prints `false`, skip the plain review. If it fails, skip the plain review and end the report
-with `## Notes` and one line naming the error it printed:
+dispatched, Step 4b-void case 2): say in the void report that the blind review did not run. Otherwise it always runs.
+Run this check first. If it fails, skip the plain review and end the report with `## Notes` and one line naming
+the error it printed:
 
 ```bash
-PT="$(bash "<skill dir>/../../scripts/plain-review-tools.sh")" && bash "$PT/plain-review.sh" enabled
+bash "<skill dir>/../../scripts/plain-review-tools.sh"
 ```
 
 **Start it (Process step 6).** When a GitHub issue number was given, write its title and body to

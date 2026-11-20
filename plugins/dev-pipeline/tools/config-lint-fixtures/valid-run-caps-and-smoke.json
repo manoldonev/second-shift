@@ -16,8 +16,7 @@
     "buildTimeoutSeconds": 600,
     "reviewTimeoutSeconds": 600,
     "laneTimeoutSeconds": 1800,
-    "costCeilingUsd": 40,
-    "joinedReview": false
+    "costCeilingUsd": 40
   },
   "design": {
     "provider": "figma",

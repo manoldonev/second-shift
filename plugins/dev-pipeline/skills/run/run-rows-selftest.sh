@@ -124,7 +124,7 @@ grep -qF 'A row can say where or to what a rule applies. Score that row against 
   && ok "[row-reach] the review prompt scores a where-the-rule-applies row against every caller" || bad "[row-reach] the reach clause is missing from the review prompt"
 
 # B10: a verdict binds only from a Bot or the account the scheduler writes with — on a public repo anyone can
-# comment, and a needs-work body is pasted into the next BUILD prompt
+# comment, and a needs-work body is pasted into the next BUILD prompt. The fake gh posts the verdict as FAKE_VERDICT_AUTHOR
 fixture rauth; printf 'build-pr\nreview-approve\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_VERDICT_AUTHOR=stranger run_case "$d"
 expect review-unbound "[B10] a verdict posted by a stranger's account"
 [ ! -f "$FAKE_GH/prompt-4.txt" ] && ok "[B10] no BUILD spawned on a stranger's verdict" || bad "[B10] a stranger's verdict drove another round"

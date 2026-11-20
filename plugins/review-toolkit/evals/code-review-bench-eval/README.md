@@ -60,11 +60,11 @@ run, so the same arm measures the installed plugin — the before side of that c
 blindness and output contract in `rules.md`), `{checkout}`, `{base}`, `{head}`, `{scratch}` and
 `{out}`. The arm writes its comments to `{out}` as a numbered list; every item is scored.
 
-Shipped arms: `plain` (a one-paragraph senior-engineer prompt), `lane-review` (the lane's review
-session as it runs: one session, no reviewer dispatched; its correctness instruction is a
+Shipped arms: `plain` (a one-paragraph senior-engineer prompt), `lane-review` (the lane's pass-1
+session: one session, no reviewer dispatched; its correctness instruction is a
 `LOCKSTEP-BEGIN review-correctness` block that `scripts/check-lockstep-pairs.sh` holds to
-`review_prompt()` in `run.sh`. The bench has no ticket or record, so it measures the correctness half
-only), `review-lead-standalone` (the skill with its full routing),
+`plugins/dev-pipeline/skills/run/pass-1-review.md`. The bench has no ticket or record, so it measures
+the correctness half only), `review-lead-standalone` (the skill with its full routing),
 `tob-differential-review` (Trail of Bits' skill; needs `differential-review@trailofbits` enabled,
 and the harness cannot verify the installed version against the commit the arm file names).
 
@@ -110,35 +110,3 @@ refresh are not comparable to rows written after it; say so in the note.
 
 Write `arms/<name>.md`, smoke it, then run the `dev` set. A new arm's first row is its baseline.
 Never tune on `heldout`.
-
-## The planted mode
-
-`planted/` asks a different question: does the lane's review catch what a plain review with the
-ticket misses? Its cases are planted defects on real Multi-SWE-bench fixes, each with a ticket, a
-decision record and repo context. What it measures, the scoring and the gate are in
-`docs/testing.md`, under "The planted mode". It reuses this bench's judge, judge cache,
-calibration gate and transcript scan, and writes its own rows to `planted/changelog.md`.
-
-```
-python3 planted/planted.py check                                  # the corpus's structure, as CI runs it
-python3 planted/planted.py verify --dest <dir>                    # build and render every case, no model
-REVIEWER_MODEL=<id|alias> JUDGE_MODEL=<id|alias> planted/run.sh --arm plain --arm lane --runs 3 --note "why"
-REVIEWER_MODEL=<id|alias> JUDGE_MODEL=<id|alias> planted/run.sh --arm lane --case <id> --runs 1 --no-record
-```
-
-A case is `planted/cases/<id>/`: `case.json` (the upstream, its license, the base sha, the issue and
-PR numbers, the commit subject and the ground truth), `ticket.md`, `record.md` and `patch.diff`.
-A ground-truth location is a range `{file, start, end, side}` or a path-level `{file, side}`, and
-at least one range falls inside a hunk of the patch.
-The patch applies to the base after the overlay, and adds the plan at
-`docs/plans/<repo>-<issue>-plan.md`. Its ids are six random characters, because the reviewer sees
-the id in its scratch path and session name. Each overlay under `planted/overlays/` is shared by
-the cases of one upstream. `NOTICE` names each upstream and its license.
-
-Four cases (`a9n5jx`, `d6m1zo`, `t3h7we`, `v2q8ci`) are runner cases: their overlay
-`anuraghazra__github-readme-stats-jest` declares a jest `testRunners` entry, the recipe runs it on
-the record commit's tree as the lane does, and the case expects the lane to stop on
-fails-without-the-change. Building them runs `npm install`, so they need npm and the network. Every
-other case configures no test runner, so that gate is not-applicable on it. The checkouts, the
-clones and the per-run state live under the cache dir, never in the repo. Each review session's stdout and stderr are in `state/session.stdout` and
-`state/session.stderr` beside its checkout.
