@@ -552,8 +552,9 @@ A row that departs from the ticket at intake (the operator chose a behavior that
 ticket's `AC-n`, or from other text in its body such as a Scope bullet) ends its Resolution cell
 with one sentence that states the ticket's original text and how the row differs. The sentence
 starts `Departs from AC-n:`, or `Departs from the ticket's <part>:` for text outside the AC block.
-The Receipt adds that sentence when the row lacks it. Before it writes the receipt, it amends the
-ticket body to state the chosen behavior ("3. Amend the ticket" in `intake/receipt.md`). The
+The Receipt adds that sentence when the row lacks it. Before it writes the receipt, and again for
+each such row a later step adds, it amends the ticket body to state the chosen behavior
+("3. Amend the ticket" in `intake/receipt.md`). The
 review's first pass grades the diff against the ticket alone, and no record row clears its finding.
 
 A decision the receipt never covered will sometimes surface during BUILD. That is normal

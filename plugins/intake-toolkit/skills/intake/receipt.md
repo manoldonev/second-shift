@@ -69,6 +69,9 @@ The operator's choice of the departure authorizes the write, as in the post-merg
 `gh issue view <issue> --json body`, edit, `gh issue edit <issue> --body-file <file>`. Under jira,
 edit the description. No departure → no edit.
 
+A later step that adds or changes an operator-chosen row ("Act on the report", "Lint it") runs
+this gate again over that row, and then lints again.
+
 ## Write the receipt
 
 The shape and every empty form are `interviewing-baseline`'s ("The intake receipt"); write the
@@ -253,7 +256,7 @@ Act on its output before the lint runs. The operator chose a change or a departu
   - the answer is knowable from code → resolve it and record a `fact` row;
   - the answer is genuinely undecided → a declared `OR-n` with a disposition.
 - A reported departure that the operator chose → mark its row as a departure if it is not marked
-  yet, and amend the ticket as in "3. Amend the ticket". Do not ask it again.
+  yet. Do not ask it again.
 - A reported departure that the operator did not choose → ask the operator, or declare an `OR-n`.
 
 A row is marked as a departure when its Resolution ends with a `Departs from AC-n:` or a
