@@ -6,7 +6,8 @@
 #
 # INVARIANTS GUARDED: a review-lead report in the lane grammar is joined by the verdict rules: a plain blocker within 3
 # lines of a lane blocker tags it [lane+blind]; any other plain blocker or note is added as [blind] with the next free
-# id and flips an approve; one near a lane finding is not listed again. Both formats end with one visible
+# id and flips an approve; one near a lane finding is not listed again; an added note keeps within the checker's
+# four-line limit. Both formats end with one visible
 # `lane vs blind:` line and the hidden machine line, and write no fold, pair list, session line or blind draft; the
 # machine line keeps cost and wall time, a findings list in pairing order, and a matrix that sums. With no plain draft
 # the verdict stands, its Notes say why, and the line says the blind review did not return.
@@ -267,6 +268,18 @@ ABOVE="$(above "$OUT")"
   && jq -e '.flipped == true and .plain_only == 1 and .plain_notes_dropped == 0' <<<"$RJ" >/dev/null \
   && ok "(r34) a lane Notes line that starts with a site but quotes no decision leaves out no blind note: the note is added and the approve flips" \
   || bad "(r34) json=$RJ findings=$(grep '^- \[' <<<"$ABOVE" | tr '\n' '|')"
+
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [note] N1 src/u.ts:7 — the helper repeats a literal' '  Scenario: the constant changes → stale value' \
+  '  Evidence: src/k.ts:3 holds the constant' '  Callers: src/a.ts:1' '  More: src/b.ts:2' '  Fix: use the constant' > "$T/plain-long.md"
+OUT="$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-long.md")"; printf '%s\n' "$OUT" > "$T/joined-long.md"
+CHECK="$(bash "$HERE/verdict-check.sh" "$T/joined-long.md" "$T/rec-ready.md" "$T/rec-ready.md")"; RC=$?
+REP="$(bash "$TOOL" "$T/lead-clean.md" "$T/plain-long.md" --format report)"; printf '%s\n' "$REP" > "$T/joined-long-report.md"
+CHECK2="$(bash "$HERE/verdict-check.sh" "$T/joined-long-report.md")"; RC2=$?
+N="$(findings "$OUT" | awk '/^- \[note\] N1 \[blind\] / { on = 1; print; next } on && /^  / { print; next } { on = 0 }')"
+[ "$RC" -eq 0 ] && [ "$RC2" -eq 0 ] && [ "$(grep -c '' <<<"$N")" -eq 4 ] \
+  && grep -qxF '  Callers: src/a.ts:1 More: src/b.ts:2 Fix: use the constant' <<<"$N" \
+  && ok "(r35) a blind note longer than four lines keeps three continuation lines, the later ones appended to the third, and the joined body passes verdict-check in both modes" \
+  || bad "(r35) rc=$RC rc2=$RC2 check=$CHECK check2=$CHECK2 note=$N"
 
 echo "verdict-join-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

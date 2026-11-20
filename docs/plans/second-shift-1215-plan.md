@@ -8,8 +8,8 @@
 
 ## 2. The join
 
-- [ ] 2.1 Cases: both formats write one `lane vs blind:` line and the hidden JSON line and no fold; the report format takes the verdict path, blind notes included (plugins/dev-pipeline/tools/verdict-join-selftest.sh) [AC-7]
-- [ ] 2.2 Replace the folded block with the one line, and join a report by the verdict rules (plugins/dev-pipeline/tools/verdict-join.sh)
+- [ ] 2.1 Cases: both formats write one `lane vs blind:` line and the hidden JSON line and no fold; the report format takes the verdict path, blind notes included; a blind note longer than four lines is joined within the limit and passes the checker in both modes (plugins/dev-pipeline/tools/verdict-join-selftest.sh) [AC-6] [AC-7]
+- [ ] 2.2 Replace the folded block with the one line, join a report by the verdict rules, and keep an added blind note within four lines (plugins/dev-pipeline/tools/verdict-join.sh)
 
 ## 3. The findings the next build round reads
 

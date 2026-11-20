@@ -15,7 +15,9 @@
 # listed again. A plain note within 3 lines of the site that starts a line of the lane's `## Notes` that quotes a
 # decision is left out: the lane put a decision the operator made there, and plain never sees the record. A Notes line
 # that starts with a site and quotes nothing, such as an inventory item, leaves out no note. Any other plain note is added after
-# the lane's notes as [blind], numbered after the lane's highest N id. An added
+# the lane's notes as [blind], numbered after the lane's highest N id. No session edits a [blind] note, so the join
+# keeps it within verdict-check.sh's four-line note limit: a continuation line after the third is appended to the
+# third. An added
 # finding turns an approve into a needs-work: line 1 becomes `verdict: needs-work`, the Summary's first line `Not
 # mergeable yet.`, and a `Nothing to do.` line names the [blind] findings. With no plain draft, `## Notes` says why
 # and the lane's verdict stands as written.
@@ -181,7 +183,13 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v fmt="$fmt" -v lc="$(num 
         if (match(t, /^[BNH][0-9]+ /)) { pid[np] = substr(t, 1, RLENGTH - 1); t = substr(t, RLENGTH + 1) }
         ptext[np] = t; ploc[np] = loc(t); inb = 1; continue
       }
-      if (inb && l ~ /^[ \t]+[^ \t]/) { c = l; sub(/^[ \t]+/, "", c); if (inb == 1) pcont[np] = pcont[np] "  " c "\n"; else qcont[nq] = qcont[nq] "  " c "\n"; continue }
+      if (inb && l ~ /^[ \t]+[^ \t]/) {
+        c = l; sub(/^[ \t]+/, "", c)
+        if (inb == 1) pcont[np] = pcont[np] "  " c "\n"
+        else if (++qcn[nq] <= 3) qcont[nq] = qcont[nq] "  " c "\n"
+        else { sub(/\n$/, "", qcont[nq]); qcont[nq] = qcont[nq] " " c "\n" }
+        continue
+      }
       inb = 0
     }
   }
