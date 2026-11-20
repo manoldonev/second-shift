@@ -4,6 +4,170 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v19.0.0
+
+### `dev-pipeline` 18.0.0 → 19.0.0
+
+- **feat(intake-toolkit,review-toolkit,dev-pipeline): fan-out without refuters, an interview that starts while it runs, and a checked v5 Fan-out section** (#1358)
+  the intake fan-out no longer refutes claims: all lenses run
+  on the reasoning tier and every claim reaches the interview unverified,
+  for the interviewer to check from its pointer. The interview starts
+  while the fan-out runs. Receipt v5's Fan-out section has no Refuter
+  line; ledger-lint.sh --receipt checks its tally and the From: F-n links
+  on rows, and --receipt-version prints 5.
+  Migration: update all second-shift plugins together. A
+  reviewers.modelOverrides.intake-refuter key is now ignored without a
+  warning; remove it. Receipts at v1 to v4 lint as before.
+- **feat(dev-pipeline,review-toolkit): every relevant review finding gates, a note the same as a blocker** (#1355)
+  a review approve now carries no finding. A [note] gates like a
+  [blocker], so the next build round fixes or rebuts it. Each finding ends
+  with a Fix line. A stale PR text, a break only the ticket accepts and a
+  test-intent exemption are one line in ## Notes, never a finding.
+  verdict-check.sh prints "approve with a note" and "needs-work with no
+  finding" (was "needs-work with no blocker"). The joined verdict adds
+  blind-only notes; its plain_only counts them, and plain_notes_dropped is 0
+  under --format verdict.
+  Migration: a script that matches the old "needs-work with no blocker" rule
+  name matches "needs-work with no finding" instead.
+  a review no longer gates on an over-engineering note for a mechanism
+  that the ticket or an operator-answered record row prescribes, or on a cost
+  bound within a risk that such a row accepts: each is one Notes line, and the
+  joined review drops the blind note at that site.
+  Migration: none.
+  a blind note near a lane Notes line that quotes no decision,
+  such as a mutation inventory item, is now added to the joined verdict
+  and gates it, instead of being dropped.
+  Migration: none.
+- **feat(dev-pipeline)!: pass 1 of the review runs as its own blind session, and the plain review always runs** (#1362)
+  each review round runs pass 1 as its own record-blind session beside
+  the plain review, and the review session runs pass 2 on its findings;
+  /dev-pipeline:review runs pass 1 the same way through the new
+  `plain-review.sh run --prompt`. The plain review always runs: the
+  `run.joinedReview` key, `RUN_JOINED_REVIEW` and `plain-review.sh enabled` are
+  removed. The planted mode of code-review-bench-eval is deleted.
+  Migration: delete `run.joinedReview` from the config if it is set; config-lint
+  now reports it as an unknown `run` key.
+  /dev-pipeline:review's blind pass 1 can read the code it reviews,
+  and plain-review.sh run exits 2 on an out dir under a denied path.
+  Migration: none.
+- **feat(dev-pipeline,review-toolkit): one short verdict format for review-lead and the lane** (#1363)
+  review-lead and the lane write one short verdict format. The
+  lane vs blind fold becomes one line; verdict-check.sh enforces the
+  Summary, Notes and note length limits and gains a no-record mode; the
+  posted review-lead body leaves out the findings posted inline.
+  Migration: posting a review-lead report needs the dev-pipeline of this
+  release; an older verdict-check.sh has no one-argument mode, so the
+  report shows "Format not checked" and is not posted.
+  the join keeps an added [blind] note within the four-line note
+  limit, so a long blind note no longer fails the joined verdict.
+  Migration: none.
+
+### `intake-toolkit` 8.8.0 → 8.9.0
+
+- **feat(intake-toolkit): the implementability probe runs once on the record, with 30 turns and resumes** (#1357)
+  the intake's implementability probe runs one round, on the
+  finished record, with a 30-turn cap. A report that ends partial is
+  resumed up to two times before the operator is asked, and unchecked
+  items are marked unverified instead of [human].
+  Migration: none.
+  a resumed implementability probe whose report the harness cut
+  at its turn cap finishes the whole report, instead of returning the same
+  cut report; an AC missing from an accepted partial report is a
+  pause-and-ask open region.
+  Migration: none.
+- **feat(intake-toolkit,review-toolkit,dev-pipeline): fan-out without refuters, an interview that starts while it runs, and a checked v5 Fan-out section** (#1358)
+  the intake fan-out no longer refutes claims: all lenses run
+  on the reasoning tier and every claim reaches the interview unverified,
+  for the interviewer to check from its pointer. The interview starts
+  while the fan-out runs. Receipt v5's Fan-out section has no Refuter
+  line; ledger-lint.sh --receipt checks its tally and the From: F-n links
+  on rows, and --receipt-version prints 5.
+  Migration: update all second-shift plugins together. A
+  reviewers.modelOverrides.intake-refuter key is now ignored without a
+  warning; remove it. Receipts at v1 to v4 lint as before.
+
+### `review-toolkit` 12.0.0 → 12.1.0
+
+- **feat(intake-toolkit,review-toolkit,dev-pipeline): fan-out without refuters, an interview that starts while it runs, and a checked v5 Fan-out section** (#1358)
+  the intake fan-out no longer refutes claims: all lenses run
+  on the reasoning tier and every claim reaches the interview unverified,
+  for the interviewer to check from its pointer. The interview starts
+  while the fan-out runs. Receipt v5's Fan-out section has no Refuter
+  line; ledger-lint.sh --receipt checks its tally and the From: F-n links
+  on rows, and --receipt-version prints 5.
+  Migration: update all second-shift plugins together. A
+  reviewers.modelOverrides.intake-refuter key is now ignored without a
+  warning; remove it. Receipts at v1 to v4 lint as before.
+- **feat(dev-pipeline,review-toolkit): every relevant review finding gates, a note the same as a blocker** (#1355)
+  a review approve now carries no finding. A [note] gates like a
+  [blocker], so the next build round fixes or rebuts it. Each finding ends
+  with a Fix line. A stale PR text, a break only the ticket accepts and a
+  test-intent exemption are one line in ## Notes, never a finding.
+  verdict-check.sh prints "approve with a note" and "needs-work with no
+  finding" (was "needs-work with no blocker"). The joined verdict adds
+  blind-only notes; its plain_only counts them, and plain_notes_dropped is 0
+  under --format verdict.
+  Migration: a script that matches the old "needs-work with no blocker" rule
+  name matches "needs-work with no finding" instead.
+  a review no longer gates on an over-engineering note for a mechanism
+  that the ticket or an operator-answered record row prescribes, or on a cost
+  bound within a risk that such a row accepts: each is one Notes line, and the
+  joined review drops the blind note at that site.
+  Migration: none.
+  a blind note near a lane Notes line that quotes no decision,
+  such as a mutation inventory item, is now added to the joined verdict
+  and gates it, instead of being dropped.
+  Migration: none.
+- **feat(dev-pipeline)!: pass 1 of the review runs as its own blind session, and the plain review always runs** (#1362)
+  each review round runs pass 1 as its own record-blind session beside
+  the plain review, and the review session runs pass 2 on its findings;
+  /dev-pipeline:review runs pass 1 the same way through the new
+  `plain-review.sh run --prompt`. The plain review always runs: the
+  `run.joinedReview` key, `RUN_JOINED_REVIEW` and `plain-review.sh enabled` are
+  removed. The planted mode of code-review-bench-eval is deleted.
+  Migration: delete `run.joinedReview` from the config if it is set; config-lint
+  now reports it as an unknown `run` key.
+  /dev-pipeline:review's blind pass 1 can read the code it reviews,
+  and plain-review.sh run exits 2 on an out dir under a denied path.
+  Migration: none.
+- **feat(dev-pipeline,review-toolkit): one short verdict format for review-lead and the lane** (#1363)
+  review-lead and the lane write one short verdict format. The
+  lane vs blind fold becomes one line; verdict-check.sh enforces the
+  Summary, Notes and note length limits and gains a no-record mode; the
+  posted review-lead body leaves out the findings posted inline.
+  Migration: posting a review-lead report needs the dev-pipeline of this
+  release; an older verdict-check.sh has no one-argument mode, so the
+  report shows "Format not checked" and is not posted.
+  the join keeps an added [blind] note within the four-line note
+  limit, so a long blind note no longer fails the joined verdict.
+  Migration: none.
+
+### `second-shift` 14.0.0 → 14.1.0
+
+- **feat(intake-toolkit): the implementability probe runs once on the record, with 30 turns and resumes** (#1357)
+  the intake's implementability probe runs one round, on the
+  finished record, with a 30-turn cap. A report that ends partial is
+  resumed up to two times before the operator is asked, and unchecked
+  items are marked unverified instead of [human].
+  Migration: none.
+  a resumed implementability probe whose report the harness cut
+  at its turn cap finishes the whole report, instead of returning the same
+  cut report; an AC missing from an accepted partial report is a
+  pause-and-ask open region.
+  Migration: none.
+- **feat(dev-pipeline)!: pass 1 of the review runs as its own blind session, and the plain review always runs** (#1362)
+  each review round runs pass 1 as its own record-blind session beside
+  the plain review, and the review session runs pass 2 on its findings;
+  /dev-pipeline:review runs pass 1 the same way through the new
+  `plain-review.sh run --prompt`. The plain review always runs: the
+  `run.joinedReview` key, `RUN_JOINED_REVIEW` and `plain-review.sh enabled` are
+  removed. The planted mode of code-review-bench-eval is deleted.
+  Migration: delete `run.joinedReview` from the config if it is set; config-lint
+  now reports it as an unknown `run` key.
+  /dev-pipeline:review's blind pass 1 can read the code it reviews,
+  and plain-review.sh run exits 2 on an out dir under a denied path.
+  Migration: none.
+
 ## v18.0.0
 
 ### `audit-toolkit` 7.0.0 → 7.0.1
