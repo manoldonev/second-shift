@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2154,SC2034,SC2016  # the sourced lib sets $d, $OUT, $RC (fixture, run_case) and reads TERM_SLUG (expect); expected lines hold literal backticks
-# run-joined-selftest.sh — run.sh scenario slice: the joined review, on by default. A record-blind plain review runs
-# beside the lane review; the scheduler joins the two drafts and posts one verdict; run.joinedReview false turns it off.
+# run-joined-selftest.sh — run.sh scenario slice: the joined review. A record-blind plain review runs beside the lane
+# review; the scheduler joins the two drafts and posts one verdict.
 # The fakes, the fixture and run_case/expect live in run-selftest-lib.sh.
 set -uo pipefail
 # shellcheck source=run-selftest-lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-selftest-lib.sh"
-unset RUN_JOINED_REVIEW
 
 echo "[run-joined-selftest] the joined review: plain beside the lane, one verdict posted by the scheduler"
 
@@ -16,9 +15,8 @@ devjson() { posted "$1" | sed -n 's/^<!-- plain-vs-lane: \(.*\) -->$/\1/p'; }   
 # the k-th body ends with the one `lane vs blind:` line, then the machine line, and holds no fold
 join_tail() { posted "$1" | awk '/<details/ { fold = 1 } NF { p = l; l = $0 } END { exit !(!fold && p ~ /^lane vs blind: / && l ~ /^<!-- plain-vs-lane: .* -->$/) }'; }
 above() { posted "$1" | sed '/^lane vs blind: /,$d'; }   # the k-th body without the join's lines
-OFFCFG='{"tracker":{"type":"github","branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"},"run":{"joinedReview":false}}'
 
-# (j1) the default: no config key, no env. Both sessions run in parallel; the plain one cannot reach the record
+# (j1) both sessions run in parallel; the plain one cannot reach the record
 fixture j1; printf 'build-pr\nreview-approve-seeplain\n' > "$FAKE_CLAUDE_PLAN"; export FAKE_PLAIN_PLAN="$d/plain-plan"; printf 'plain-slow\n' > "$FAKE_PLAIN_PLAN"
 run_case "$d"; expect approved "(j1) the default review is joined"
 [ "$(cat "$FAKE_GH/plain-calls" 2>/dev/null)" = 1 ] && [ -f "$FAKE_GH/saw-plain-running" ] \
@@ -46,7 +44,7 @@ join_tail 1 && jq -e '.v == 3 and (.findings | type) == "array" and .format == "
     and .lane_verdict == "approve" and .plain_verdict == "approve"' <<<"$(devjson 1)" >/dev/null \
   && has_posted 1 -x 'lane vs blind: 0 agreed, 0 rated differently, 0 lane alone, 0 blind alone' \
   && ok "(j1) the verdict ends with one lane vs blind line and the JSON line, which holds both verdicts and both sessions' cost and wall time" || bad "(j1) join lines: $(devjson 1) $(posted 1 | tail -n 4 | tr '\n' '|')"
-grep -q '^cost_usd: 2.50$' "$FAKE_GH/issue-comments" && ok "(j1) the run's cost counts the plain session" || bad "(j1) cost: $(grep -o 'cost_usd: [0-9.]*' "$FAKE_GH/issue-comments")"
+grep -q '^cost_usd: 2.75$' "$FAKE_GH/issue-comments" && ok "(j1) the run's cost counts the plain session and pass 1" || bad "(j1) cost: $(grep -o 'cost_usd: [0-9.]*' "$FAKE_GH/issue-comments")"
 
 # (j2) a blocker only plain raised turns the lane's approve into a needs-work, which the next build reads
 fixture j2; printf 'build-pr\nreview-approve-summary\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-blocker-new\nplain-approve\n' > "$FAKE_PLAIN_PLAN"
@@ -93,7 +91,7 @@ grep -q '^- \[blocker\] B1 \[lane+blind\] src/a.ts:3' "$FAKE_GH/prompt-3.txt" &&
 for p in silent crash; do
   fixture "j4-$p"; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-%s\n' "$p" > "$FAKE_PLAIN_PLAN"
   run_case "$d"; expect approved "(j4) plain-$p"
-  has_posted 1 -x 'Joined review: the blind review returned no verdict, so this verdict is the lane review alone.' && grep -q '^cost_usd: 2.50$' "$FAKE_GH/issue-comments" \
+  has_posted 1 -x 'Joined review: the blind review returned no verdict, so this verdict is the lane review alone.' && grep -q '^cost_usd: 2.75$' "$FAKE_GH/issue-comments" \
     && ok "(j4) plain-$p: the lane's verdict is posted with a Notes line saying plain did not return; its cost still counts" || bad "(j4) plain-$p: $(posted 1 | tr '\n' '|')"
   join_tail 1 && jq -e '.plain_returned == false and .plain_blockers == 0 and .flipped == false and .plain_cost_usd == 0.5' <<<"$(devjson 1)" >/dev/null \
     && has_posted 1 -x 'lane vs blind: the blind review did not return' \
@@ -127,14 +125,6 @@ rb="$(sed -n '/^## Your previous verdict did not bind/,/^## Scheduler input/p' "
 grep -qF 'rejected it before posting' <<<"$rb" && ! grep -qiE 'posted|never edit' <<<"$rb" \
   && ok "(j6) the re-spawn is told its draft was rejected before posting, not that a verdict was posted" || bad "(j6) re-spawn block: $(tr '\n' '|' <<<"$rb" | cut -c1-400)"
 
-# (j7) switched off: the review is the lane review alone, as before the joined review
-FIXTURE_CONFIG="$OFFCFG" fixture j7; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_PLAIN_PLAN"
-run_case "$d"; expect approved "(j7) run.joinedReview false"
-[ ! -f "$FAKE_GH/plain-calls" ] && grep -qF 'Bash(gh pr comment*)' "$FAKE_GH/args-2.txt" && grep -q '^Post ONE PR comment' "$FAKE_GH/prompt-2.txt" \
-  && ! grep -q '^verdict: ' "$FAKE_GH/pr-comment-bodies" 2>/dev/null && [ "$(jq length "$FAKE_GH/comments.json")" -eq 1 ] \
-  && ! jq -e '.[0].body | contains("lane vs blind") or contains("plain-vs-lane")' "$FAKE_GH/comments.json" >/dev/null \
-  && ok "(j7) no plain session and no join lines; the lane review posts its own verdict" || bad "(j7) plain-calls=$(cat "$FAKE_GH/plain-calls" 2>/dev/null)"
-
 # (j8) jira, the default: the scheduler reads no Jira ticket, so the plain session fetches it with the read-only getJiraIssue tool,
 # after looking up the cloudId that tool requires
 JIRACFG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}'
@@ -165,7 +155,6 @@ join_tail 1 && jq -e '.ticket == false and .plain_returned == true and .plain_no
 FIXTURE_CONFIG="$JIRACFG" fixture j8v; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-no-jira-located\n' > "$FAKE_PLAIN_PLAN"; jira_run j8v
 join_tail 1 && jq -e '.ticket == false and .plain_notes_dropped == 0 and .m_0_n == 0' <<<"$(devjson 1)" >/dev/null && ! has_posted 1 'ticket-unavailable' \
   && ok "(j8v) a ticket-unavailable note written after a site sets ticket false and is no row" || bad "(j8v) dev=$(devjson 1)"
-fixture j9; RUN_JOINED_REVIEW=maybe run_case "$d"; expect env-config-run "(j9) a switch that is not true or false"
 
 # (j10) ids stay unique: plain's B1 at another site than the lane's B1 is renumbered after the lane's
 fixture j10; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; printf 'plain-blocker-new\nplain-approve\n' > "$FAKE_PLAIN_PLAN"

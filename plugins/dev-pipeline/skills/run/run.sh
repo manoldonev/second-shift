@@ -20,8 +20,6 @@
 #                             own waits, 300 s inside the bound: both sessions run with background tasks off and
 #                             their Bash timeouts at that value (floor 120 s)
 #       RUN_COST_CEILING      USD (100); RUN_CHECKS_RED_MAX (3)
-#       RUN_JOINED_REVIEW     true|false (config run.joinedReview; default true): a record-blind plain
-#                             review runs in parallel with the lane review, and the scheduler posts one joined verdict
 #       RUN_LANE_TIMEOUT      seconds (1800), a positive integer: the bound on each setup lane, check and smoke command
 #       SECOND_SHIFT_INTAKE_TOOLKIT_ROOT   the intake-toolkit whose ledger-lint.sh lints the receipt (default: the
 #                             installPath of the enabled intake-toolkit record in `claude plugin list --json`)
@@ -49,8 +47,9 @@
 #                 reporting runner — each named test must fail there; a pending one, and each
 #                 selected case, must then pass at the head);
 #                 route smoke; review input;
-#                 REVIEW in a fresh session, re-spawned once when dark; joined by default: a plain
-#                 session beside it, blind to the record, and the two drafts joined by tools/verdict-join.sh
+#                 REVIEW, re-spawned once when dark or when its pass 1 leaves no findings: pass 1 and a
+#                 plain session, each blind to the record (tools/plain-review.sh), then pass 2 in a fresh
+#                 session given the pass-1 findings; the pass-2 and plain drafts joined by tools/verdict-join.sh
 #                 into one verdict the scheduler checks and posts; verdict bound to the
 #                 review window, unedited, naming the current head, its body backing its own
 #                 verdict line (tools/verdict-check.sh); the bound verdict posted as the
@@ -304,11 +303,9 @@ cap REVIEW_TO "${RUN_REVIEW_TIMEOUT:-}" .run.reviewTimeoutSeconds 3600 int
 cap COST_CEIL "${RUN_COST_CEILING:-}" .run.costCeilingUsd 100
 cap CHECKS_RED_MAX "${RUN_CHECKS_RED_MAX:-}" .run.checksRedMax 3 int
 cap LANE_TO "${RUN_LANE_TIMEOUT:-}" .run.laneTimeoutSeconds 1800 int
-# The joined review: a record-blind plain review beside the lane review, joined into one verdict. On by default under
-# every tracker; under jira the plain session fetches its own ticket (plain_ticket, plain_args)
-JOINED="${RUN_JOINED_REVIEW:-$(cfg_bool .run.joinedReview)}"; JOINED="${JOINED:-true}"
-case "$JOINED" in true|false) : ;; *) terminal env-config-run "run.joinedReview must be true or false, got '$JOINED'" ;; esac
-PLAIN_PROMPT_FILE="$SKILL_DIR/plain-review.md"
+# The two blind sessions of a review round, pass 1 and the plain review; under jira each fetches its own ticket
+# (plain_ticket, plain_args)
+PLAIN_PROMPT_FILE="$SKILL_DIR/plain-review.md"; PASS1_PROMPT_FILE="$SKILL_DIR/pass-1-review.md"
 # F-env: a session's own waits end 5 minutes inside its bound, never below the harness's own 120 s / 600 s, so a hung
 # command or dispatch fails inside the session while it can still commit and report; capped at the JS timer maximum
 inner_ms() { local s=$(($1-300)); [ "$s" -ge "$2" ] || s="$2"; s=$((s*1000)); [ "$s" -le 2147483647 ] || s=2147483647; printf '%s' "$s"; }
@@ -343,9 +340,9 @@ command -v perl >/dev/null 2>&1 || terminal env-perl "the lanes need perl for se
 # -- processes (rows B18, F11-F13) --
 # shellcheck disable=SC2329  # invoked from the traps
 CHILD_GROUP=0   # 1 while $CHILD leads its own process group (the watch call): reaped as a group, so no descendant survives
-PLAIN_PID=""   # the plain review's background subshell while it runs; its session is that subshell's direct child
+PLAIN_PID=""; PASS1_PID=""   # each blind session's background subshell while it runs; its session is that subshell's direct child
 reap() {
-  if [ -n "$PLAIN_PID" ]; then pkill -TERM -P "$PLAIN_PID" 2>/dev/null; kill -TERM "$PLAIN_PID" 2>/dev/null; fi
+  local p; for p in "$PLAIN_PID" "$PASS1_PID"; do [ -n "$p" ] || continue; pkill -TERM -P "$p" 2>/dev/null; kill -TERM "$p" 2>/dev/null; done
   [ -n "$CHILD" ] || return 0
   if [ "$CHILD_GROUP" -eq 1 ]; then kill -TERM -- "-$CHILD" 2>/dev/null; sleep 0.2; kill -KILL -- "-$CHILD" 2>/dev/null; fi
   pkill -TERM -P "$CHILD" 2>/dev/null; kill -TERM "$CHILD" 2>/dev/null
@@ -1189,8 +1186,8 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
   [ -n "$2" ] && { echo; echo "## Review findings"; cat "$2"; }
   [ -n "${3:-}" ] && { echo; echo "## Red check output"; echo "A red check cannot be rebutted. Reproduce it with its command, then fix the cause. If the check itself is wrong, say so in the PR."; cat "$3"; }
 }
-review_prompt() { # review_prompt <pr> <review-input-file> [<the previous verdict's failed rules, on a re-spawn>]
-  echo "You review PR #$1 of this repository at its current head. Your session is separate from the session that built it. Check out the PR head. Review it in the two passes below, in their order."
+review_prompt() { # review_prompt <pr> <review-input-file> <pass-1 draft> [<the previous verdict's failed rules, on a re-spawn>]
+  echo "You review PR #$1 of this repository at its current head. Your session is separate from the session that built it. Check out the PR head. The review has two passes. Pass 1 ran before you, in its own session, and its findings are below. You run pass 2."
   echo "Read ticket $ISSUE yourself from the tracker (${TRACKER}). Never read the PR body to find the ticket."
   if [ "$TRACKER" = github ]; then echo "Read it with exactly 'gh issue view $ISSUE --json title,body,comments', as written."
   else echo "Read it with the getJiraIssue MCP tool, under whichever Atlassian namespace this session exposes."; fi
@@ -1200,24 +1197,17 @@ review_prompt() { # review_prompt <pr> <review-input-file> [<the previous verdic
   echo "Do not run the repo's test suites or checks: the scheduler ran them at this head before spawning you, and CI runs them on the PR. Run each shell command on its own, with absolute paths: no cd (use git -C <dir>), no shell variables, no ; or && chains, no | pipes, no \$( ) substitution, no nohup or trailing &. Write files only with the Write tool, never through a shell (no python, heredoc or > redirect)."
   echo "Read an issue or PR comment with gh issue view or gh pr view --json comments, never gh api."
   echo "If the ticket has design frames, render every screen at the head with the repo's render command. Compare each screen with its frame. If you cannot render, you cannot approve: post 'verdict: needs-work' with line 3 'reason: render-unavailable'."
-  echo; echo "## Pass 1: the ticket and the code"
-  echo "Pass 1 reads the ticket, the diff and the code alone. Until pass 2, do not open the decision record, the plan, the PR description, a PR comment or an earlier verdict. Until pass 2, open no file in $SCRATCH except the pass-1 file below."
-  echo "The PR's base branch is $BASE_NAME. The diff is origin/$BASE_NAME...HEAD, not the remote default branch. Read it with git -C $WT diff origin/$BASE_NAME...HEAD -- . ':(exclude)$PLANS_DIR'. That pathspec leaves out the plans directory. Review that diff yourself, in this session, against the ticket."
-  grep -v 'LOCKSTEP-' <<'REVIEW'
-# LOCKSTEP-BEGIN review-completeness
-Review the diff for completeness. Check every acceptance criterion of the ticket against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a completeness finding, not a test-coverage problem, so it can be a `[blocker]`.
-# LOCKSTEP-END review-completeness
-# LOCKSTEP-BEGIN review-correctness
-Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers. Check that each of them still works with the change. When the change adds a rule over stored data, read the data that the rule meets. Check the rule against the data that already exists. Walk every path through the change: each branch, each early return, each error and each empty input. Report each problem as a finding with its file:line and a concrete scenario: the input or state, and the wrong outcome it produces. A problem with no scenario is not a finding.
-Report only relevant findings. A finding is relevant when a distinguished engineer who knew of it would definitely address it before merge. Every reported finding makes the verdict `needs-work`, a `[note]` the same as a `[blocker]`. The tag names the kind of problem, never whether it gates. A completeness or correctness problem is a `[blocker]`. A maintainability, test-coverage or repo-convention problem is a `[note]` only, never a `[blocker]`.
-A finding that shows existing data or an existing caller breaking under the change is a `[blocker]`. The ticket's scope list, a record row or parity with an older version never removes it or makes it a note. It is not a finding only when the ticket or a record row names that exact case, accepts it, and names who decided. The ticket's own text counts as the operator's. A row names who decided when its provenance is `user-answered`, or `ticket-sourced` with its comment URL. A `user-delegated` or `codebase-derived` row never accepts a break. The Evidence cell of the accepting row quotes the acceptance. A break that only the ticket text accepts gets one line in `## Notes` that quotes that text. A finding that shows the change does not do what the ticket asks, for input that existing callers send, is a completeness `[blocker]`. A requirement is an outcome, a behavior, an acceptance criterion or an external surface the ticket states. An internal structure that the ticket's scope or prose prescribes is not a requirement: its absence is never a completeness `[blocker]`, and it gets no finding.
-Over-engineering is always a `[note]`: a new abstraction, layer, option, extension point or generalization that nothing needs. A need is a present caller in the checkout, or an external surface the ticket asks for. An external surface is something a party outside the diff's own code reads or calls: a config key, an entry point or command, an API, or a stored or on-disk format. It needs no named caller. A ticket line, a record row or any other decision that prescribes the mechanism is not a need. A need expected only in the future is not a need either. Name the simpler shape, and cite the callers or show that there are none. When the ticket's own text prescribes the mechanism, the operator decided it: it is not a finding, and it gets one line in `## Notes` that starts with its file:line and quotes that text. Quote any other prescribing decision in the finding.
-The review runs in two passes. Pass 1 is the completeness and correctness review, from the ticket and the code alone. Pass 1 does not open the decision record, the plan or the PR description. It reads the diff with the plans directory excluded. It writes its findings to the scratch directory before pass 2 starts. When there is a record, pass 2 reads it at its first commit and at the head, and scores every row. A record row never removes, dismisses or downgrades a pass-1 finding. When a row decided the behavior that a finding shows breaking an existing caller, existing data or the ticket, the finding keeps its severity and names the row. Only three record grounds take a pass-1 finding out of `## Findings`: the accepted break above, the test intent's exemption of an acceptance criterion from a test, and an over-engineering `[note]` on a mechanism that a row prescribes when the row names who decided, as above. An exemption gets one line in `## Notes` that quotes it. A prescribed mechanism gets one line in `## Notes` that starts with its file:line and quotes the row. A dismissed or suppressed finding is never listed.
-# LOCKSTEP-END review-correctness
-REVIEW
-  echo "End pass 1 with the notes pass. Report maintainability, test-coverage and repo-convention problems in the diff as [note]s with file:line. Report only the relevant ones. A note gates like a blocker."
-  echo "Write every pass-1 finding to $SCRATCH/pass-1-findings.md. Then start pass 2."
+  echo; echo "## Pass 1 findings"
+  echo "Pass 1 ran in a copy of the head with no .git and no plans directory. It read the ticket, the diff and the code alone. Its output, as it returned it:"
+  echo "<pass-1>"; cat "$3"; echo "</pass-1>"
   echo; echo "## Pass 2: the decision record"
+  echo "The PR's base branch is $BASE_NAME. The diff is origin/$BASE_NAME...HEAD, not the remote default branch. Read it with git -C $WT diff origin/$BASE_NAME...HEAD."
+  # stated once here and once in review/SKILL.md step 4
+  grep -v 'LOCKSTEP-' <<'GROUNDS'
+# LOCKSTEP-BEGIN review-record-grounds
+The findings of pass 1 are this review's pass-1 findings, with the tags pass 1 gave them. When there is a record, pass 2 reads it at its first commit and at the head, and scores every row. A record row never removes, dismisses or downgrades a pass-1 finding. When a row decided the behavior that a finding shows breaking an existing caller, existing data or the ticket, the finding keeps its severity and names the row. A finding that shows existing data or an existing caller breaking under the change is not a finding when a record row names that exact case, accepts it, and names who decided. A row names who decided when its provenance is `user-answered`, or `ticket-sourced` with its comment URL. A `user-delegated` or `codebase-derived` row never accepts a break. The Evidence cell of the accepting row quotes the acceptance. Only three record grounds take a pass-1 finding out of `## Findings`: the accepted break above, the test intent's exemption of an acceptance criterion from a test, and an over-engineering `[note]` on a mechanism that a row prescribes when the row names who decided, as above. An exemption gets one line in `## Notes` that quotes it. A prescribed mechanism gets one line in `## Notes` that starts with its file:line and quotes the row. A dismissed or suppressed finding is never listed.
+# LOCKSTEP-END review-record-grounds
+GROUNDS
   echo "Read the decision record at $RECORD_REL twice. First read it as it stood at commit $FIRST (git show $FIRST:$RECORD_REL). Then read it as it stands at the head."
   echo "Check every row of the record against the diff. The record's test intent can exempt an acceptance criterion from a test. Then the pass-1 finding that the criterion has no test leaves '## Findings', and '## Notes' gets one line that quotes the exemption."
   echo "Score EVERY row of the record against the code. The scores are: honored, violated, departed, or undeterminable. A departed row was edited: name who decided, per its provenance. For an undeterminable row, say what you could not read. A violated or undeterminable row is a blocker. Do not approve when a row has either score."
@@ -1242,12 +1232,7 @@ REACH
   echo "For every file under 'Review policy edited' in the scheduler input below, trace the edit to an acceptance criterion of the ticket or a row of the decision record. You load these files from the head, so this PR is reviewed against the policy it edits. An entry you cannot trace is a [blocker]. Name the file. Require the build to cite the criterion or row that authorized the edit. The edit itself is never the blocker. The blocker is a merge that does not name who decided the edit."
   echo; echo "## The build's account"
   echo "Read the build's own account last, after pass 2. Only then read the PR description and the build's PR comments. Use them to reconcile the departures and rebuttals they state. Measurements show that an author's framing lowers what a reviewer finds. If that reading changes a score or a finding, say so in the verdict's '## Notes' with a line 'revised after reading the build's account: <what changed>'."
-  local via=""; [ "$BOT_OK" -eq 1 ] && via=" through $GH (the bot identity)"
-  if [ "$JOINED" = true ]; then
-    echo; echo "Write your verdict to $LANE_DRAFT with the Write tool. Do not post it: the scheduler posts it on the PR. Wherever this prompt says to post a verdict, write it to that file instead. Its body follows the verdict grammar below exactly."
-  else
-    echo; echo "Post ONE PR comment$via, its body passed with --body-file <a file in $SCRATCH>, never inline with --body. Its body follows the verdict grammar below exactly. Never edit that comment afterwards."
-  fi
+  echo; echo "Write your verdict to $LANE_DRAFT with the Write tool. Do not post it: the scheduler posts it on the PR. Wherever this prompt says to post a verdict, write it to that file instead. Its body follows the verdict grammar below exactly."
   echo "Before you post, check your draft: run 'bash $TOOLS/verdict-check.sh <your draft in $SCRATCH> $WT/$RECORD_REL $SCRATCH/record-at-first.md' (the record at the head, then at $FIRST). It prints every rule the draft breaks. Fix the draft until it exits 0. The scheduler runs the same check on the comment you post. A comment that fails the check does not count: the scheduler posts no status and starts a new review."
   echo "Your \`reviewed-by:\` line is exactly '$REVIEWED_BY'."
   echo
@@ -1310,14 +1295,10 @@ In `## Notes`:
 A limit never removes a row, a finding or a knowledge-base proposal. If they do not fit, shorten the wording.
 # LOCKSTEP-END verdict-style
 STYLE
-  if [ -n "${3:-}" ]; then
+  if [ -n "${4:-}" ]; then
     echo; echo "## Your previous verdict did not bind"
-    if [ "$JOINED" = true ]; then
-      echo "The previous review's draft, joined with the blind review's, does not support its own verdict line. The scheduler rejected it before posting, so the PR carries no comment and no status for it, and spawned you in its place. Review the head yourself. Write a new draft in the grammar above. The rejected draft broke these rules:"
-    else
-      echo "The previous review posted a verdict. Its comment does not support its own verdict line. The scheduler posted no status for it and spawned you in its place. Review the head yourself. Post a new verdict comment in the grammar above. Never edit the old one. The old verdict broke these rules:"
-    fi
-    sed 's/^/- /' "$3"
+    echo "The previous review's draft, joined with the blind review's, does not support its own verdict line. The scheduler rejected it before posting, so the PR carries no comment and no status for it, and spawned you in its place. Review the head yourself. Write a new draft in the grammar above. The rejected draft broke these rules:"
+    sed 's/^/- /' "$4"
   fi
   echo; echo "## Scheduler input (deleted or skipped tests, changed test or snapshot expectations, config edits, review-policy edits, the build's permission denials, and the untracked files archived after it)"; cat "$2"
 }
@@ -1338,17 +1319,16 @@ EOF
   printf '%s' "$allow"
 }
 review_allowlist() { # row F20: Agent is for the design-fidelity reviewer alone
+  # no gh pr comment: the scheduler posts the verdict
   local allow="Read,Grep,Glob,Agent,Bash(jq *),Bash(bash *verdict-check.sh*),Bash(git *),Bash(gh pr view*),Bash(gh pr diff*),Bash(gh issue view*)$MCP_ALLOW"
-  [ "$JOINED" = true ] || allow="$allow,Bash(gh pr comment*)"   # joined, the scheduler posts the verdict
   [ -n "$RENDER_CMD" ] && allow="$allow$(cmd_grants "$RENDER_CMD")"
   [ -n "$(frames_rows)" ] && allow="$allow$(design_grants)"
   [ "$BOT_OK" -eq 1 ] && allow="$allow,Bash($GH pr view*)"   # never the wrapper whole: it takes api -X DELETE
-  [ "$BOT_OK" -eq 1 ] && [ "$JOINED" = false ] && allow="$allow,Bash($GH pr comment*)"
   printf '%s' "$allow"
 }
-# -- the joined review: a record-blind plain review in parallel with the lane review; the scheduler joins the two drafts
-# into one verdict and posts it. The plain session's prompt is plain-review.md beside this file, and nowhere else --
-# The plain session's parts are tools/plain-review.sh's alone; the review skills compose the same ones
+# -- the blind sessions of a review round: pass 1 (pass-1-review.md beside this file), whose findings the review session
+# is given, and the plain review (plain-review.md), whose draft the scheduler joins with the review session's into one
+# verdict and posts. Their parts are tools/plain-review.sh's alone; the review skills compose the same ones --
 plain_disallowed() { # plain_disallowed <lane scratch>
   local wt; wt="$(cd "$WT" 2>/dev/null && pwd -P)" || wt="$WT"
   bash "$TOOLS/plain-review.sh" deny "$DISALLOWED" "$MAIN_ROOT" "$wt" "$1"
@@ -1365,37 +1345,42 @@ plain_ticket() { # plain_ticket <out>: under github, the ticket's title and body
   fi
   bash "$TOOLS/plain-review.sh" ticket-text none > "$1"; return 1
 }
-plain_prompt() { bash "$TOOLS/plain-review.sh" prompt "$1" "$2" "$3" "$4" "$PLAIN_PROMPT_FILE"; }
 plain_args() { bash "$TOOLS/plain-review.sh" args "$1" "$2" "$(plain_disallowed "$SCRATCH")" "$REVIEW_BASH_MS" "$TRACKER"; }
 plain_draft() { bash "$TOOLS/plain-review.sh" draft "$1" "$2"; }
-plain_start() { # plain_start <attempt>: the plain session, in the background; 1 with PLAIN_WHY when its input cannot be made
-  local r="$PLAIN_ROOT/$1" sid a args=()
-  PLAIN_WHY=""; PLAIN_OK=0; PLAIN_TICKET=false
-  plain_tree "$r/tree" && mkdir -p "$r/scratch" || { PLAIN_WHY="the blind review's tree could not be written"; return 1; }
-  if plain_ticket "$STATE/plain-ticket-$1.md"; then PLAIN_TICKET=true; else PLAIN_TICKET=false; say "plain review: no ticket body to hand it — it reviews the diff alone"; fi
-  git -C "$WT" diff "origin/$BASE_NAME...$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" > "$STATE/plain-diff-$1.diff" 2>/dev/null || { PLAIN_WHY="the diff could not be read for the blind review"; return 1; }
-  plain_prompt "$r/scratch/verdict.md" "$STATE/plain-ticket-$1.md" "$STATE/plain-diff-$1.diff" "$PLAIN_TICKET" > "$STATE/plain-$1.prompt" || { PLAIN_WHY="the blind review's prompt could not be written"; return 1; }
-  sid="$(new_uuid)" || { PLAIN_WHY="no session id for the blind review"; return 1; }
-  plain_args "$r/tree" "$r/scratch" > "$STATE/plain-$1.args" || { PLAIN_WHY="the blind review's flags could not be written"; return 1; }
-  while IFS= read -r a; do args+=("$a"); done < "$STATE/plain-$1.args"
-  say "session: plain $1 $sid ~/.claude*/projects/*/$sid.jsonl"
-  date +%s > "$STATE/plain-$1.start"
-  ( BOUNDED_CWD="$r/tree"; BOUNDED_STDIN="$STATE/plain-$1.prompt"
-    bounded "$REVIEW_TO" "$STATE/plain-$1.json" env ${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"} -u SECOND_SHIFT_CONFIG "$CLAUDE" -p --session-id "$sid" \
-      -n "$ISSUE-plain-$(printf '%s' "$1" | tr -c 'A-Za-z0-9-' '-')" --model "$REVIEW_MODEL" "${args[@]}"; rc=$?
-    date +%s > "$STATE/plain-$1.end"; exit "$rc" ) & PLAIN_PID=$!
+blind_name() { [ "$1" = pass1 ] && printf 'pass 1' || printf 'the blind review'; }
+blind_inputs() { # blind_inputs <attempt>: the ticket and the diff both blind sessions read; 1 with BLIND_WHY
+  BLIND_WHY=""; PLAIN_TICKET=false
+  if plain_ticket "$STATE/plain-ticket-$1.md"; then PLAIN_TICKET=true; else say "blind sessions: no ticket body to hand them — they review the diff alone"; fi
+  git -C "$WT" diff "origin/$BASE_NAME...$HEAD_SHA" -- . ":(exclude)$PLANS_DIR" > "$STATE/plain-diff-$1.diff" 2>/dev/null || { BLIND_WHY="the diff could not be read for the blind sessions"; return 1; }
+}
+blind_start() { # blind_start <plain|pass1> <attempt> <prompt file>: the session in the background, its subshell in BLIND_PID; 1 with BLIND_WHY
+  local k="$1" n r="$PLAIN_ROOT/$1-$2" sid a args=()
+  n="$(blind_name "$k")"; BLIND_PID=""
+  plain_tree "$r/tree" && mkdir -p "$r/scratch" || { BLIND_WHY="$n's tree could not be written"; return 1; }
+  bash "$TOOLS/plain-review.sh" prompt "$r/scratch/verdict.md" "$STATE/plain-ticket-$2.md" "$STATE/plain-diff-$2.diff" "$PLAIN_TICKET" "$3" > "$STATE/$k-$2.prompt" \
+    || { BLIND_WHY="$n's prompt could not be written"; return 1; }
+  sid="$(new_uuid)" || { BLIND_WHY="no session id for $n"; return 1; }
+  plain_args "$r/tree" "$r/scratch" > "$STATE/$k-$2.args" || { BLIND_WHY="$n's flags could not be written"; return 1; }
+  while IFS= read -r a; do args+=("$a"); done < "$STATE/$k-$2.args"
+  say "session: $k $2 $sid ~/.claude*/projects/*/$sid.jsonl"
+  date +%s > "$STATE/$k-$2.start"
+  # the subshell's own bound reaps its own session, never its sibling's
+  ( PLAIN_PID=""; PASS1_PID=""; BOUNDED_CWD="$r/tree"; BOUNDED_STDIN="$STATE/$k-$2.prompt"
+    bounded "$REVIEW_TO" "$STATE/$k-$2.json" env ${WATCH_UNSET[@]+"${WATCH_UNSET[@]}"} -u SECOND_SHIFT_CONFIG "$CLAUDE" -p --session-id "$sid" \
+      -n "$ISSUE-$k-$(printf '%s' "$2" | tr -c 'A-Za-z0-9-' '-')" --model "$REVIEW_MODEL" "${args[@]}"; rc=$?
+    date +%s > "$STATE/$k-$2.end"; exit "$rc" ) & BLIND_PID=$!
 }
 session_wall() { # session_wall <start file> <end file>: whole seconds between the two epochs, or nothing
   local a b; a="$(cat "$1" 2>/dev/null)" && b="$(cat "$2" 2>/dev/null)" && [ -n "$a" ] && [ -n "$b" ] && echo $((b - a))
 }
-plain_collect() { # plain_collect <attempt>: waits for the plain session and counts its cost; 0 with its verdict at $STATE/plain-verdict-<attempt>.md, 1 with PLAIN_WHY
-  local rc d="$PLAIN_ROOT/$1/scratch/verdict.md"
-  [ -n "$PLAIN_PID" ] || return 1
-  wait "$PLAIN_PID"; rc=$?; PLAIN_PID=""
-  add_cost "$STATE/plain-$1.json"
-  [ "$rc" -ne 124 ] || { PLAIN_WHY="the blind review ran past ${REVIEW_TO}s"; return 1; }
-  plain_draft "$STATE/plain-$1.json" "$d" || { PLAIN_WHY="the blind review returned no verdict"; return 1; }
-  cp "$d" "$STATE/plain-verdict-$1.md" && PLAIN_OK=1
+blind_collect() { # blind_collect <plain|pass1> <attempt> <pid>: waits for the session and counts its cost; 0 with its draft at $STATE/<kind>-verdict-<attempt>.md, 1 with BLIND_WHY
+  local rc n d="$STATE/$1-verdict-$2.md"; n="$(blind_name "$1")"; BLIND_WHY=""
+  wait "$3"; rc=$?
+  add_cost "$STATE/$1-$2.json"
+  [ "$rc" -ne 124 ] || { BLIND_WHY="$n ran past ${REVIEW_TO}s"; return 1; }
+  plain_draft "$STATE/$1-$2.json" "$d" || { BLIND_WHY="$n returned no verdict"; return 1; }
+  # pass 1's findings are what the review session is given: a draft without the section hands it nothing to read
+  [ "$1" != pass1 ] || grep -qE '^## Findings[[:space:]]*$' "$d" || { BLIND_WHY="pass 1 returned no findings block"; return 1; }
 }
 other_comments() { # other_comments <attempt> <start-iso>: the other reviewers' comments on the PR at the review's start, read as the operator; no file when a read fails
   local repo err
@@ -1605,14 +1590,6 @@ verdict_check() { # verdict_check <attempt> -> verdict-check.sh's exit: 0 backed
   cp "$STATE/verdict-body.md" "$STATE/verdict-body-$1.md" || return 2
   bash "$TOOLS/verdict-check.sh" "$STATE/verdict-body-$1.md" "$hr" "$fr" > "$STATE/verdict-check-$1.txt" 2>&1
 }
-verdict_notice() { # verdict_notice <attempt> <verdict url>: one plain PR comment linking the rejected verdict and naming its failed rules; never fatal, never an edit of the verdict
-  local f="$STATE/verdict-notice-$1.md" err
-  { echo "second-shift run $RUN_ID: the verdict at ${2:-(its URL was not read)} does not bind. Its comment breaks the verdict grammar, so the scheduler posted no \`$STATUS_CONTEXT\` status and started no build."
-    echo; echo "Rules it breaks:"; sed 's/^/- /' "$STATE/verdict-check-$1.txt"; echo
-    echo "The scheduler never edits a verdict. After the first failed verdict, it starts one new review. After the second, the run ends as review-unbound. Then run /dev-pipeline:review $PR by hand."; } > "$f"
-  err="$("$GH" pr comment "$PR" --body-file "$f" 2>&1 >/dev/null)" && { say "verdict: the notice naming the failed rules is posted on PR #$PR"; return 0; }
-  STATUS_NOTES="${STATUS_NOTES}verdict notice: NOT posted — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"$'\n'; say "verdict: could not post the notice on PR #$PR"
-}
 joined_post() { # joined_post <attempt>: joins the lane draft with the plain one, checks the result and posts it once; 1 a miss, in JOINED_MISS
   local j="$STATE/joined-verdict-$1.md" p="" err
   [ -s "$LANE_DRAFT" ] || { JOINED_MISS="the review session wrote no verdict draft to $LANE_DRAFT"; return 1; }
@@ -1684,7 +1661,7 @@ pr_hold_draft() { # after every build: a ready PR is turned back into a draft
 run_summary() { # <terminal slug>
   printf 'second-shift: %s after %s round(s) · verdict %s · CI %s · $%s%s' "$1" "$ROUND" "${VERDICT:-none}" "$CI" "$(usd "$COST")" "${UNPRICED:+ + unpriced}"
   printf '%s%s' "$STATUS_NOTES" "$DRAFT_NOTES" | awk '
-    /^status: NOT posted/ { printf " · status NOT posted" } /^verdict notice: NOT posted/ { printf " · verdict notice NOT posted" }
+    /^status: NOT posted/ { printf " · status NOT posted" }
     /^verdicts: earlier ones NOT all minimized/ { printf " · verdicts NOT all minimized" }
     /^pr: NOT turned into a draft/ { printf " · NOT a draft" }'
 }
@@ -1867,10 +1844,8 @@ if [ "$HANDOFF" -eq 0 ]; then
   SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/second-shift-$ISSUE-scratch.XXXXXX")" || terminal env-scratch-dir "cannot create a scratch dir under ${TMPDIR:-/tmp}"
   SCRATCH="$(cd "$SCRATCH" && pwd -P)"   # the physical path: a session's --add-dir and the prompt must name the same dir
   say "scratch: $SCRATCH (both sessions; archived to $STATE/scratch.tar at exit)"
-  if [ "$JOINED" = true ]; then
-    PLAIN_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/second-shift-$ISSUE-plain.XXXXXX")" || terminal env-scratch-dir "cannot create the plain review's dir under ${TMPDIR:-/tmp}"
-    PLAIN_ROOT="$(cd "$PLAIN_ROOT" && pwd -P)"
-  fi
+  PLAIN_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/second-shift-$ISSUE-plain.XXXXXX")" || terminal env-scratch-dir "cannot create the blind sessions' dir under ${TMPDIR:-/tmp}"
+  PLAIN_ROOT="$(cd "$PLAIN_ROOT" && pwd -P)"
 fi
 
 # ============================ 5. baseline (rows E3-E6, E17, E18, G7, H6, J6, J11) ============================
@@ -2109,23 +2084,39 @@ while :; do
       # the record at FIRST, where the review's own draft check reads it (the head's is in the worktree it reviews)
       [ -z "$SCRATCH" ] || record_at_first > "$SCRATCH/record-at-first.md" || terminal env-worktree "cannot read the record at $FIRST:$RECORD_REL for the review"
       LANE_DRAFT="$SCRATCH/verdict-draft-$RA.md"
-      review_prompt "$PR" "$INPUT" "$REJECTED" > "$STATE/review-$RA.prompt"
-      PLAIN_OK=0; PLAIN_WHY=""; PLAIN_TICKET=false
-      [ "$JOINED" = false ] || plain_start "$RA" || say "plain review: not started — $PLAIN_WHY"
-      start="$(now)"; [ "$JOINED" = false ] || other_comments "$RA" "$start"; date +%s > "$STATE/review-$RA.start"
-      spawn review "$REVIEW_MODEL" "$RA" "$(review_allowlist)" 300 "$STATE/review-$RA.prompt"; rrc=$?
-      date +%s > "$STATE/review-$RA.end"
-      [ "$JOINED" = false ] || [ -z "$PLAIN_PID" ] || plain_collect "$RA" || say "plain review: $PLAIN_WHY"
+      PLAIN_OK=0; PLAIN_WHY=""
+      start="$(now)"; other_comments "$RA" "$start"
+      # pass 1 and the plain session run side by side; the review session starts only on pass 1's findings. A pass 1
+      # that leaves none is a review miss: the plain session is still collected and priced, and its draft unused
+      if ! blind_inputs "$RA"; then miss="pass 1 did not start: $BLIND_WHY"
+      elif ! blind_start pass1 "$RA" "$PASS1_PROMPT_FILE"; then miss="pass 1 did not start: $BLIND_WHY"
+      else
+        PASS1_PID="$BLIND_PID"
+        blind_start plain "$RA" "$PLAIN_PROMPT_FILE" && PLAIN_PID="$BLIND_PID" || { PLAIN_WHY="$BLIND_WHY"; say "plain review: not started — $PLAIN_WHY"; }
+        blind_collect pass1 "$RA" "$PASS1_PID" || miss="$BLIND_WHY"; PASS1_PID=""
+      fi
+      if [ -z "$miss" ]; then
+        review_prompt "$PR" "$INPUT" "$STATE/pass1-verdict-$RA.md" "$REJECTED" > "$STATE/review-$RA.prompt"
+        date +%s > "$STATE/review-$RA.start"
+        spawn review "$REVIEW_MODEL" "$RA" "$(review_allowlist)" 300 "$STATE/review-$RA.prompt"; rrc=$?
+        date +%s > "$STATE/review-$RA.end"
+      fi
+      if [ -n "$PLAIN_PID" ]; then
+        if blind_collect plain "$RA" "$PLAIN_PID"; then PLAIN_OK=1; else PLAIN_WHY="$BLIND_WHY"; say "plain review: $PLAIN_WHY"; fi
+        PLAIN_PID=""
+      fi
       end="$(now)"
+    fi
+    if [ -z "$miss" ]; then
       # the review's denials, read as the build's are. Known gap: a denial inside the review's Workflow
       # subagents is not in this result JSON, so it is not counted here
       read_denials "$STATE/review-$RA.json" "$STATE/denials-review-$RA.txt"
       rsub="$(jq -r '.subtype // "unreadable"' "$STATE/review-$RA.json" 2>/dev/null)"
       if [ "$rrc" -eq 124 ]; then miss="the review session exceeded ${REVIEW_TO}s"
       elif [ "$rsub" != success ]; then miss="the review session ended $rsub (rc=$rrc)"
-      elif [ "$JOINED" = true ] && ! joined_post "$RA"; then miss="$JOINED_MISS"
+      elif ! joined_post "$RA"; then miss="$JOINED_MISS"
       else
-        [ "$JOINED" = false ] || end="$(now)"
+        end="$(now)"
         VERDICT="$(verdict "$start" "$end")"; vrc=$?
         [ "$vrc" -ne 2 ] || terminal env-tracker-unreadable "the PR's comments could not be read after the review — an environment refusal, not a verdict; --resume"
         # a review reads the head as it is when it starts, so one that names a head the checks never ran on is a moved head, not a
@@ -2138,7 +2129,7 @@ while :; do
           verdict_check "$RA"; vcrc=$?
           if [ "$vcrc" -eq 1 ]; then
             miss="the verdict at ${vurl:-(no URL)} breaks the verdict grammar: $(paste -sd ';' "$STATE/verdict-check-$RA.txt" | sed 's/;/; /g' | cut -c1-600)"
-            VERDICT=""; REJECTED="$STATE/verdict-check-$RA.txt"; verdict_notice "$RA" "$vurl"
+            VERDICT=""; REJECTED="$STATE/verdict-check-$RA.txt"
           elif [ "$vcrc" -ne 0 ]; then
             VERDICT=""
             terminal verdict-uncheckable "the verdict at ${vurl:-(no URL)} could not be checked against the record ($(tr '\n' ' ' < "$STATE/verdict-check-$RA.txt" | cut -c1-300)) — a check that cannot run is not one that passed; no status posted"

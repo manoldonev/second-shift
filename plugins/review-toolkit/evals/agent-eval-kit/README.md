@@ -2,8 +2,7 @@
 
 Shared helpers for the eval harnesses that drive the `claude` CLI on the operator's subscription.
 `run-eval.py` is a library, not a runner: `code-review-bench-eval/bench.py` loads it by path with
-`importlib` (the hyphenated name is not importable), and `code-review-bench-eval/planted/planted.py`
-reaches it through `bench.kit`.
+`importlib` (the hyphenated name is not importable).
 
 | Helper | Purpose |
 |--------|---------|

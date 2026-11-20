@@ -451,7 +451,7 @@ grep -q "ok: AC-9 — src/g.check.sh fails on the record commit's tree" "$(SD)/f
 # scheduler's, the review session's and the blind review's diff — still returns the commit as pushed
 RR_FORGED='| D-1 | a | forged |'; RR_PUSHED='| D-1 | a | b | user-answered'
 FIXTURE_CONFIG="{\"tracker\":{\"type\":\"github\",\"branchPrefix\":\"second-shift/\"},\"paths\":{\"plansDir\":\"docs/plans\"},\"commands\":{\"main\":{\"extraLanes\":[{\"name\":\"unit\",\"when\":[\"src/**\"],\"commands\":[\"touch $T/rr1-lane-ran\"]}]}}}" fixture rr1
-printf 'build-pr-replace-record\nreview-needs-work\nbuild-push-only\nreview-approve-read-first\n' > "$FAKE_CLAUDE_PLAN"; RUN_JOINED_REVIEW=true run_case "$d"
+printf 'build-pr-replace-record\nreview-needs-work\nbuild-push-only\nreview-approve-read-first\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"
 expect approved "(rr1) a build that replaces the record commit"
 rr_first="$(git -C "$d/main" replace -l | head -n 1)"
 rr_local="$(git -C "$d/main" show "$rr_first:docs/plans/main-42-decisions.md" 2>/dev/null)"

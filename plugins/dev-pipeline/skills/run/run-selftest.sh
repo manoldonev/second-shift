@@ -33,12 +33,13 @@ grep -q 'Closes #42' "$FAKE_GH/prompt-1.txt" && grep -q 'gh pr create --draft' "
 grep -q 'AskUserQuestion' "$FAKE_GH/args-1.txt" && ! grep -q 'editJiraIssue' "$FAKE_GH/args-1.txt" && ok "(a) keyboard tools disallowed, no jira strip under github" || bad "(a) disallowed-tools list wrong"
 ! grep -q 'review-lead' "$FAKE_GH/prompt-2.txt" && ! grep -qi 'default panel' "$FAKE_GH/prompt-2.txt" && ! grep -q 'code-review.mjs' "$FAKE_GH/prompt-2.txt" && ! grep -q 'Workflow' "$FAKE_GH/prompt-2.txt" \
   && ok "(a) the review prompt runs no review-lead, declares no panel and stages no Workflow" || bad "(a) the review prompt still hands the review to review-lead or its panel"
-grep -qF 'The diff is origin/main...HEAD, not the remote default branch.' "$FAKE_GH/prompt-2.txt" && grep -qF 'Review that diff yourself, in this session, against the ticket.' "$FAKE_GH/prompt-2.txt" \
-  && grep -qxF "Review the diff for completeness. Check every acceptance criterion of the ticket against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a completeness finding, not a test-coverage problem, so it can be a \`[blocker]\`." "$FAKE_GH/prompt-2.txt" \
-  && grep -qF 'Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers.' "$FAKE_GH/prompt-2.txt" && grep -qF 'When the change adds a rule over stored data, read the data that the rule meets.' "$FAKE_GH/prompt-2.txt" \
-  && grep -qF 'Walk every path through the change' "$FAKE_GH/prompt-2.txt" && grep -qF 'Report each problem as a finding with its file:line and a concrete scenario' "$FAKE_GH/prompt-2.txt" \
-  && grep -qF "A maintainability, test-coverage or repo-convention problem is a \`[note]\` only, never a \`[blocker]\`." "$FAKE_GH/prompt-2.txt" \
-  && ok "(a) the review prompt has the session review the base diff itself for completeness and correctness, other pillars as notes" || bad "(a) the completeness and correctness instruction is missing from the review prompt"
+P1="$FAKE_GH/pass1-prompt-1.txt"
+grep -qF 'The diff is origin/main...HEAD, not the remote default branch.' "$FAKE_GH/prompt-2.txt" \
+  && grep -qxF "Review the diff for completeness. Check every acceptance criterion of the ticket against the diff. An acceptance criterion that the diff does not implement is a finding. An acceptance criterion with no test that proves it is a completeness finding, not a test-coverage problem, so it can be a \`[blocker]\`." "$P1" \
+  && grep -qF 'Review the diff for correctness. For each unit that the diff changes, read its callers and its consumers.' "$P1" && grep -qF 'When the change adds a rule over stored data, read the data that the rule meets.' "$P1" \
+  && grep -qF 'Walk every path through the change' "$P1" && grep -qF 'Report each problem as a finding with its file:line and a concrete scenario' "$P1" \
+  && grep -qF "A maintainability, test-coverage or repo-convention problem is a \`[note]\` only, never a \`[blocker]\`." "$P1" \
+  && ok "(a) pass 1 reviews the base diff for completeness and correctness, other pillars as notes" || bad "(a) the completeness and correctness instruction is missing from the pass-1 prompt"
 grep -qxF "Read it with exactly 'gh issue view 42 --json title,body,comments', as written." "$FAKE_GH/prompt-2.txt" && grep -qF "If you cannot read the ticket, you cannot review the PR: post 'verdict: needs-work' with line 3 'reason: ticket-unreadable'." "$FAKE_GH/prompt-2.txt" \
   && ok "(a) the review reads the ticket itself, and an unreadable ticket is line 3 reason: ticket-unreadable" || bad "(a) the ticket read is missing from the review prompt"
 grep -q 'Its risk is also required performance work: the review states the worst-case bound\.' "$FAKE_GH/prompt-2.txt" \
@@ -49,24 +50,23 @@ grep -q 'Its risk is also required performance work: the review states the worst
   && ok "(a) a row's cost risk is a bound the session states: a break of a caller or data blocks, any other bound blocks when it breaks the row, else is a relevant note or a Notes line" || bad "(a) the record-named risk rule is missing, lets a row excuse a break, or still asks for a dispatch"
 P2="$FAKE_GH/prompt-2.txt"
 pline() { grep -nF -- "$1" "$P2" | head -n 1 | cut -d: -f1; }
-l_p1=$(pline '## Pass 1: the ticket and the code'); l_p2=$(pline '## Pass 2: the decision record'); l_acct=$(pline "## The build's account")
-l_rec=$(pline 'docs/plans/main-42-decisions.md'); l_diff=$(pline "diff origin/main...HEAD -- . ':(exclude)docs/plans'")
-l_corr=$(pline "A dismissed or suppressed finding is never listed."); l_notes=$(pline 'End pass 1 with the notes pass.')
-l_out=$(pline '/pass-1-findings.md. Then start pass 2.'); l_last=$(pline "Read the build's own account last, after pass 2.")
+l_p1=$(pline '## Pass 1 findings'); l_p2=$(pline '## Pass 2: the decision record'); l_acct=$(pline "## The build's account")
+l_rec=$(pline 'docs/plans/main-42-decisions.md'); l_grounds=$(pline "A dismissed or suppressed finding is never listed.")
+l_last=$(pline "Read the build's own account last, after pass 2.")
 [ -n "$l_p1" ] && [ -n "$l_p2" ] && [ -n "$l_rec" ] && [ "$l_p1" -lt "$l_p2" ] && [ "$l_p2" -lt "$l_rec" ] \
   && ok "(a) the review prompt names the record path only after the pass-2 marker" || bad "(a) record path at line ${l_rec:-none}, pass 1 at ${l_p1:-none}, pass 2 at ${l_p2:-none}"
-[ -n "$l_diff" ] && [ "$l_p1" -lt "$l_diff" ] && [ "$l_diff" -lt "$l_p2" ] \
-  && ok "(a) the pass-1 diff command excludes the plans directory" || bad "(a) no pass-1 diff that excludes docs/plans (line ${l_diff:-none})"
 p2_first=$(head -n 1 "$P2")
 [ -n "$p2_first" ] && ! grep -qi 'record' <<<"$p2_first" && ok "(a) the review prompt's first line names no decision record" || bad "(a) first line: $p2_first"
-grep -qF "A finding that shows existing data or an existing caller breaking under the change is a \`[blocker]\`. The ticket's scope list, a record row or parity with an older version never removes it or makes it a note." "$P2" \
+grep -qF "A finding that shows existing data or an existing caller breaking under the change is a \`[blocker]\`. The ticket's scope list or parity with an older version never removes it or makes it a note." "$P1" \
+  && grep -qF "Every reported finding makes the verdict \`needs-work\`, a \`[note]\` the same as a \`[blocker]\`." "$P1" \
   && grep -qF "A \`user-delegated\` or \`codebase-derived\` row never accepts a break. The Evidence cell of the accepting row quotes the acceptance." "$P2" \
-  && grep -qF "Every reported finding makes the verdict \`needs-work\`, a \`[note]\` the same as a \`[blocker]\`." "$P2" \
-  && grep -qF 'A record row never removes, dismisses or downgrades a pass-1 finding.' "$P2" \
-  && ok "(a) the correctness block carries the relevance rule, the severity rule and the two-pass rule" || bad "(a) the relevance, severity or two-pass rule is missing from the review prompt"
-[ -n "$l_corr" ] && [ -n "$l_notes" ] && [ -n "$l_out" ] && [ "$l_p1" -lt "$l_corr" ] && [ "$l_corr" -lt "$l_notes" ] && [ "$l_notes" -lt "$l_out" ] && [ "$l_out" -lt "$l_p2" ] \
-  && grep -qF 'Report maintainability, test-coverage and repo-convention problems in the diff as [note]s with file:line. Report only the relevant ones. A note gates like a blocker.' "$P2" \
-  && ok "(a) the notes pass follows the correctness block and ends pass 1, which writes its findings before pass 2" || bad "(a) notes pass at ${l_notes:-none}, block end ${l_corr:-none}, findings file ${l_out:-none}, pass 2 ${l_p2:-none}"
+  && grep -qF 'A record row never removes, dismisses or downgrades a pass-1 finding.' "$P2" && ! grep -q 'user-delegated\|record row' "$P1" \
+  && ok "(a) pass 1 carries the relevance and severity rules, and pass 2 the record-row half of the break rule and the two-pass rule" || bad "(a) the relevance, severity or two-pass rule is missing, or a record-row rule reached pass 1"
+l1() { grep -nF -- "$1" "$P1" | head -n 1 | cut -d: -f1; }
+l_corr=$(l1 'Quote any other prescribing decision in the finding.'); l_notes=$(l1 'End with the notes pass.')
+[ -n "$l_corr" ] && [ -n "$l_notes" ] && [ "$l_corr" -lt "$l_notes" ] && [ -n "$l_grounds" ] && [ "$l_p2" -lt "$l_grounds" ] \
+  && grep -qF "Report maintainability, test-coverage and repo-convention problems in the diff as \`[note]\`s with file:line. Report only the relevant ones. A note gates like a blocker." "$P1" \
+  && ok "(a) the notes pass follows the correctness block and ends pass 1; the record grounds sit in pass 2" || bad "(a) notes pass at ${l_notes:-none}, block end ${l_corr:-none}, record grounds ${l_grounds:-none}, pass 2 ${l_p2:-none}"
 [ -n "$l_acct" ] && [ -n "$l_last" ] && [ "$l_p2" -lt "$l_acct" ] && [ "$l_acct" -lt "$l_last" ] \
   && ok "(a) the build's account is read after pass 2" || bad "(a) the build's account at ${l_last:-none}, pass 2 at ${l_p2:-none}"
 grep -qxF 'Read .claude/second-shift/review-context.md at the head when it exists. It is the repo'"'"'s context for this review.' "$FAKE_GH/prompt-2.txt" && grep -qx 'Dispatch no other reviewer.' "$FAKE_GH/prompt-2.txt" && ! grep -q 'design-fidelity reviewer' "$FAKE_GH/prompt-2.txt" \
@@ -217,8 +217,8 @@ grep -q 'Edit files only with the Edit and Write tools, never through a shell' "
   && ok "(sc) S-3: files are edited with Edit/Write only, never a shell rewrite" || bad "(sc) S-3: Edit/Write line missing"
 grep -q 'Run every check in the foreground: no nohup, no trailing &' "$FAKE_GH/prompt-1.txt" && grep -q 'no nohup or trailing &' "$FAKE_GH/prompt-2.txt" \
   && ok "(sc) S-3: no nohup or backgrounded commands" || bad "(sc) S-3: foreground line missing"
-grep -q 'Pass every PR or comment body with --body-file' "$FAKE_GH/prompt-1.txt" && grep -qF "passed with --body-file <a file in $scr>" "$FAKE_GH/prompt-2.txt" \
-  && ok "(sc) S-3: PR and comment bodies go through --body-file" || bad "(sc) S-3: --body-file line missing"
+grep -q 'Pass every PR or comment body with --body-file' "$FAKE_GH/prompt-1.txt" && grep -qF "Write your verdict to $scr/verdict-draft-1.1.md with the Write tool. Do not post it" "$FAKE_GH/prompt-2.txt" \
+  && ok "(sc) S-3: PR and comment bodies go through --body-file, and the review writes its verdict to a draft in the scratch dir" || bad "(sc) S-3: --body-file or draft line missing"
 grep -q "Do not run the repo's test suites or checks: the scheduler ran them at this head" "$FAKE_GH/prompt-2.txt" && ! grep -q "Do not run the repo's test suites" "$FAKE_GH/prompt-1.txt" \
   && ok "(sc) S-3: the review does not re-run the suites" || bad "(sc) S-3: review no-suites line missing (or in the build prompt)"
 # D-4: the review's denials are recorded beside the build's, and the run block counts them per session
@@ -279,11 +279,13 @@ fixture l3; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve
 # I15: the ceiling is exceeded, not reached — a run whose spend lands exactly on it keeps going
 fixture l3b; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=25 RUN_COST_CEILING=25 run_case "$d"; expect approved "[I15] a build whose spend equals the ceiling is not over it"
 fixture l3c; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=2.43739 run_case "$d"; expect approved "(l3c) fractional session costs"
-grep -qE '[|] [$]4[.]87 [|]' "$FAKE_GH/pr-body.md" && grep -qE '^[|] build-1[.]1 [|] 3 [|] [$]2[.]44 [|]' "$FAKE_GH/pr-body.md" && grep -q '^cost_usd: 4.87$' "$FAKE_GH/issue-comments" && ok "(l3c) every reported cost is rounded to two decimals" || bad "(l3c) costs: $(grep -E '[$][0-9]|cost_usd' "$FAKE_GH/pr-body.md" "$FAKE_GH/issue-comments" | tr '\n' '|')"
-grep -q 'round(s), [$]4[.]87$' <<<"$OUT" && ! grep -q '4[.]874' "$FAKE_GH/issue-comments" && ! grep -q '4[.]874' <<<"$OUT" && ok "(l3c) the terminal message and closing comment carry the rounded total too" || bad "(l3c) raw total leaked: $(grep -h '4[.]874' "$FAKE_GH/issue-comments" - <<<"$OUT" | head -n 2 | tr '\n' '|')"
+# the total is the two lane sessions' 4.87478 plus pass 1's 0.25 and the plain session's 0.5
+grep -qE '[|] [$]5[.]62 [|]' "$FAKE_GH/pr-body.md" && grep -qE '^[|] build-1[.]1 [|] 3 [|] [$]2[.]44 [|]' "$FAKE_GH/pr-body.md" && grep -q '^cost_usd: 5.62$' "$FAKE_GH/issue-comments" && ok "(l3c) every reported cost is rounded to two decimals" || bad "(l3c) costs: $(grep -E '[$][0-9]|cost_usd' "$FAKE_GH/pr-body.md" "$FAKE_GH/issue-comments" | tr '\n' '|')"
+grep -q 'round(s), [$]5[.]62$' <<<"$OUT" && ! grep -q '5[.]624' "$FAKE_GH/issue-comments" && ! grep -q '5[.]624' <<<"$OUT" && ok "(l3c) the terminal message and closing comment carry the rounded total too" || bad "(l3c) raw total leaked: $(grep -h '5[.]624' "$FAKE_GH/issue-comments" - <<<"$OUT" | head -n 2 | tr '\n' '|')"
 fixture l3d; printf 'build-pr\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=2.43739 LC_NUMERIC=de_DE.UTF-8 run_case "$d"; expect approved "(l3d) a comma-decimal locale"
 grep -qE '^[|] build-1[.]1 [|] 3 [|] [$]2[.]44 [|]' "$FAKE_GH/pr-body.md" && ! grep -q '2,44' "$FAKE_GH/pr-body.md" && ok "(l3d) costs keep a dot decimal whatever the locale" || bad "(l3d) $(grep -E '[$][0-9]' "$FAKE_GH/pr-body.md" | tr '\n' '|')"
-fixture l3e; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=50.002 RUN_COST_CEILING=100 run_case "$d"; expect cost-spent "(l3e) 100.004 against a \$100 ceiling"
+# with pass 1's 0.25 and the plain session's 0.5
+fixture l3e; printf 'build-pr\nreview-needs-work\n' > "$FAKE_CLAUDE_PLAN"; FAKE_COST=49.627 RUN_COST_CEILING=100 run_case "$d"; expect cost-spent "(l3e) 100.004 against a \$100 ceiling"
 grep -q '[$]100[.]01 exceeds the [$]100 ceiling' <<<"$OUT" && ok "(l3e) a cost-spent figure is rounded up, never to the ceiling itself" || bad "(l3e) $(grep 'exceeds' <<<"$OUT" | tail -n 1)"
 fixture l4; rm "$d/main/.claude/pipeline-state/42-ledger.md"; run_case "$d"; expect env-no-record "(l4) no intake record"; [ "$RC" -eq 3 ] && ok "(l4) [B6 K8] env-no-record exits 3 (resumable)" || bad "(l4) exit $RC"
 # #1023 AC-13: /intake is the only way in, so the refusal names it, not a retired stage skill
