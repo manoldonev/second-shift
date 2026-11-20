@@ -9,6 +9,8 @@
 
 - [ ] 2.1 Test: an unmatched blind note is added as a `[blind]` note with the next N id and flips an approve; a matched one is not listed twice; the machine line counts it (plugins/dev-pipeline/tools/verdict-join-selftest.sh, plugins/dev-pipeline/skills/run/run-joined-selftest.sh)
 - [ ] 2.2 Match, add and count blind notes under `--format verdict`; leave `--format report` as it is (plugins/dev-pipeline/tools/verdict-join.sh)
+- [ ] 2.3 Test: a blind note at the site that starts a lane `## Notes` line is left out and counted as dropped; a site later in a Notes line does not match (plugins/dev-pipeline/tools/verdict-join-selftest.sh)
+- [ ] 2.4 Leave out a blind note at a lane Notes site; the review rules put an operator-decided mechanism or cost risk there (plugins/dev-pipeline/tools/verdict-join.sh, plugins/dev-pipeline/skills/run/run.sh, plugins/dev-pipeline/skills/review/SKILL.md, plugins/review-toolkit/evals/code-review-bench-eval/arms/lane-review.md)
 
 ## 3. The scheduler
 

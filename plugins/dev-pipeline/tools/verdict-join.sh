@@ -13,7 +13,9 @@
 # Every finding gates, so the body takes plain's blockers and notes. A plain blocker at the file of a lane blocker,
 # within 3 lines of it, is that blocker, tagged [lane+blind]. Any other is added after the lane's blockers as [blind],
 # numbered after the lane's highest B id. A plain note within 3 lines of any lane finding is that finding and is not
-# listed again; any other is added after the lane's notes as [blind], numbered after the lane's highest N id. An added
+# listed again. A plain note within 3 lines of the site that starts a line of the lane's `## Notes` is left out: the
+# lane put a decision the operator made there, and plain never sees the record. Any other plain note is added after
+# the lane's notes as [blind], numbered after the lane's highest N id. An added
 # finding turns an approve into a needs-work: line 1 becomes `verdict: needs-work`, the Summary's first line `Not
 # mergeable yet.`, and a `Nothing to do.` line names the [blind] findings. --format report adds no note. With no
 # plain draft, `## Notes` says why and the lane's verdict stands as written.
@@ -26,7 +28,7 @@
 # columns beside a long path, and a nested entry per pair was too tall to skim); then both verdicts, both sessions (a lane passed no cost and no wall is "not
 # measured"), plain's draft as written, and one `<!-- plain-vs-lane: {json} -->` line for scripts that aggregate
 # across PRs. Its `lane_only` counts blockers only, `plain_only` the blind blockers and notes the join added, and
-# `plain_notes_dropped` the blind notes it left out (every one under --format report, none under verdict); `m_<lane>_<plain>` count pairs by class (b
+# `plain_notes_dropped` the blind notes it left out (every one under --format report, those at a lane Notes site under verdict); `m_<lane>_<plain>` count pairs by class (b
 # blocker, n note, d dismissed, 0 absent). Its `findings` lists one entry per finding of each review, in the dev list's
 # order, capped at 150 with `findings_omitted` counting the rest; findings the join matched share a `pair` number.
 # Its `other_comments` is the --other-comments file when that file has the tool's shape, else null. A plain
@@ -227,7 +229,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     print "- Lane session: " (lc == "null" && lw == "null" ? "not measured" : usd(lc) ", " secs(lw)) ". Blind session: " usd(pc) ", " secs(pw) ", " (pf == "" ? "did not return (" why ")" : "returned") (ticket == "true" ? "" : ", reviewed without a ticket") "."
     print ""
     if (pf != "" && !bare()) fold()
-    printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s", nb, np, na, nb - na, nadd + naddn, (rep ? pnotes : 0), (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
+    printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s", nb, np, na, nb - na, nadd + naddn, (rep ? pnotes : ndrop), (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
     printf ",\"v\":3,\"format\":\"%s\",\"lane_verdict\":%s,\"plain_verdict\":%s,\"lane_notes\":%d,\"lane_dismissed\":%d,\"lane_cites_plain\":%d,\"plain_merged\":%s", (rep ? "report" : "verdict"), (lv == "" ? "null" : "\"" lv "\""), (pv == "" ? "null" : "\"" pv "\""), lnotes, ldis, cites, (pf == "" ? "null" : merged + 0)
     printf ",\"m_b_b\":%s,\"m_b_n\":%s,\"m_b_0\":%s,\"m_n_b\":%s,\"m_n_n\":%s,\"m_n_0\":%s,\"m_d_b\":%s,\"m_d_n\":%s,\"m_d_0\":%s,\"m_0_b\":%s,\"m_0_n\":%s", mv("b_b"), mv("b_n"), mv("b_0"), mv("n_b"), mv("n_n"), mv("n_0"), mv("d_b"), mv("d_n"), mv("d_0"), mv("0_b"), mv("0_n")
     printf ",\"findings\":[%s],\"findings_omitted\":%d,\"other_comments\":%s} -->\n", fs, (nfl > 150 ? nfl - 150 : 0), ENVIRON["OC"]
@@ -307,6 +309,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
       if (lab ~ /^N/ && substr(lab, 2) + 0 > maxn) maxn = substr(lab, 2) + 0
       addl(dismissed(t) ? "d" : "n", lab, t)
     }
+    else if (sec == "## Notes" && match($0, /^(- )?[^ \t]+/) && (nsl = loc(substr($0, RSTART, RLENGTH))) != "") { cur = 0; ns++; nsite[ns] = nsl }
     else cur = 0
   }
   END {
@@ -315,7 +318,10 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
     if (rep) { report(); exit }
     for (k = 1; k <= nq; k++) {
       for (j = 1; j <= nl; j++) if (near(qloc[k], lloc[j])) break
-      if (j > nl) { naddn++; qnewid[k] = "N" (maxn + naddn) }
+      if (j <= nl) continue
+      for (j = 1; j <= ns; j++) if (near(qloc[k], nsite[j])) break
+      if (j <= ns) ndrop++
+      else { naddn++; qnewid[k] = "N" (maxn + naddn) }
     }
     flip = nadd + naddn > 0 && line[1] == "verdict: approve"
     sec = ""; first = 0

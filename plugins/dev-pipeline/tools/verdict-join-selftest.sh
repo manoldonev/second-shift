@@ -262,5 +262,20 @@ printf '%s\n' "$OUT" | grep -qxF '**Ready to merge?** Yes' && ! printf '%s\n' "$
   && jq -e '.plain_only == 0 and .plain_notes_dropped == 2 and .flipped == false' <<<"$(devjs "$OUT")" >/dev/null \
   && ok "(r32) --format report adds no blind note and keeps Ready to merge as it was" || bad "(r32) $(devjs "$OUT")"
 
+printf '%s\n' 'verdict: approve' "reviewed: $(printf 'a%.0s' $(seq 40))" '' '## Summary' '' 'Mergeable as it is.' 'Nothing to do.' '' '## Decision record rows' '' \
+  '| Row | Score | Evidence |' '| --- | --- | --- |' '| D-1 | honored | ok |' '' '## Findings' '' 'None.' '' '## Notes' '' \
+  '- `src/u.ts:7` — the record prescribes the helper: "keep the literal local to the helper"' 'A process note that names src/v.ts:2 after its first word.' > "$T/lane-prescribed.md"
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [note] N1 src/u.ts:8 — the helper is an abstraction nothing needs' > "$T/plain-prescribed.md"
+OUT="$(bash "$TOOL" "$T/lane-prescribed.md" "$T/plain-prescribed.md")"; printf '%s\n' "$OUT" > "$T/joined-prescribed.md"; RJ="$(devjs "$OUT")"
+CHECK="$(bash "$HERE/verdict-check.sh" "$T/joined-prescribed.md" "$T/rec-ready.md" "$T/rec-ready.md")"; RC=$?
+OUT2="$(bash "$TOOL" "$T/lane-prescribed.md" "$T/plain-notes.md")"; RJ2="$(devjs "$OUT2")"
+ABOVE2="$(printf '%s\n' "$OUT2" | sed '/^<details><summary>dev: lane vs blind/,$d')"
+[ "$RC" -eq 0 ] && [ "$(head -n 1 <<<"$OUT")" = 'verdict: approve' ] && ! printf '%s\n' "$OUT" | sed '/^<details><summary>dev: lane vs blind/,$d' | grep -q '^- \[note\]' \
+  && jq -e '.flipped == false and .plain_only == 0 and .plain_notes_dropped == 1' <<<"$RJ" >/dev/null \
+  && [ "$(head -n 1 <<<"$OUT2")" = 'verdict: needs-work' ] && grep -qxF -- '- [note] N1 [blind] src/v.ts:2 — a second convention break' <<<"$ABOVE2" \
+  && ! grep -q '^- \[note\] .*src/u.ts' <<<"$ABOVE2" && jq -e '.plain_only == 1 and .plain_notes_dropped == 1' <<<"$RJ2" >/dev/null \
+  && ok "(r33) a blind note within 3 lines of a lane Notes line that starts with a site is left out and counted in plain_notes_dropped; a site later in a Notes line does not match" \
+  || bad "(r33) rc=$RC check=$CHECK json=$RJ json2=$RJ2"
+
 echo "verdict-join-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"
