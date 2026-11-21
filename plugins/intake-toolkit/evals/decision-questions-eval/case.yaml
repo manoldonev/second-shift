@@ -38,7 +38,7 @@ graders:
   - name: no-plan-written
     type: regex
     target: last_message
-    pattern: '#{1,6}\s*(Decision Ledger|Implementation [Pp]lan|Plan)\b|\|\s*ID\s*\|\s*Decision\s*\|'
+    pattern: '(^|\n)#{1,6}[ \t]*(Decision Ledger|Implementation [Pp]lan|Plan)[ \t]*(\n|$)|\|\s*ID\s*\|\s*Decision\s*\|'
     match: not_contains
     weight: 1
 

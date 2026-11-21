@@ -18,7 +18,7 @@ what does not hold up, never act on a severity label alone, and resolve from the
 answers.
 
 **No draft-first (P8)** binds hardest here: a finished slice list looks like analysis while being a
-set of decisions. Where a boundary is contested, take the answers one decision at a time and
+set of decisions. Where a boundary is contested, take each decision as its own question and
 assemble the slices from them; never present the whole decomposition and invite corrections.
 
 > **Tracker delta (config `tracker.type: jira`).** No queue, no labels and no tracker writes: every
