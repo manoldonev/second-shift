@@ -85,7 +85,7 @@ A small bug or feature already filed as a GitHub issue (on JIRA, a key such as `
 /intake-toolkit:intake 42
 ```
 
-Intake reads the ticket and the code, then puts each open design decision to you one at a time, usually with a recommended answer grounded in the code. Your answers become the **intake record** (`.claude/pipeline-state/42-ledger.md`): what was decided, and by whom. The build works from it and the review checks the code against it.
+Intake reads the ticket and the code, then puts each open design decision to you as its own question: why it is asked, the options and what each one costs, usually with a recommended answer grounded in the code. Your answers become the **intake record** (`.claude/pipeline-state/42-ledger.md`): what was decided, and by whom. The build works from it and the review checks the code against it.
 
 Before the questions, it offers an extra research pass that can take up to 30 minutes. On a first try, pick **Skip it for this ticket**.
 
