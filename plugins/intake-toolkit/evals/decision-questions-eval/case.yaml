@@ -1,0 +1,97 @@
+schema_version: "1.1"
+name: decision-questions-eval
+description: >
+  plan-interview on a real scheduler ticket (TICKET.md), read against a snapshot of this repo at
+  the commit the ticket was filed against. Grades the questions the interview would ask: are they
+  grounded in the code, and does each decision question carry its reason, its options, each
+  option's consequence and a recommendation?
+tags: [intake, plan-interview, questions]
+runs: 5
+expected_outcome: >
+  The session loads plan-interview, reads the ticket and the scheduler it names
+  (plugins/dev-pipeline/skills/run/run.sh), and ends its turn with every question the whole
+  interview would ask, numbered. It answers none of them and writes no plan and no Decision Ledger.
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    /intake-toolkit:plan-interview
+
+    Plan the fix for the ticket in TICKET.md. The current directory is the repo the ticket is about.
+  append_system_prompt: |
+    This is a non-interactive session: there is no live user and the AskUserQuestion tool is unavailable.
+    Follow the skill normally up to the point where you would ask the user your questions.
+    Then end your turn with every question the whole interview would ask, numbered, in one message.
+    List the questions of later turns too, not only the ones you would ask first.
+    Write each question as you would put it to the user.
+    Do not answer the questions yourself, do not assume answers, and do not write a plan or a Decision Ledger.
+  max_turns: 60
+  timeout_seconds: 1800
+  allowed_tools: [Read, Glob, Grep, Skill, Bash]
+graders:
+  - name: read-the-scheduler
+    type: tool_used
+    tool: Read
+    input_match: '"file_path"\s*:\s*"[^"]*plugins/dev-pipeline/skills/run/run\.sh"'
+    weight: 1
+
+  - name: no-plan-written
+    type: regex
+    target: last_message
+    pattern: '#{1,6}\s*(Decision Ledger|Implementation [Pp]lan|Plan)\b|\|\s*ID\s*\|\s*Decision\s*\|'
+    match: not_contains
+    weight: 1
+
+  - name: questions-are-grounded
+    type: llm
+    focus: last_message
+    weight: 2
+    criteria: |
+      The final message must contain the questions for the user about the ticket in TICKET.md: a
+      headless build session that backgrounds a long check, ends its turn, and so ends its run, after
+      which the scheduler stops with build-inflight.
+
+      PASS if the questions name concrete things found in the repo: for example the scheduler
+      plugins/dev-pipeline/skills/run/run.sh, its worktree_inflight check, the way it spawns the
+      build session with claude -p, the build prompt, or the run-selftest.sh suites.
+      FAIL if the questions could have been written from the ticket alone, name no concrete code
+      location or behavior, or if the message contains no questions at all.
+
+  - name: primary-decision-framed
+    type: llm
+    focus: last_message
+    weight: 3
+    criteria: |
+      The ticket forces one central decision: the mechanism that stops a headless build session from
+      ending its run while a long check runs in the background. The ticket names three candidates:
+      re-enter the same session (claude -p --resume) a bounded number of times; raise the Bash
+      timeout of spawned sessions through the environment (BASH_DEFAULT_TIMEOUT_MS /
+      BASH_MAX_TIMEOUT_MS) so long checks stay in the foreground; or add a line to the build prompt.
+      Find the question in the final message that asks the user to make THAT decision.
+
+      PASS only if that question, as written (not in a separate table or section that the question
+      points at), carries ALL of:
+        1. why it is asked, naming a concrete code location (file, function or line);
+        2. at least three options, including the ticket's three candidates;
+        3. for EACH option, its concrete consequence: what it changes, what it costs or risks, and
+           who else it touches;
+        4. a recommendation with a reason, clearly marked as the session's.
+      FAIL if the question is a bare "which approach do you want?", if the options are listed
+      without a consequence for each, if the consequences live only outside the question, if fewer
+      than three options are offered, or if there is no marked recommendation.
+
+  - name: secondary-decisions-framed
+    type: llm
+    focus: last_message
+    weight: 2
+    criteria: |
+      Consider every OTHER question in the final message that asks the user to choose between two or
+      more named alternatives (for example "a new terminal or reuse build-inflight?", "change the
+      build prompt too or leave it?", "in scope or a separate ticket?").
+      Exclude: the central mechanism decision; purely factual questions ("is the sweep the only
+      check over 120 s?"); and questions that only apply once an option is chosen.
+
+      PASS if at least half of those questions state the consequence of each alternative (what
+      picking it means for the work, the risk, or who it touches), so the user can answer without a
+      follow-up. Also PASS if there are no such questions.
+      FAIL if most of them are bare either/or questions with no stated consequences.

@@ -66,8 +66,8 @@ This is the intake's only `spec-reviewer` dispatch. No later stage runs it again
 ## Rough input — interview
 
 The raw input — a bug caption, a Slack paragraph, a half-formed idea — becomes an implementable
-ticket body through an interview, under `interviewing-baseline`'s loop rules (explore first, at
-most two questions a turn, grounded recommendations first, never re-ask, disambiguate domain nouns,
+ticket body through an interview, under `interviewing-baseline`'s loop rules (explore first, each
+decision as its own question, the decision-question shape, never re-ask, disambiguate domain nouns,
 **no draft-first**). One rule is this stage's own: for **reporter-owned facts** (environment,
 frequency, scope of impact, last-known-good, business intent, rollout), prefer `Unknown` / `TBD`
 or a short list of labeled options over an inferred answer.

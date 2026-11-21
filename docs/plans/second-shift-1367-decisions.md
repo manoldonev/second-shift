@@ -47,6 +47,9 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-29 | Limits and tools of an eval run | 60 turns and 30 minutes per run. Allowed tools: Read, Glob, Grep, Skill and Bash. The README command carries `--allow-tools Bash`. | user-answered | intent |
 | D-30 | Sentences that require a recommendation on every question | They are aligned with rules 3 and 4. The sites are the opening and "What NOT to do" of `plan-interview/SKILL.md`, `grill-me/SKILL.md` and the opening of `intake/interview.md`. | user-answered | intent |
 | D-31 | Type of the `read-the-scheduler` grader | `tool_used` on Read, with an input match on the path of `run.sh`. A regex on the trace also matches the path in the ticket text, so it passes on every run. | user-answered | intent |
+| D-32 | A turn with more questions than one `AskUserQuestion` call takes | Rule 2 says to use more than one call. Added in build: without the cap, a turn can hold more than the tool's four questions per call. | user-delegated | intent |
+| D-33 | How a run disallows `AskUserQuestion` | The README command carries `--disallow-tools AskUserQuestion`, and the appended system prompt says the tool is unavailable. Added in build: the case schema has no key for it, and a working case in another repo uses that flag. | user-delegated | intent |
+| D-34 | Form of a `BASELINE.md` vote cell | The runs that passed out of the runs, then each run's PASS votes out of three, in run order. Example: `4/5 (3,3,2,3,1)`. Added in build: the record names the column but not its form. | user-delegated | intent |
 
 Options weighed:
 

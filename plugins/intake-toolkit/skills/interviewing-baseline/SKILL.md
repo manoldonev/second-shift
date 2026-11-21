@@ -14,9 +14,18 @@ This skill defines the shared protocol that ALL interviewing/elicitation skills 
 Rules for every interviewing turn, regardless of which skill is running:
 
 1. **Explore first.** If a question can be answered by reading the codebase, the repo's docs, or ADRs (Grep/Glob/Read, or the impact map `/intake`'s Split stage made when it ran), answer it yourself instead of asking. Asking the user a codebase-answerable question is a protocol violation.
-2. **At most 2 questions per turn.** The user disengages otherwise. Related sub-choices may share one `AskUserQuestion` call, but the material decisions per turn stay ≤ 2.
-3. **Attach a recommendation only when it's grounded** in the user's input, the codebase, or the repo's docs — cite the grounding. If nothing grounds an answer, ask plain — do not guess. (Reporter-owned facts — environment, frequency, business intent — are rarely groundable; design decisions almost always are.)
-4. **Recommended answer goes first.** When using `AskUserQuestion`, the grounded recommendation is the first option, labeled `(Recommended)`.
+2. **Ask every decision that is ready, each as its own question.** A turn may carry every decision that does not depend on an unanswered one. Each decision is its own question with its own answer. A decision whose options depend on another answer waits for that answer. When a turn holds more questions than one `AskUserQuestion` call takes, use more than one call.
+3. **A decision question gives the user what they need to decide.** A *decision question* asks the user to choose between ways of doing the work. Scope and ownership questions are decision questions. A *fact question* asks for a fact about the system or the team, not for a choice. A decision question carries, in this order:
+
+   1. **Why it is asked**: what in the ticket or the code forces the choice, with the code location.
+   2. **Two to four viable options.** When only one option is viable, say so and ask for confirmation. When five or more are viable, offer the four strongest, and name each dropped option and why it was dropped in the question text.
+   3. **Each option's consequence**: what it changes, what it costs or risks, and who else it touches.
+   4. **The recommendation and its reason**, marked as yours. Recommend only what the user's input, the codebase or the repo's docs ground, and cite the grounding. When nothing grounds a recommendation, do not guess: still give the reason and each option's consequence, then say that there is no recommendation and which fact is missing.
+
+   **One decision, one question.** Candidate approaches that the ticket already names are options of that one question, not questions of their own. A sub-question that applies only after an option is chosen is asked after the choice.
+
+   A fact question stays short and carries no consequences. It may offer labeled answers, as `/intake`'s Requirements stage asks for reporter-owned facts. "Ask plain" applies to fact questions only. (Reporter-owned facts — environment, frequency, business intent — are rarely groundable; design decisions almost always are.)
+4. **In `AskUserQuestion`, each part of a decision question has its place.** The reason goes in the question text. Each option's consequence goes in that option's `description`, and no option has an empty description. The recommended option is first, with `(Recommended)` in its label. With no recommendation, no option carries that label, and the question text says which fact is missing. The text above the dialog is at most one sentence, because the dialog hides the text above it. A decision question in plain text carries the same four parts in the same order.
 5. **Never re-ask.** A question answered earlier in the session — or already resolved in the artifact under discussion — is settled. If the user declines to answer, record it (`TBD` in a ticket draft; `deferred` in a Decision Ledger) and move on. The one exception: a fan-out pool item that contradicts the answer is shown beside it, and the question is asked once more. The second answer stands (`/intake`'s `interview.md`, "A late finding").
 6. **"Your call" is a valid answer.** When the user delegates a decision, record the recommendation as the resolution with provenance `user-delegated` — do not re-open it later. The exception of rule 5 covers a delegated answer too.
 7. **Disambiguate domain nouns before drafting.** A noun with >1 plausible schema referent (`git grep` over the repo's data-schema definitions, plus adjacent service interfaces) is forced to a choice by question — never picked by word-similarity.
@@ -24,7 +33,10 @@ Rules for every interviewing turn, regardless of which skill is running:
 
    **Batch-blessing is the same violation wearing an interview's clothes**, and it is named here because it does not look like a draft: collapsing N open decisions into a table of agent-chosen defaults and asking for one blanket approval. It reads as a turn — there are options on the screen, the human answers — while being the exact inverse of one, because a single "looks fine" cannot distinguish the rows they actually considered from the rows they skimmed. It *manufactures* agreement instead of reaching it. Presenting many resolved rows for the record is fine; presenting many *unresolved* ones for one approval is not. If a batch is genuinely uncontroversial, that is a claim the rows are immaterial — drop them from the register (rule: don't pad it) rather than blessing them wholesale.
 
-9. **Repeated clarification requests mean WIDEN, not narrow.** When the user pushes back on a question round — "you're one-shotting this", "that's not what I asked", a second request to clarify — the reading is that the register is wrong or too shallow, not that the user is tired of questions. The move is to slow down and widen the surface under discussion; shrinking the question set, or answering the pushback with a defaults table, is the failure this rule exists to name. Fatigue looks different: the user answers, briefly, and asks you to get on with it.
+9. **Tell a request to clarify from pushback on the round.** Two cases:
+
+   - **A request to clarify one question** ("I don't understand, elaborate?"): put that question again in the shape of rule 3, in plain words, and add nothing. Putting it again is not a re-ask under rule 5.
+   - **Pushback on the round itself** ("you're one-shotting this", "that's not what I asked") means WIDEN, not narrow. The reading is that the register is wrong or too shallow, not that the user is tired of questions. The move is to slow down and widen the surface under discussion; shrinking the question set, or answering the pushback with a defaults table, is the failure this case exists to name. Fatigue looks different: the user answers, briefly, and asks you to get on with it.
 
 ## The Decision Ledger
 
@@ -55,7 +67,12 @@ The ledger records every decision an interview makes, and who made it. It is a m
 **Rules:**
 
 - IDs are stable `D-1..n` and never reused after retirement (same discipline as `AC-n` IDs).
-- Resolution is never empty. Write it as the answer: the chosen value first, then the reason. Use sentences of max 25 words. Never split one decision into several rows to make the cells shorter. Keep a cell to 40 words when no condition is lost. A cell can be longer only to keep a condition. Put each condition in its own sentence. Evidence, and the `Inputs:`, `Outputs:` and `Errors:` sentences of a contract row, do not count toward the 40 words. Write the options you weighed in an `Options weighed:` list under the table, not in the cell.
+- Resolution is never empty. Write it as the answer: the chosen value first, then the reason. Use sentences of max 25 words. Never split one decision into several rows to make the cells shorter. Keep a cell to 40 words when no condition is lost. A cell can be longer only to keep a condition. Put each condition in its own sentence. Evidence, and the `Inputs:`, `Outputs:` and `Errors:` sentences of a contract row, do not count toward the 40 words. Options go in the `Options weighed:` list below, not in the cell.
+- **Options weighed.** Under the table, write an `Options weighed:` list with one bullet per row that was put to the user as a decision question (rule 3), in this literal form:
+
+  `- D-n: (a) <option> — <its consequence as shown>; (b) <option> — <its consequence as shown>. <the decider that the Provenance cell names> chose (a) because <reason>.`
+
+  Give every option that was shown, each with its letter, and name the chosen option by its letter. A fact row gets no bullet. The list does not bind the build: only the rows do.
 - **Precedence when sources disagree:** a row hydrated from a pre-flight `.claude/pipeline-state/{issue}-ledger.md` wins over a ticket comment covering the same decision. Two comments that conflict, or one that is ambiguous, resolve to `deferred` naming the conflict in the Resolution cell — never to a `ticket-sourced` row that picks a side. The issue's own text ranks above its parent ticket's text. Where they conflict, recommend the issue's text and ask the operator, quoting the parent's sentence; never settle it with a `ticket-sourced` row.
 - **Explicit empty form** for trivial work — the section must still exist, containing exactly this line instead of a table:
 

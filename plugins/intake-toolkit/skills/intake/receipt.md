@@ -158,9 +158,8 @@ The interview resolved 2 gaps."
   count toward the 40 words, and neither do the `Inputs:`, `Outputs:` and `Errors:` sentences of a
   contract row. A row that records your own choice is not `codebase-derived`. Ask
   the operator.
-  Write the alternatives you weighed in an `Options weighed:` list under the table, one bullet per
-  row: `- D-n: <option A> or <option B>. <the decider that the Provenance cell names> chose <X>.`
-  This list does not bind the build.
+  Under the table, write the `Options weighed:` list in the form `interviewing-baseline` gives
+  ("The Decision Ledger", "Options weighed"). This list does not bind the build.
 - **Open Regions** — every `open` row cites a declared `OR-n` with its disposition token. Under the
   table, write one short block per `reversible-default-and-flag` region: `OR-n default:` then the
   default, who chose it, and what reversing it costs. Use a list when there is more than one
