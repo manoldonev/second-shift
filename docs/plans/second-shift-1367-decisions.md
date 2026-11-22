@@ -51,6 +51,7 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-33 | How a run disallows `AskUserQuestion` | The README command carries `--disallow-tools AskUserQuestion`, and the appended system prompt says the tool is unavailable. Added in build: the case schema has no key for it, and a working case in another repo uses that flag. | user-delegated | intent |
 | D-34 | Form of a `BASELINE.md` vote cell | The runs that passed out of the runs, then each run's PASS votes out of three, in run order. Example: `4/5 (3,3,2,3,1)`. Added in build: the record names the column but not its form. | user-delegated | intent |
 | D-35 | A conditional recommendation in `primary-decision-framed` | It passes when it names the open fact, or the question that asks it, and marks the recommended option for each answer. Added after review on the operator's instruction: the run lists every question at once, so the mechanism question can come before its fact. | user-answered | intent |
+| D-36 | First rewording pass under PM-1 | Rule 3 adds three sentences: the reason cites the file and line in the question text; every candidate the ticket or the user names is its own option, even a weak one; every option gives all three consequence parts, or says it touches nobody else. Added on the operator's instruction after the first PM-1 run missed the bar (after 0.73, before 0.67). | user-answered | intent |
 
 Options weighed:
 

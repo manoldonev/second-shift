@@ -17,9 +17,9 @@ Rules for every interviewing turn, regardless of which skill is running:
 2. **Ask every decision that is ready, each as its own question.** A turn may carry every decision that does not depend on an unanswered one. Each decision is its own question with its own answer. A decision whose options depend on another answer waits for that answer. When a turn holds more questions than one `AskUserQuestion` call takes, use more than one call.
 3. **A decision question gives the user what they need to decide.** A *decision question* asks the user to choose between ways of doing the work. Scope and ownership questions are decision questions. A *fact question* asks for a fact about the system or the team, not for a choice. A decision question carries, in this order:
 
-   1. **Why it is asked**: what in the ticket or the code forces the choice, with the code location.
-   2. **Two to four viable options.** When only one option is viable, say so and ask for confirmation. When five or more are viable, offer the four strongest, and name each dropped option and why it was dropped in the question text.
-   3. **Each option's consequence**: what it changes, what it costs or risks, and who else it touches.
+   1. **Why it is asked**: what in the ticket or the code forces the choice. Cite the file and line in the question text itself.
+   2. **Two to four viable options.** Every candidate that the ticket or the user names is an option of its own, even a weak one: its consequence says why it is weak. Never merge two named candidates into one option. When only one option is viable, say so and ask for confirmation. When five or more are viable, offer the four strongest, and name each dropped option and why it was dropped in the question text.
+   3. **Each option's consequence**: what it changes, what it costs or risks, and who else it touches. Give all three for every option. When an option touches nobody else, say so.
    4. **The recommendation and its reason**, marked as yours. Recommend only what the user's input, the codebase or the repo's docs ground, and cite the grounding. When nothing grounds a recommendation, do not guess: still give the reason and each option's consequence, then say that there is no recommendation and which fact is missing.
 
    **One decision, one question.** Candidate approaches that the ticket already names are options of that one question, not questions of their own. A sub-question that applies only after an option is chosen is asked after the choice.
