@@ -4,6 +4,39 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v19.1.0
+
+### `design-toolkit` 9.0.0 → 9.1.0
+
+- **feat(intake-toolkit): decision questions carry each option's cost, graded by an eval** (#1368)
+  interview decision questions now state why they are asked, each
+  option's consequence and a recommendation, and an interview turn may ask
+  every decision that does not wait on another answer. intake-toolkit ships an
+  operator-run decision-questions eval for claude plugin eval.
+  Migration: none.
+  none
+  (the rule changes ship with this PR's own entry)
+  none
+  (the rule changes ship with this PR's own entry)
+
+### `intake-toolkit` 8.9.0 → 8.10.0
+
+- **fix(intake-toolkit): intake amends the ticket body for a departure the operator chose** (#1364)
+  intake now rewrites the ticket text that an operator-chosen
+  departure departs from, so the lane review grades the chosen behavior
+  instead of blocking on the original text every round.
+  Migration: none.
+- **feat(intake-toolkit): decision questions carry each option's cost, graded by an eval** (#1368)
+  interview decision questions now state why they are asked, each
+  option's consequence and a recommendation, and an interview turn may ask
+  every decision that does not wait on another answer. intake-toolkit ships an
+  operator-run decision-questions eval for claude plugin eval.
+  Migration: none.
+  none
+  (the rule changes ship with this PR's own entry)
+  none
+  (the rule changes ship with this PR's own entry)
+
 ## v19.0.0
 
 ### `dev-pipeline` 18.0.0 → 19.0.0
