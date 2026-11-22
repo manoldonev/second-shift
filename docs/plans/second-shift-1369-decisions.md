@@ -35,6 +35,7 @@ Open region legend: `pause-and-ask` = the build stops and asks.
 | D-17 | AC-4 test | Exempt. The README is prose. PM-1's probe run proves the run command and the `jq` line. | user-answered | intent |
 | D-18 | Where the D-4 count command reads the final message | From the run's trace, not the result JSON. Each run object carries `tracePath`, and the trace's last line is the `result` event whose `.result` is the final message. Traces sit under `/private/tmp/e-*/out/`, so the README says to count soon after the run. run: `jq -r '[.cases[].arms.with[].tracePath][0]' <aggregate-result.json>` → `/private/tmp/e-ZEF9Ue/out/trace.jsonl`; `tail -n1 <trace> \| jq -r .type` → result | codebase-derived | fact |
 | D-19 | The fixture's off-by-one line number | Excluded from the key and from `no-false-premise`. TICKET.md:15 says run.sh:475, and `worktree_inflight` is at run.sh:476. A grader on it rewards copying the ticket, not discovery. | user-answered | intent |
+| D-20 | How a `BASELINE.md` row tells the fixture case from a held-out case | The row format adds a `Case` column, `fixture` or `held-out`, before `Arm`. The held-out row still names no consumer and no ticket. Added in build: the ticket's row fields cannot tell the two rows PM-1 records apart. | user-delegated | intent |
 
 Options weighed:
 
