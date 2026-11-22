@@ -1,6 +1,18 @@
 # Baseline
 
-## 2026-11-19 — opus, the record round
+One row per fixture and arm. The row format is in `README.md`, "Recording a run".
+
+| Date | Fixture | Arm | Commit | Subject model | Judge model | Runs | Case score | departure-reported | departure-kept-off-guess-points | changed-meaning-reported | absent-criterion-reported | thin-row-fork-reported | no-padding | no-blindness-leak | control-reported-covered | Dispatched | Complete | 12 or fewer |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+No scored run set is recorded yet.
+
+## Manual runs, before the runner case
+
+These runs were dispatched and scored by hand, with no fixed graders. They are not comparable
+with the rows above.
+
+### 2026-11-19 — opus, the record round
 
 Dispatched by body (`general-purpose`, the agent file below its frontmatter as the prompt), because
 the installed plugin did not yet carry the changed agent. A by-body dispatch does not carry the

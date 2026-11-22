@@ -1,0 +1,139 @@
+schema_version: "1.1"
+name: implementability-probe-eval
+description: >
+  The implementability probe on a ticket and a decision record that was written with four planted
+  defects, read against a snapshot of this repo. Grades the report: each defect reported, the
+  recorded departure kept off the guess-point list, no padding, and nothing taken from interview
+  notes the session was not handed. The no-plugin arm does the same job from a plain task statement.
+tags: [intake, probe, record]
+runs: 5
+expected_outcome: >
+  With the plugin, the session dispatches intake-toolkit:implementability-probe on the two files
+  and ends its turn with the agent's report, unchanged. Without it, the session reads the two files
+  and the code and writes the list of guess-points and the per-criterion report itself.
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    docs/plans/ledger-lint-json-ticket.md is a ticket body. docs/plans/ledger-lint-json-decisions.md is its finished decision record. The current directory is the repo they are about.
+
+    Dispatch the agent intake-toolkit:implementability-probe with the Agent tool. Hand it those two paths and nothing else. When it returns, give its report as your final message, whole and unchanged. If its report is cut short, give what it returned and do not complete it yourself.
+
+    If no agent of that name exists, do the job yourself in this session. You are the implementer who receives only these two files and the repo's code. List every point where you would have to guess. Then say, for each acceptance criterion of the ticket, whether the record covers it, departs from it, or leaves it absent. Do not resolve anything. That list and that report are your final message.
+  max_turns: 60
+  timeout_seconds: 1800
+  allowed_tools: [Read, Glob, Grep, Agent, Bash]
+graders:
+  - name: departure-reported
+    type: llm
+    focus: last_message
+    weight: 2
+    criteria: |
+      The decision record's row D-2 says a clean ledger under --json prints nothing. The ticket's
+      AC-1 says the output parses as JSON and reports zero violations.
+
+      PASS if the report says, anywhere, that the record departs from or contradicts AC-1 on this
+      point. It may or may not cite D-2, and it may state it on the AC-1 line or as a changed
+      meaning.
+      FAIL otherwise: for example the report treats AC-1 as satisfied, marks it unverified, or does
+      not state the conflict at all.
+
+  - name: departure-kept-off-guess-points
+    type: llm
+    focus: last_message
+    weight: 2
+    criteria: |
+      The decision record's row D-2 says a clean ledger under --json prints nothing. The ticket's
+      AC-1 says the output parses as JSON. D-2 is a decision the operator delegated, so it is
+      settled.
+
+      PASS only if the report names this conflict AND does not list it as a guess-point, an open
+      question, an item to ask the requester, or a blocking item.
+      FAIL if the report lists what a clean ledger prints under --json as something the implementer
+      must guess or ask, if it says the implementer cannot proceed because of it, or if it never
+      names the conflict.
+
+  - name: changed-meaning-reported
+    type: llm
+    focus: last_message
+    weight: 2
+    criteria: |
+      The ticket's AC-2 says each violation appears in the output. The record's Test intent line
+      for AC-2 says the output reports the NUMBER of violations.
+
+      PASS if the report says the record's AC-2 means something different from, or weaker than, the
+      ticket's AC-2: a count instead of each violation.
+      FAIL otherwise.
+
+  - name: absent-criterion-reported
+    type: llm
+    focus: last_message
+    weight: 2
+    criteria: |
+      The ticket's AC-3 says output is byte-identical to today's when --json is absent. The record's
+      ACs line lists only AC-1 and AC-2, and nothing in the record covers AC-3.
+
+      PASS if the report says the record does not cover AC-3, lacks it, or leaves it absent.
+      FAIL if the report treats AC-3 as covered and nowhere states that the record lacks it, or does
+      not mention AC-3's coverage at all.
+
+  - name: thin-row-fork-reported
+    type: llm
+    focus: last_message
+    weight: 2
+    criteria: |
+      The record's row D-3 resolves the shape of a violation as "JSON-encoded". That does not choose
+      between an object per violation and a string per violation.
+
+      PASS if the report lists the shape of a violation in the JSON output as something the
+      implementer must guess, AND states at least two concrete alternatives.
+      FAIL if it accepts D-3 as sufficient, or says only that the shape is unclear without
+      alternatives.
+
+  - name: no-padding
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Count the distinct points the report lists as guesses, open questions or guess-points. Do not
+      count the per-criterion coverage lines.
+
+      PASS if there are 12 or fewer AND fewer than 3 of them are of these kinds: the name of an
+      internal helper, function or local variable (not a name that appears in the output or in a
+      public interface); local code structure; test strategy (unless the item says an acceptance
+      criterion is untestable as written); a remark that prose is imprecise with no choice between
+      alternatives; an item that does not state two concrete alternatives.
+      FAIL otherwise. A report with no guess-points passes.
+
+  # The two values exist only in the interview notes, which the session is not handed.
+  - name: no-blindness-leak
+    type: regex
+    target: last_message
+    pattern: 'violationTally|\bexit(?:s|ed)?(?:\s+(?:with|code|status))*\s*(?:of|is|=|:)?\s*`?7\b'
+    flags: i
+    match: not_contains
+    weight: 1
+
+  - name: probe-dispatched
+    type: tool_used
+    tool: Agent
+    input_match: '"subagent_type"\s*:\s*"intake-toolkit:implementability-probe"'
+    arm: with-only
+    weight: 1
+
+  - name: report-complete
+    type: regex
+    target: last_message
+    pattern: '\[unverified\]|AC-\d+\W{0,4}unverified'
+    flags: i
+    match: not_contains
+    arm: with-only
+    weight: 1
+
+  - name: twelve-or-fewer
+    type: regex
+    target: last_message
+    pattern: '(^|\n)[ \t*#|-]*G-13\b'
+    match: not_contains
+    arm: with-only
+    weight: 1
