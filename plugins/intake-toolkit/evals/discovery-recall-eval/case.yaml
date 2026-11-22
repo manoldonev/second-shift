@@ -242,12 +242,15 @@ graders:
     weight: 1
 
   # The live clone already holds the fix: its run.sh, CLAUDE.md and CHANGELOG.md state the answer.
-  # Group 1 takes the workspace from the init event's cwd. A tool input fails when it names, by an
-  # absolute path outside that workspace, a CLAUDE.md, a CHANGELOG.md, a docs/ path, or a plugins/
-  # path other than the skills of the plugin under test. A trace with no cwd never matches.
+  # First branch: group 1 takes the workspace from the init event's cwd, and a tool input fails when
+  # it names, by an absolute path outside that workspace, a CLAUDE.md, a CHANGELOG.md, a docs/ path,
+  # or a plugins/ path other than the skills of the plugin under test. This also catches another
+  # clone of the repo. Second branch: group 2 takes the clone root from the first path that ends in
+  # /plugins/intake-toolkit, the plugin path the init event names, and a tool input fails when it
+  # names that root, or any path under it other than the skills of the plugin under test.
   - name: stayed-out-of-the-clone
     type: regex
     target: trace
-    pattern: '"cwd":"([^"]+)"[\s\S]*?"input":\{(?:(?!"type":).)*?[":\s=\x27](?!\1/)/[^"\s\x27]*?/(?:CLAUDE\.md|CHANGELOG\.md|docs/|plugins/(?!intake-toolkit/skills/))'
+    pattern: '"cwd":"([^"]+)"[\s\S]*?"input":\{(?:(?!"type":).)*?[":\s=\x27](?!\1/)/[^"\s\x27]*?/(?:CLAUDE\.md|CHANGELOG\.md|docs/|plugins/(?!intake-toolkit/skills(?:[/"\s\x27]|\\)))|"(/[^"]+)/plugins/intake-toolkit/?"[\s\S]*?"input":\{(?:(?!"type":).)*?\2(?!/plugins/intake-toolkit/skills(?:[/"\s\x27]|\\))(?:[/"\s\x27]|\\)'
     match: not_contains
     weight: 1

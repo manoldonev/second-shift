@@ -29,9 +29,11 @@ interview while the fan-out still runs, so a headless run ends before the fan-ou
   - `read-the-scheduler` and `no-plan-written`, as in `decision-questions-eval`;
   - `stayed-in-snapshot`, which fails when a tool input names `intake-toolkit/evals` or
     `second-shift-908-decisions`;
-  - `stayed-out-of-the-clone`, which fails when a tool input names, by an absolute path outside the
-    run's workspace, a `CLAUDE.md`, a `CHANGELOG.md`, a `docs/` path, or a `plugins/` path other
-    than `plugins/intake-toolkit/skills/`.
+  - `stayed-out-of-the-clone`, which fails when a tool input names, by an absolute path, the clone
+    the plugin was loaded from, or any path in it other than `plugins/intake-toolkit/skills/`. It
+    also fails when a tool input names, by an absolute path outside the run's workspace, a
+    `CLAUDE.md`, a `CHANGELOG.md`, a `docs/` path, or a `plugins/` path other than
+    `plugins/intake-toolkit/skills/`, so a read of another clone of this repo fails too.
 
 The run score mixes recall with the other graders. It is not the measure.
 
@@ -54,8 +56,11 @@ read the answer, not only the key:
 
 These files have the same relative paths in the snapshot, so a read of the live copy can pass
 `read-the-scheduler`. `stayed-in-snapshot` catches the first group by name. `stayed-out-of-the-clone`
-catches the others when the session names them by an absolute path outside its workspace. A read
-through a relative path after a `cd` out of the workspace goes unseen.
+catches any absolute path into the clone, its root and its directories included, such as a Grep
+over the whole clone. It takes the clone root from the first path in the trace that ends in
+`/plugins/intake-toolkit`, the plugin path the `init` event names. Two reads go unseen: a relative
+path after a `cd` out of the workspace, and a path that reaches the clone through a symlink or
+`..`.
 
 ## Run
 
@@ -85,8 +90,10 @@ run.
    `Skill` call for `interviewing-baseline`. Its result names the skill's base directory. That
    directory must be inside the tree the command ran from, not an installed copy under your home
    directory. If it is not, stop and fix the run before you record it. In the same trace, the
-   `init` event's `cwd` must be the run's workspace, the directory that holds `TICKET.md`:
-   `stayed-out-of-the-clone` reads the workspace from it, and passes every run when it is missing.
+   `init` event's `cwd` must be the run's workspace, the directory that holds `TICKET.md`, and the
+   event must name the plugin path, ending in `/plugins/intake-toolkit`, inside the tree the command
+   ran from. `stayed-out-of-the-clone` reads the workspace and the clone root from them. When one
+   is missing, the part of the grader that needs it passes every run.
 2. **The run stayed in its snapshot.** Discard every run that fails `stayed-in-snapshot` or
    `stayed-out-of-the-clone`, and run the case again for the missing runs. Its recall counts facts
    the session could have read from the answer key or the live fix. Before you discard a run on
@@ -172,10 +179,11 @@ consumer ticket shows whether a gain carries over. It never enters this repo.
    - `stayed-in-snapshot`: keep `intake-toolkit/evals`, which is where the case is copied in step 4.
      Replace `second-shift-908-decisions` with the names of the consumer's scoping records and of
      the case folder.
-   - `stayed-out-of-the-clone`: keep the `cwd` group. Replace its list of names with the paths of
-     the consumer repo that hold the answer, such as its `CLAUDE.md`, its docs and the source
-     directories the key cites, so that a read of the live consumer clone by an absolute path
-     fails.
+   - `stayed-out-of-the-clone`: keep its second branch, which catches the second-shift clone the
+     plugin is loaded from. In its first branch, keep the `cwd` group and replace its list of names
+     with the paths of the consumer repo that hold the answer, such as its `CLAUDE.md`, its docs
+     and the source directories the key cites, so that a read of the live consumer clone by an
+     absolute path fails.
 4. For each arm, copy the case folder into `plugins/intake-toolkit/evals/` of a worktree of that
    arm and run the command above from that worktree.
 5. Keep the results and the traces in the case folder.
