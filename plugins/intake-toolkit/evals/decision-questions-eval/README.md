@@ -79,6 +79,10 @@ Add one row per arm to `BASELINE.md`, in this form:
 
 - **Arm** is `before` or `after`.
 - **Commit** is the commit of the tree the command ran from.
-- **Subject model** and **Judge model** are the full model ids the report names.
+- **Subject model** and **Judge model** are full model ids. The report names only the alias each
+  was given (`suite.modelOverride`, `suite.judgeModel`), so write the id that alias named on the
+  run's date.
+- A row measured on a branch commit says so under the table, with the later commits that changed
+  a grader or a rule: a squash merge leaves that commit off `main`.
 - Each LLM grader cell is the runs that passed out of the runs, then the PASS votes of each run out
   of three judge votes, in run order.
