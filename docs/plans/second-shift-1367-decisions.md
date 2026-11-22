@@ -46,10 +46,11 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-28 | Does the runner start the scaffold script from its case directory | Parked under OR-1. The plugin-evals documentation does not say. Owner: the operator, at the first eval run. | deferred | open |
 | D-29 | Limits and tools of an eval run | 60 turns and 30 minutes per run. Allowed tools: Read, Glob, Grep, Skill and Bash. The README command carries `--allow-tools Bash`. | user-answered | intent |
 | D-30 | Sentences that require a recommendation on every question | They are aligned with rules 3 and 4. The sites are the opening and "What NOT to do" of `plan-interview/SKILL.md`, `grill-me/SKILL.md` and the opening of `intake/interview.md`. | user-answered | intent |
-| D-31 | Type of the `read-the-scheduler` grader | `tool_used` on Read, with an input match on the path of `run.sh`. A regex on the trace also matches the path in the ticket text, so it passes on every run. | user-answered | intent |
+| D-31 | Type of the `read-the-scheduler` grader | A regex on the trace that matches a Read, Bash, Grep or Glob call whose input names `run.sh`. The match stays inside one tool call's input, so the path in the ticket text does not count. Changed after review on the operator's instruction: a probe run read `run.sh` with Bash, and the `tool_used` grader on Read failed it. | user-answered | intent |
 | D-32 | A turn with more questions than one `AskUserQuestion` call takes | Rule 2 says to use more than one call. Added in build: without the cap, a turn can hold more than the tool's four questions per call. | user-delegated | intent |
 | D-33 | How a run disallows `AskUserQuestion` | The README command carries `--disallow-tools AskUserQuestion`, and the appended system prompt says the tool is unavailable. Added in build: the case schema has no key for it, and a working case in another repo uses that flag. | user-delegated | intent |
 | D-34 | Form of a `BASELINE.md` vote cell | The runs that passed out of the runs, then each run's PASS votes out of three, in run order. Example: `4/5 (3,3,2,3,1)`. Added in build: the record names the column but not its form. | user-delegated | intent |
+| D-35 | A conditional recommendation in `primary-decision-framed` | It passes when it names the open fact, or the question that asks it, and marks the recommended option for each answer. Added after review on the operator's instruction: the run lists every question at once, so the mechanism question can come before its fact. | user-answered | intent |
 
 Options weighed:
 

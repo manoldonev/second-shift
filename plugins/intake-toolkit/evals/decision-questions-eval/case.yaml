@@ -29,10 +29,12 @@ execution:
   timeout_seconds: 1800
   allowed_tools: [Read, Glob, Grep, Skill, Bash]
 graders:
+  # A tool_used grader names one tool, and a session with Bash reads files with sed as often as with
+  # Read. The match stays inside one tool call's input, so the path in the ticket text never counts.
   - name: read-the-scheduler
-    type: tool_used
-    tool: Read
-    input_match: '"file_path"\s*:\s*"[^"]*plugins/dev-pipeline/skills/run/run\.sh"'
+    type: regex
+    target: trace
+    pattern: '"name":"(Read|Bash|Grep|Glob)","input":\{(?:(?!"type":).)*?run\.sh'
     weight: 1
 
   - name: no-plan-written
@@ -76,6 +78,9 @@ graders:
         3. for EACH option, its concrete consequence: what it changes, what it costs or risks, and
            who else it touches;
         4. a recommendation with a reason, clearly marked as the session's.
+      The best option can depend on a fact the user has not given yet. Then a conditional
+      recommendation meets item 4 when it names that open fact, or the question that asks it, and
+      marks the option it recommends for each answer.
       FAIL if the question is a bare "which approach do you want?", if the options are listed
       without a consequence for each, if the consequences live only outside the question, if fewer
       than three options are offered, or if there is no marked recommendation.
