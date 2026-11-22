@@ -19,7 +19,8 @@ Written against Claude Code CLI 2.1.330 and its `claude plugin eval` subcommand.
   provenance label. So the decider of every decision is known before the run.
 - The session runs `/intake-toolkit:intake 77` and is told to continue at the Receipt stage from
   that record. Intake has no such entry in normal use: the eval adds it. The session writes
-  `.claude/pipeline-state/77-ledger.md`.
+  `pipeline-state/77-ledger.md`. The real path is under `.claude/`, where the runner refuses a
+  session's writes, so the case names this path instead.
 - Seven graders score the run (`case.yaml`). Six judge the receipt file against the answer key
   below. One checks that the session ran the receipt lint. The run scores the weighted share of
   graders that passed. The case scores the mean of its five runs.
@@ -86,7 +87,7 @@ tree the command ran from:
 
 ```bash
 bash plugins/intake-toolkit/skills/plan-interview/tools/ledger-lint.sh \
-  --receipt <kept workspace>/.claude/pipeline-state/77-ledger.md
+  --receipt <kept workspace>/pipeline-state/77-ledger.md
 ```
 
 Its result is outside the score. Record it beside the score, so a receipt the scheduler would

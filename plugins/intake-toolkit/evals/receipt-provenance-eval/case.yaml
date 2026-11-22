@@ -8,7 +8,7 @@ tags: [intake, receipt, provenance]
 runs: 5
 expected_outcome: >
   The session reads the Receipt rules and the record, writes
-  .claude/pipeline-state/77-ledger.md and lints it. A decision the operator made is user-answered,
+  pipeline-state/77-ledger.md and lints it. A decision the operator made is user-answered,
   one the operator gave away is user-delegated, a proved fact is codebase-derived with its
   evidence, and a choice nobody made is deferred under an open region.
 context:
@@ -23,6 +23,8 @@ execution:
     gave, word for word. Treat it as this session's own earlier turns. The ticket body is TICKET.md. The ticket
     is issue 77.
     Continue at the Receipt stage and write the receipt for issue 77 in this session.
+    In this replay the receipt's path is pipeline-state/77-ledger.md, in the current directory. The replay
+    cannot write under .claude/, so do not write the receipt there.
     The operator said nothing that INTERVIEW.md does not hold, and no one can answer a new question now.
     Take the duplicate scan's result from INTERVIEW.md and do not run it. Make no tracker write. Where a rule
     needs a tracker write or a question to the operator, name it in your last message.
@@ -32,7 +34,7 @@ execution:
 graders:
   - name: answered-rows-kept
     type: llm
-    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    focus: { source: file, path: pipeline-state/77-ledger.md }
     weight: 2
     criteria: |
       The file is an intake receipt. Its Decision Ledger table has the columns ID, Decision,
@@ -48,7 +50,7 @@ graders:
 
   - name: fact-rows-kept
     type: llm
-    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    focus: { source: file, path: pipeline-state/77-ledger.md }
     weight: 2
     criteria: |
       The file is an intake receipt. Its Decision Ledger table has the columns ID, Decision,
@@ -70,7 +72,7 @@ graders:
 
   - name: delegated-rows-labeled
     type: llm
-    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    focus: { source: file, path: pipeline-state/77-ledger.md }
     weight: 3
     criteria: |
       The file is an intake receipt. Its Decision Ledger table has the columns ID, Decision,
@@ -86,7 +88,7 @@ graders:
 
   - name: unasked-choice-not-claimed
     type: llm
-    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    focus: { source: file, path: pipeline-state/77-ledger.md }
     weight: 3
     criteria: |
       The file is an intake receipt with a Decision Ledger table (columns ID, Decision, Resolution,
@@ -114,7 +116,7 @@ graders:
 
   - name: declined-row-deferred
     type: llm
-    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    focus: { source: file, path: pipeline-state/77-ledger.md }
     weight: 2
     criteria: |
       The file is an intake receipt with a Decision Ledger table (columns ID, Decision, Resolution,
@@ -132,7 +134,7 @@ graders:
 
   - name: no-extra-human-rows
     type: llm
-    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    focus: { source: file, path: pipeline-state/77-ledger.md }
     weight: 2
     criteria: |
       The file is an intake receipt. Its Decision Ledger table has the columns ID, Decision,
