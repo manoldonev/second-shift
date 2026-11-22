@@ -47,10 +47,10 @@ which the operator also made.
   labels inside a live interview.
 - In a live intake the Interview assigns the labels as it runs. Here the session builds the ledger
   from the record at write time. A rule change that moves live labeling may not show.
-- `unasked-choice-not-claimed` was reworded after a probe run in which it failed a receipt that
-  parked the choice under a declared open region. The reworded text has not judged such a receipt
-  yet: the next probe run dropped the choice, which is a true fail. When this grader fails a run,
-  read the receipt before you trust the votes.
+- A judge's fail is not always a fail of the receipt. In the recorded runs `declined-row-deferred`
+  failed receipts on the tuning fixture that meet every clause of its criterion, and the runner
+  shows no judge reasoning. Read the receipt before you trust a failing vote, and record the hand
+  read beside the row, as `BASELINE.md` does.
 
 ## Run
 
