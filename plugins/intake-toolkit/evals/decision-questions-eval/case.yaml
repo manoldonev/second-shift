@@ -30,11 +30,12 @@ execution:
   allowed_tools: [Read, Glob, Grep, Skill, Bash]
 graders:
   # A tool_used grader names one tool, and a session with Bash reads files with sed as often as with
-  # Read. The match stays inside one tool call's input, so the path in the ticket text never counts.
+  # Read. Only a call that reads the file counts: a Glob or an ls that names it does not. The match
+  # stays inside one tool call's input, so the path in the ticket text never counts.
   - name: read-the-scheduler
     type: regex
     target: trace
-    pattern: '"name":"(Read|Bash|Grep|Glob)","input":\{(?:(?!"type":).)*?run\.sh'
+    pattern: '"name":"Read","input":\{(?:(?!"type":).)*?"file_path":"[^"]*run\.sh"|"name":"Grep","input":\{(?:(?!"type":).)*?"path":"[^"]*run\.sh"|"name":"Bash","input":\{(?:(?!"type":).)*?"command":"(?:[^"\\]|\\.)*?\b(?:cat|sed|head|tail|awk|less|nl|grep|rg)\b(?:[^"\\]|\\.)*?run\.sh'
     weight: 1
 
   - name: no-plan-written
