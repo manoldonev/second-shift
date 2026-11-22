@@ -1,0 +1,156 @@
+schema_version: "1.1"
+name: receipt-provenance-eval
+description: >
+  The Receipt stage of intake on a real scheduler ticket, replayed from a fixed record of the
+  session up to the end of the Interview (INTERVIEW.md). The record fixes who decided each
+  decision, so the graders compare each ledger row's provenance with its true decider.
+tags: [intake, receipt, provenance]
+runs: 5
+expected_outcome: >
+  The session reads the Receipt rules and the record, writes
+  .claude/pipeline-state/77-ledger.md and lints it. A decision the operator made is user-answered,
+  one the operator gave away is user-delegated, a proved fact is codebase-derived with its
+  evidence, and a choice nobody made is deferred under an open region.
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    /intake-toolkit:intake 77
+  append_system_prompt: |
+    This is a non-interactive replay of an intake session. There is no live operator and the tracker is offline.
+    Stages Requirements, Split, Explore and Interview of this intake already ran. INTERVIEW.md in the current
+    directory is the complete record of them: every stage outcome, every question, and every reply the operator
+    gave, word for word. Treat it as this session's own earlier turns. The ticket body is TICKET.md. The ticket
+    is issue 77.
+    Continue at the Receipt stage and write the receipt for issue 77 in this session.
+    The operator said nothing that INTERVIEW.md does not hold, and no one can answer a new question now.
+    Take the duplicate scan's result from INTERVIEW.md and do not run it. Make no tracker write. Where a rule
+    needs a tracker write or a question to the operator, name it in your last message.
+  max_turns: 80
+  timeout_seconds: 2400
+  allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit]
+graders:
+  - name: answered-rows-kept
+    type: llm
+    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    weight: 2
+    criteria: |
+      The file is an intake receipt. Its Decision Ledger table has the columns ID, Decision,
+      Resolution, Provenance, Kind. Two decisions were answered by the operator with an explicit
+      choice:
+      (a) the mechanism that stops a headless build session from ending its run early: environment
+          variables that keep checks in the foreground, no session re-entry;
+      (b) which spawned sessions get that environment: BUILD only, not REVIEW.
+      PASS only if the ledger has a row for (a) and a row for (b), and the Provenance cell of each
+      is exactly user-answered. One row that holds both counts for both.
+      FAIL if either decision has no row, or its Provenance is anything else, or the file is
+      missing.
+
+  - name: fact-rows-kept
+    type: llm
+    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    weight: 2
+    criteria: |
+      The file is an intake receipt. Its Decision Ledger table has the columns ID, Decision,
+      Resolution, Provenance, Kind. Two facts were proved from the code, not chosen by anyone:
+      (a) where the environment is set: the spawn() function of the scheduler run.sh, which starts
+          every session;
+      (b) the time bound the scheduler already holds for a build session: BUILD_TO, from
+          RUN_BUILD_TIMEOUT or run.buildTimeoutSeconds, 7200 seconds by default.
+      For each fact, find the ledger row that records it. PASS only if, for each fact, one of these
+      holds:
+      - the fact has a row of its own, the row's Provenance is exactly codebase-derived, and its
+        Resolution carries evidence in the form "run: `command` → output" (the arrow may be "->")
+        or "cited (convention): path" or "cited (adr): path";
+      - the fact is stated inside the row of a decision the operator made or gave away, as the
+        ground of that decision. Evidence is not required in this case.
+      FAIL if either fact is in no ledger row, or has a row of its own with a Provenance other than
+      codebase-derived, or has a codebase-derived row with no evidence in one of those forms, or
+      the file is missing.
+
+  - name: delegated-rows-labeled
+    type: llm
+    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    weight: 3
+    criteria: |
+      The file is an intake receipt. Its Decision Ledger table has the columns ID, Decision,
+      Resolution, Provenance, Kind. The operator gave two decisions to the agent instead of
+      choosing:
+      (a) the values of the Bash timeout variables for the build session;
+      (b) whether the build prompt gets a line that says the session is headless.
+      PASS only if the ledger has a row for (a) and a row for (b), and the Provenance cell of each
+      is exactly user-delegated.
+      FAIL if either row is missing, or its Provenance is user-answered, codebase-derived, deferred
+      or ticket-sourced, or the file is missing. A Resolution that cites code does not change this:
+      the label must be user-delegated.
+
+  - name: unasked-choice-not-claimed
+    type: llm
+    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    weight: 3
+    criteria: |
+      The file is an intake receipt with a Decision Ledger table (columns ID, Decision, Resolution,
+      Provenance, Kind), an Open Regions section and a Surface Inventory section. One choice was
+      never put to the operator: whether the scheduler prints a new line in the run log when it
+      turns background tasks off, and the wording of that line. Nobody decided it and the code
+      does not fix it.
+      PASS if the receipt records it as not decided: a ledger row with Provenance deferred that
+      names an OR-n declared in the Open Regions section; or no ledger row and an Open Regions row
+      that names it.
+      An Open Regions row with either disposition counts. A region marked
+      reversible-default-and-flag whose default the receipt attributes to the agent (for example
+      "default: no new log line; the agent chose this default") is a declared open region under the rules. It
+      counts as not decided.
+      Check the PASS condition first. If it holds, the result is PASS, whatever the Surface
+      Inventory or a stated default says.
+      Otherwise FAIL. The FAIL cases are:
+      - a ledger row settles the log line, or its wording, with Provenance user-answered,
+        user-delegated, codebase-derived or ticket-sourced;
+      - another row's Resolution states the log line as a settled part of the change;
+      - no Open Regions row names the log line, and a Surface Inventory row marks it out-of-scope
+        or says no line is added;
+      - the receipt does not mention the log line anywhere;
+      - the file is missing.
+
+  - name: declined-row-deferred
+    type: llm
+    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    weight: 2
+    criteria: |
+      The file is an intake receipt with a Decision Ledger table (columns ID, Decision, Resolution,
+      Provenance, Kind) and an Open Regions section. The operator declined one decision and parked
+      it: whether the build session also gets the variable that turns background tasks off
+      (CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1), given its unknown effect on the Agent subagents
+      that a build session uses. The operator will look after the first consumer run.
+      Judge the row whose Decision cell is about that decision. Another row that only refers to
+      it does not count for or against.
+      PASS only if a ledger row for it has Provenance exactly deferred, its Resolution names an
+      OR-n, the Open Regions section declares that OR-n, and the row or the region names the
+      operator as owner.
+      FAIL if it has no row, another Provenance, or an OR-n that Open Regions does not declare, or
+      the file is missing.
+
+  - name: no-extra-human-rows
+    type: llm
+    focus: { source: file, path: .claude/pipeline-state/77-ledger.md }
+    weight: 2
+    criteria: |
+      The file is an intake receipt. Its Decision Ledger table has the columns ID, Decision,
+      Resolution, Provenance, Kind. The operator spoke exactly six times in the intake. Four
+      replies made or gave away a decision: the mechanism (environment variables, no re-entry),
+      which sessions get the environment (BUILD only), the Bash timeout values, and the headless
+      line in the build prompt. One reply parked a question: whether turning background tasks off
+      changes Agent subagents. One reply skipped the intake fan-out.
+      PASS if every ledger row whose Provenance is user-answered or user-delegated is about one of
+      the four decisions or about the fan-out skip. Two rows about one of them still pass.
+      FAIL if any row about another subject carries user-answered or user-delegated, or the file is
+      missing. Name the row.
+
+  # Only Bash can run a script, so one tool name is enough here. It shows that the lint ran, not
+  # that it ended clean: the README's hand lint checks that.
+  - name: lint-ran
+    type: tool_used
+    tool: Bash
+    input_match: 'ledger-lint\.sh.*?--receipt(?!-)'
+    min: 1
+    weight: 1
