@@ -2,10 +2,16 @@
 
 One row per fixture and arm. The row format is in `README.md`, "Recording a run".
 
-| Date | Fixture | Arm | Commit | Subject model | Judge model | Runs | Case score | departure-reported | departure-kept-off-guess-points | changed-meaning-reported | absent-criterion-reported | thin-row-fork-reported | no-padding | no-blindness-leak | control-reported-covered | Dispatched | Complete | 12 or fewer |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Date | Fixture | Arm | Commit | Subject model | Judge model | Runs | Case score | departure-reported | departure-kept-off-guess-points | changed-meaning-reported | absent-criterion-reported | thin-row-fork-reported | no-padding | no-blindness-leak | notes-file-not-read | control-reported-covered | Dispatched | Complete | 12 or fewer |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
 No scored run set is recorded yet.
+
+One unscored run per arm checked the case before any scored run (2026-11-22, the commit before
+this file's change). It showed one grader defect: two of three judge votes failed
+`thin-row-fork-reported` on a report that named the record's own two options. The criterion now
+says that those two options count as two concrete alternatives. `notes-file-not-read` was added
+after the same run showed that the trace holds the dispatched agent's tool calls.
 
 ## Manual runs, before the runner case
 

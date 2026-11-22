@@ -22,7 +22,7 @@ Code CLI 2.1.330 and its `claude plugin eval` subcommand.
 - The record holds four planted defects (`fixtures/planted-defects.md`). The interview notes hold
   two values that exist nowhere else. The session is not handed the notes, so a report that
   repeats one of the values used them.
-- Seven graders score a run (`case.yaml`). The run scores the weighted share of graders that passed.
+- Eight graders score a run (`case.yaml`). The run scores the weighted share of graders that passed.
   The case scores the mean of its runs. Three more graders are indicators for the arm with the
   plugin and are not scored.
 
@@ -81,10 +81,11 @@ If one of these does not hold, the score belongs to something else: stop and fix
 | Hit count drops: the probe stopped reporting a planted defect | `departure-reported`, `changed-meaning-reported`, `absent-criterion-reported`, `thin-row-fork-reported` |
 | The probe asks again for a decision that an `intent` row settled | `departure-kept-off-guess-points` |
 | Padding: more than 12 guess-points, or 3 or more that the agent doc excludes | `no-padding`, and the indicator `twelve-or-fewer` |
-| Blindness leaks: the report uses the interview notes | `no-blindness-leak` |
+| Blindness leaks: the report uses the interview notes, or the session reads them | `no-blindness-leak`, `notes-file-not-read` |
 
-The case passes at a score of 0.80 or more for the arm with the plugin. A blindness leak in that
-arm voids the run set, whatever its score. The difference between the arms is reported and gates
+The case passes at a score of 0.80 or more for the arm with the plugin. A failed
+`no-blindness-leak` in that arm voids the run set, whatever its score. A failed
+`notes-file-not-read` alone does not: it is counted under the table. The difference between the arms is reported and gates
 nothing: at five runs per arm a difference under 0.15 reads as no measured difference.
 
 Class disagreement on its own is **not** a regression and no grader scores it. `human` vs
@@ -106,8 +107,9 @@ and the change goes under the table in `BASELINE.md`.
 - `skills/interviewing-baseline/SKILL.md` stays in the snapshot, because it is the record contract
   an implementer has. It says a settled row is not asked again, so the difference on
   `departure-kept-off-guess-points` is a lower bound.
-- `no-blindness-leak` sees only a report that repeats a value from the notes. A session that reads
-  the notes and silently drops the guess-points they answer is not detected.
+- `notes-file-not-read` sees a tool call that names the notes file or reads all of `docs/plans/`.
+  It does not see a search of the whole repo that returns the file's text. The trace does not show
+  the session's effort level, so read `CLAUDE_CODE_EFFORT_LEVEL` as set, not as confirmed.
 - `fixtures/planted-record.md` is in-sample: the agent doc was changed after a failure on it
   (`BASELINE.md`, the manual runs). A held-out fixture exists and is kept outside this repo, so
   that no session that edits the agent doc can read its key. Its rows are in `BASELINE.md`.
@@ -117,8 +119,8 @@ and the change goes under the table in `BASELINE.md`.
 Add one row per fixture and arm to `BASELINE.md`, in this form:
 
 ```
-| Date | Fixture | Arm | Commit | Subject model | Judge model | Runs | Case score | departure-reported | departure-kept-off-guess-points | changed-meaning-reported | absent-criterion-reported | thin-row-fork-reported | no-padding | no-blindness-leak | control-reported-covered | Dispatched | Complete | 12 or fewer |
-| 2026-12-01 | tuning | with | 1a2b3c4d | <id> | <id> | 5 | 0.87 | 5/5 (3,3,3,2,3) | 4/5 (3,3,0,3,2) | 5/5 (3,3,3,3,3) | 5/5 (3,3,3,3,3) | 4/5 (3,1,3,3,3) | 5/5 (3,3,3,3,3) | 5/5 | n/a | 5/5 | 4/5 | 5/5 |
+| Date | Fixture | Arm | Commit | Subject model | Judge model | Runs | Case score | departure-reported | departure-kept-off-guess-points | changed-meaning-reported | absent-criterion-reported | thin-row-fork-reported | no-padding | no-blindness-leak | notes-file-not-read | control-reported-covered | Dispatched | Complete | 12 or fewer |
+| 2026-12-01 | tuning | with | 1a2b3c4d | <id> | <id> | 5 | 0.87 | 5/5 (3,3,3,2,3) | 4/5 (3,3,0,3,2) | 5/5 (3,3,3,3,3) | 5/5 (3,3,3,3,3) | 4/5 (3,1,3,3,3) | 5/5 (3,3,3,3,3) | 5/5 | 5/5 | n/a | 5/5 | 4/5 | 5/5 |
 ```
 
 - **Fixture** is `tuning` (the fixture in this directory) or `held-out`.

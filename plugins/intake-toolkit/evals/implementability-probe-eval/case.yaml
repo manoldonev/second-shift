@@ -86,7 +86,8 @@ graders:
       between an object per violation and a string per violation.
 
       PASS if the report lists the shape of a violation in the JSON output as something the
-      implementer must guess, AND states at least two concrete alternatives.
+      implementer must guess, AND states at least two concrete alternatives. Naming the record's
+      own two options, an object or a string per violation, counts as two concrete alternatives.
       FAIL if it accepts D-3 as sufficient, or says only that the shape is unclear without
       alternatives.
 
@@ -111,6 +112,16 @@ graders:
     target: last_message
     pattern: 'violationTally|\bexit(?:s|ed)?(?:\s+(?:with|code|status))*\s*(?:of|is|=|:)?\s*`?7\b'
     flags: i
+    match: not_contains
+    weight: 1
+
+  # Only a call that reads the notes counts: a listing that names the file does not. The match stays
+  # inside one tool call's input. A search of the whole repo that returns the file's text without
+  # naming it is not seen.
+  - name: notes-file-not-read
+    type: regex
+    target: trace
+    pattern: '"name":"Read","input":\{(?:(?!"type":).)*?"file_path":"[^"]*interview-notes|"name":"Grep","input":\{(?:(?!"type":).)*?"path":"[^"]*(?:interview-notes|docs/plans/?")|"name":"Bash","input":\{(?:(?!"type":).)*?"command":"(?:[^"\\]|\\.)*?\b(?:cat|sed|head|tail|awk|less|nl|grep|rg)\b(?:[^"\\]|\\.)*?(?:interview-notes|docs/plans/[^ "\\]*\*|docs/plans/?(?: |\\"|"))'
     match: not_contains
     weight: 1
 
