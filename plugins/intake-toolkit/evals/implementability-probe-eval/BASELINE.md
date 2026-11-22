@@ -30,8 +30,13 @@ The run sets of 2026-11-22, both run with `CLAUDE_CODE_EFFORT_LEVEL=high`:
   (1 of 3 votes) is a judge miss. That report says the departure is settled and lists two other
   guess-points.
 - Read by hand, the with-arm scores 1.00 on both fixtures, and the held-out without-arm 0.79.
-- The graders are as committed at cb8a8d44. The two false-fail patterns above are known and not
-  fixed.
+- The graders are as committed at cb8a8d44.
+
+After these run sets the `notes-file-not-read` pattern was changed, and nothing else. The old
+pattern counted a search that only excludes `docs/plans` as a read of the notes file, which gave
+the four false fails above. The new pattern matches none of the 20 traces. The rows above are not
+rescored: they show the scores under the old pattern. `grader-patterns-selftest.sh` holds the
+false-fail forms.
 
 One unscored run per arm checked the case before any scored run (2026-11-22, the commit before
 this file's change). It showed one grader defect: two of three judge votes failed
