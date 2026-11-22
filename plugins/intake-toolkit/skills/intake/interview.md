@@ -1,7 +1,7 @@
 # Interview — the fourth stage of `/intake`
 
 Read by `/intake-toolkit:intake` only. The Interview settles the ticket's load-bearing decisions
-with the operator — one at a time, each with a grounded recommendation — and ends with a Decision
+with the operator — each as its own question, with a recommendation where one is grounded — and ends with a Decision
 Ledger, its Open Regions and a Surface Inventory, in memory, for the Receipt. On a split it runs
 once **per slice**.
 

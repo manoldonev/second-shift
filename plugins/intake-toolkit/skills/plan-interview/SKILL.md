@@ -5,7 +5,7 @@ description: Use BEFORE writing any implementation plan for behavior-changing wo
 
 # Plan Interview
 
-You are about to write an implementation plan. Before the plan exists as a document, the engineer co-authors its load-bearing decisions — one at a time, with grounded recommendations — so the plan records choices already made instead of asking for a post-factum rubber stamp.
+You are about to write an implementation plan. Before the plan exists as a document, the engineer co-authors its load-bearing decisions — each as its own question, with a recommendation where one is grounded — so the plan records choices already made instead of asking for a post-factum rubber stamp.
 
 Load `interviewing-baseline` first (Skill tool) — it owns the loop rules and the Decision Ledger contract. This file only adds what is specific to plan-time design elicitation.
 
@@ -40,9 +40,9 @@ You elicit **design decisions from the engineer** for a plan. You do NOT:
    - migration/rollout (existing rows, backfill, ordering across workspace packages),
    - data provenance — for each persisted field (one of an entity whose schema, model, DDL or mapping lives in this repo; third-party API payloads and in-memory JSON are out) the change newly reads but does not write, and that is feature-critical or crosses a service boundary: the persisting schema line, every writer of the entity (including sync or webhook paths that write raw payloads past the schema), and whether existing records carry the field — the backfill half is the migration/rollout item above. It lands as a `codebase-derived` row whose evidence is run, e.g. ``run: `grep -rn "fingerprint" src/entities/document.entity.ts src/sync` → schema line 41; written only by document.service.ts:88`` — or a `deferred` row.
 
-   Everything below that bar is decided silently and does not enter the register. Material design decisions are near-always groundable, so a recommendation is expected on each question.
+   Everything below that bar is decided silently and does not enter the register. Material design decisions are near-always groundable, so most decision questions carry a recommendation. One with nothing to ground it takes the no-recommendation form of the baseline's rule 3.
 
-   **The ticket's candidate fixes are input, not the option set.** Build the options for the decision that picks the mechanism yourself. When the root cause lies in how a tool, library or platform mode behaves rather than in this repo's code, at least one option replaces that primitive instead of working around it. Find it on the tool's own surface (`--help`, its docs), check this repo's history with it (`git log`, earlier tickets), and state what it costs. The row's Resolution names every option weighed, the ticket's and yours, so a reviewer can see what was compared.
+   **The ticket's candidate fixes are input, not the option set.** Build the options for the decision that picks the mechanism yourself. When the root cause lies in how a tool, library or platform mode behaves rather than in this repo's code, at least one option replaces that primitive instead of working around it. Find it on the tool's own surface (`--help`, its docs), check this repo's history with it (`git log`, earlier tickets), and state what it costs. The ticket's options and yours are options of that one question, each with its consequence (the baseline's rule 3), and the ledger's `Options weighed:` list records them, so a reviewer can see what was compared.
 
    **Size the mechanism to the need.** The default recommendation is the smallest mechanism that delivers the ticket's outcome for the callers that exist. Recommend a refactor, new abstraction, layer, generalization or extension point only when a present caller or a stated requirement needs it, and cite which. A need you only expect in the future is not one. Restructuring the ticket itself prescribes is a candidate fix like any other: weigh it against the smaller option and recommend cutting it unless the outcome depends on it. The cut lands as a scope-boundary row; a restructuring worth doing on its own is filed as its own ticket, not folded into this one.
 
@@ -55,7 +55,7 @@ You elicit **design decisions from the engineer** for a plan. You do NOT:
    - **Flat walk** — ≤ 4 uncoupled decisions: walk the register in any order.
    - **Convergence walk** — ≥ 5 decisions, or any coupling (one answer changes another decision's options): resolve in dependency order, parents first, grill-me style. Both traversals share the same exit criterion.
 
-5. **Interview** per the baseline loop rules (≤ 2 material questions per turn, recommendation first, "your call" → `user-delegated`).
+5. **Interview** per the baseline loop rules (each decision as its own question, in the shape of rules 3 and 4, "your call" → `user-delegated`).
 
 6. **Emit the Decision Ledger** and exit only when the register is empty *and* every surface is accounted for — each material decision carrying a non-`assumed` provenance, each surface decided or scoped out. Trivial work exits immediately with both explicit empty forms.
 
@@ -73,7 +73,7 @@ Stop and present uncertainty (what you understood / what's blocking / options / 
 
 ## What NOT to do
 
-- Don't quiz — every question elicits a decision and carries a grounded recommendation; none tests the engineer.
+- Don't quiz — every question elicits a decision or a fact; none tests the engineer. A decision question carries a recommendation when one is grounded, and the no-recommendation form of the baseline's rule 3 when none is.
 - Don't ask codebase-answerable questions (baseline rule 1).
 - Don't pad the register with immaterial choices to look thorough — 0 material decisions is a legitimate outcome; emit the explicit empty form and move on.
 - Don't re-litigate ledger entries later in the session; a recorded resolution is binding for the plan.

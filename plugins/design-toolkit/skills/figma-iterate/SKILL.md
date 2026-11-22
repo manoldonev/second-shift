@@ -124,9 +124,8 @@ off-scale value that became a named constant, stale-looking Figma vs code) lands
 my note / skip this element* — via `AskUserQuestion`.
 
 Batching mechanics: per-item discrepancy confirmations are lightweight picks, **not** material
-design decisions, so the interviewing-baseline ≤2-material-questions-per-turn rule does not
-apply — the tool's native cap of 4 questions per call governs; chunk into multiple calls if there
-are more than 4 rows. What this skill *does* borrow from `intake-toolkit:interviewing-baseline`
+design decisions. The tool's native cap of 4 questions per call governs; chunk into multiple calls
+if there are more than 4 rows. What this skill *does* borrow from `intake-toolkit:interviewing-baseline`
 (where installed) is only: **recommendation-first** option ordering (the grounded default is the
 first option), and **never re-ask** a row the user already resolved.
 
