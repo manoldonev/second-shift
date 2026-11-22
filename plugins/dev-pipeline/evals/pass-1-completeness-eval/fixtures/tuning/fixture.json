@@ -1,0 +1,24 @@
+{
+ "label": "tuning",
+ "repo": ".",
+ "base": "014994e3770f554c268c0acfffcc2a226d10be4c",
+ "head": "2fc54b1a9a46b4a2783d84399fa38484f00e572d",
+ "plans_dir": "docs/plans",
+ "ticket": "ticket.md",
+ "key": "key.json",
+ "planted_criterion": 5,
+ "variants": {
+  "plant-a": {
+   "patch": "plant-a.patch",
+   "kind": "unimplemented",
+   "leak_tokens": [
+    "findings_omitted"
+   ]
+  },
+  "plant-b": {
+   "patch": "plant-b.patch",
+   "kind": "untested"
+  },
+  "twin": {}
+ }
+}

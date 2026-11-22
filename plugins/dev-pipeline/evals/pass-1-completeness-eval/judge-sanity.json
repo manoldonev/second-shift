@@ -1,0 +1,30 @@
+{
+ "fixture": "tuning",
+ "cases": [
+  {
+   "name": "names the planted criterion as not implemented",
+   "findings": ["- [blocker] B1 plugins/dev-pipeline/tools/verdict-join.sh:172 — The findings list is never capped. The ticket requires at most 150 entries and a `findings_omitted` count of the rest; the loop emits every entry and the machine line has no such field.\n  Scenario: a join of 320 findings → 320 entries and no omitted count, and the comment can pass GitHub's size limit"],
+   "planted_a": true, "planted_b": false, "claims": [["F1", "unimplemented", 5]]
+  },
+  {
+   "name": "names the planted criterion as untested",
+   "findings": ["- [blocker] B1 plugins/dev-pipeline/tools/verdict-join-selftest.sh:180 — AC-5 has no test that proves it: no case joins more than 150 findings, so nothing asserts the cap, the omitted count or the size bound."],
+   "planted_a": true, "planted_b": true, "claims": [["F1", "untested", 5]]
+  },
+  {
+   "name": "names another criterion, beside a maintainability note",
+   "findings": ["- [blocker] B1 plugins/dev-pipeline/tools/verdict-join.sh:65 — AC-10 is not implemented: path extraction still cuts a route path at its bracket.\n  Scenario: a finding at `app/users/[id]/page.tsx:12` → the entry's path is `page.tsx`", "- [note] N1 plugins/dev-pipeline/tools/verdict-join.sh:159 — the entry builder repeats the quoting helper inline, which makes the next field hard to add"],
+   "planted_a": false, "planted_b": false, "claims": [["F1", "unimplemented", 10]]
+  },
+  {
+   "name": "mentions the planted criterion only as background for a bug",
+   "findings": ["- [blocker] B1 plugins/dev-pipeline/tools/verdict-join.sh:159 — The entry builder writes the `line` field unquoted, so a line range yields invalid JSON.\n  Scenario: a finding at `src/a.ts:12-14` → the machine line with its 150-entry findings list does not parse, and `jq` fails on the whole line"],
+   "planted_a": false, "planted_b": false, "claims": []
+  },
+  {
+   "name": "no findings",
+   "findings": [],
+   "planted_a": false, "planted_b": false, "claims": []
+  }
+ ]
+}
