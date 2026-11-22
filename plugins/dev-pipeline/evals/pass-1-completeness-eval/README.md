@@ -116,8 +116,9 @@ A cell with fewer than five valid runs is reported with its count and is not hel
 The complete change and the answer key are on the operator's machine, and the review session's
 `Read`, `Grep` and `Glob` have no path scope. So:
 
-- The cache is `${XDG_CACHE_HOME:-~/.cache}/pass-1-completeness-eval`, and the runner refuses a cache
-  under a denied path.
+- The cache is `${XDG_CACHE_HOME:-~/.cache}/review-runs`, and the runner refuses a cache under a
+  denied path. A session sees its working directory, so the cache and each run's directory are
+  named for no eval, arm or variant.
 - Every session is denied `~/work`, `$TMPDIR`, `/private/tmp`, `~/.cache/second-shift`, every Claude
   config dir, this checkout, the fixture and its source repo, and every other run's directory.
   `--deny-read <path>` adds one. Keep clones of the fixture's repo under one of these, or name them.

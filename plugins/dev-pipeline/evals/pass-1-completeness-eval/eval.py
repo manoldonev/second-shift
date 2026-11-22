@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import uuid
 from collections import Counter
 from pathlib import Path
 
@@ -186,7 +187,9 @@ def scan_transcript(kit_bench, session_id: str, run_dir: Path) -> dict:
 
 
 def run_dir_of(cfg, fx, arm: str, variant: str, n: int, tag: str) -> Path:
-    return cfg["cache"] / "runs" / f"{fx['label']}-{arm}-{variant}-{n}{tag}"
+    """A session sees its working directory, so the name says nothing of the fixture, the arm or the variant."""
+    name = cfg["run_ids"].setdefault((fx["label"], arm, variant, n, tag), uuid.uuid4().hex[:12])
+    return cfg["cache"] / "runs" / name
 
 
 def reserve(cfg, fx, arm: str, cells, tag: str) -> None:
@@ -401,7 +404,7 @@ def setup(args) -> dict:
         "judge_bin": os.environ.get("JUDGE_CLAUDE", "claude"), "judge_timeout_s": 180, "timeout_s": args.timeout_s,
         "judge_planted": {k: (HERE / f"judge-planted-{k}.md").read_text() for k in ("a", "b")},
         "judge_claims": (HERE / "judge-claims.md").read_text(), "judge_resolved": set(), "judge_cost": 0.0,
-        "spent": 0.0, "max_cost": args.max_cost_usd, "keep": args.keep, "deny_extra": args.deny_read,
+        "run_ids": {}, "spent": 0.0, "max_cost": args.max_cost_usd, "keep": args.keep, "deny_extra": args.deny_read,
         "sha": sh(["git", "-C", root, "rev-parse", "--short", "HEAD"]),
         "blobs": {a: sh(["git", "-C", root, "hash-object", prompts / ARMS[a][0]])[:10] for a in ARMS},
     }
@@ -504,7 +507,8 @@ def main():
     ap.add_argument("--deny-read", action="append", default=[], help="one more path no session may read; repeatable")
     ap.add_argument("--allow-dirty", action="store_true", help="run with uncommitted changes in the files under test")
     ap.add_argument("--keep", action="store_true", help="keep each run's directory")
-    ap.add_argument("--cache-dir", default=os.path.join(os.environ.get("XDG_CACHE_HOME") or "~/.cache", "pass-1-completeness-eval"))
+    ap.add_argument("--cache-dir", default=os.path.join(os.environ.get("XDG_CACHE_HOME") or "~/.cache", "review-runs"),
+                    help="where the clones and the run dirs go; a session sees this path, so it names no eval")
     ap.add_argument("--reviewer-model", default=os.environ.get("REVIEWER_MODEL"))
     ap.add_argument("--judge-model", default=os.environ.get("JUDGE_MODEL"))
     args = ap.parse_args()

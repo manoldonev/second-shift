@@ -80,8 +80,10 @@ RES="$(find "$T/results" -name 'results-*.json' | head -n 1)"
 [ -n "$RES" ] && [ "$(jq '[.arms["pass-1"].runs[] | select(.variant == "plant-a") | .planted.votes | length] | add' "$RES")" = 6 ] \
   && [ "$(jq -r '[.arms.plain.runs[] | select(.variant == "twin") | .claims[0].class] | unique | join(",")' "$RES")" = false ] \
   && ok "the results file holds each run's judge votes and each claim's class" || bad "results: $RES"
-[ -z "$(find "$T/home/.cache/pass-1-completeness-eval/runs" -mindepth 1 -maxdepth 1 2>/dev/null)" ] \
-  && ok "no run dir is left for a later session to read" || bad "left: $(ls "$T/home/.cache/pass-1-completeness-eval/runs")"
+[ -z "$(find "$T/home/.cache/review-runs/runs" -mindepth 1 -maxdepth 1 2>/dev/null)" ] \
+  && ok "no run dir is left for a later session to read" || bad "left: $(ls "$T/home/.cache/review-runs/runs")"
+[ "$(wc -l < "$T/state/cwds" | tr -d ' ')" = 10 ] && ! grep -qE 'plant|twin|pass-1|plain|tiny|eval/' "$T/state/cwds" \
+  && ok "a session's working directory names no fixture, arm, variant or eval" || bad "working directories: $(sed "s#$T##" "$T/state/cwds" | tr '\n' ' ')"
 
 echo "== void runs =="
 : > "$T/state/fail-once-pass-1-twin"
