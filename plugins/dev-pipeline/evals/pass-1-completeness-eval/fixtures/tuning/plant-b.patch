@@ -1,0 +1,19 @@
+diff --git a/plugins/dev-pipeline/tools/verdict-join-selftest.sh b/plugins/dev-pipeline/tools/verdict-join-selftest.sh
+index 434b62dc..ff3f409a 100755
+--- a/plugins/dev-pipeline/tools/verdict-join-selftest.sh
++++ b/plugins/dev-pipeline/tools/verdict-join-selftest.sh
+@@ -179,14 +179,6 @@ RJ="$(devjs "$(bash "$TOOL" "$T/lane-v.md" '')")"; RR="$(devjs "$(bash "$TOOL" "
+   && [ "$(jq -c '[.findings[] | select(.src == "blind")] | length' <<<"$(devjs "$(bash "$TOOL" "$T/lead.md" "$T/plain-noticket.md" --format report)")")" = 0 ] \
+   && ok "(r25) with no blind draft every lane finding has an entry in draft order; the ticket-unavailable note has none" || bad "(r25) verdict=$RJ report=$RR"
+ 
+-{ printf '%s\n' 'verdict: needs-work' 'reviewed: abc' '' '## Findings' ''
+-  for i in $(seq 160); do printf -- '- [blocker] B%s src/module-%s/handler-%s.ts:%s — the handler drops the retry header\n  Scenario: a 503 → the request is lost\n' "$i" "$i" "$i" "$i"; done; } > "$T/lane-320.md"
+-{ printf '%s\n' 'verdict: approve' '## Findings'; for i in $(seq 160); do printf -- '- [note] N%s lib/other-%s/thing-%s.ts:%s — a naming nit\n' "$i" "$i" "$i" "$i"; done; } > "$T/plain-320.md"
+-OUT="$(bash "$TOOL" "$T/lane-320.md" "$T/plain-320.md")"; RJ="$(devjs "$OUT")"
+-[ "$(jq '.findings | length' <<<"$RJ")" = 150 ] && [ "$(jq .findings_omitted <<<"$RJ")" = 170 ] && [ "$(printf '%s\n' "$OUT" | wc -c)" -lt 65536 ] \
+-  && ok "(r26) a join of 320 findings lists 150 entries, counts 170 omitted, and stays under 65,536 bytes ($(printf '%s\n' "$OUT" | wc -c | tr -d ' '))" \
+-  || bad "(r26) entries=$(jq '.findings | length' <<<"$RJ") omitted=$(jq .findings_omitted <<<"$RJ") bytes=$(printf '%s\n' "$OUT" | wc -c)"
+-
+ printf '%s\n' '{"at":"2026-01-02T03:04:05Z","total":2,"by_author":{"greptile-apps[bot]":2}}' > "$T/oc.json"
+ printf '%s\n' '{"at":"2026-01-02T03:04:05Z","total":"2","by_author":{}}' > "$T/oc-shape.json"
+ printf '%s\n' '{"at":' > "$T/oc-broken.json"

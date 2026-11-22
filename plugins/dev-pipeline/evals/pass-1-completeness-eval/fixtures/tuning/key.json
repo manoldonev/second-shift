@@ -1,0 +1,81 @@
+{
+ "criteria": [
+  {
+   "n": 1,
+   "text": "verdict-join.sh's machine line carries `\"v\":3` and a `findings` array under both `--format verdict` and `--format report`. Every existing field keeps its name and meaning.",
+   "impl": "plugins/dev-pipeline/tools/verdict-join.sh:221",
+   "test": "plugins/dev-pipeline/tools/verdict-join-selftest.sh:167",
+   "id": "AC-1"
+  },
+  {
+   "n": 2,
+   "text": "`findings` holds one entry per finding of each review: lane blockers, notes and dismissed; blind blockers and notes. Each entry is `{src, id, class, path, line, pair}`. `src` is `lane` or `blind`; `class` is `blocker`, `note` or `dismissed`. A missing id, path or line is `null`.",
+   "impl": "plugins/dev-pipeline/tools/verdict-join.sh:159",
+   "test": "plugins/dev-pipeline/tools/verdict-join-selftest.sh:170",
+   "id": "AC-2"
+  },
+  {
+   "n": 3,
+   "text": "Findings the join matched share one `pair` number, including every blind blocker merged onto one lane blocker. An unmatched finding has `\"pair\":null`. A blind blocker added to the body also carries `posted_as`, its id in the body.",
+   "impl": "plugins/dev-pipeline/tools/verdict-join.sh:159",
+   "test": "plugins/dev-pipeline/tools/verdict-join-selftest.sh:170",
+   "id": "AC-3"
+  },
+  {
+   "n": 4,
+   "text": "A lone lane dismissal has an entry, and so does every lane finding when the blind review did not return. The blind `ticket-unavailable` note has none.",
+   "impl": "plugins/dev-pipeline/tools/verdict-join.sh:161",
+   "test": "plugins/dev-pipeline/tools/verdict-join-selftest.sh:180",
+   "id": "AC-4"
+  },
+  {
+   "n": 5,
+   "text": "The list holds at most 150 entries, and `findings_omitted` counts the rest. A joined verdict of 320 findings stays under 65,536 characters.",
+   "impl": "plugins/dev-pipeline/tools/verdict-join.sh:172",
+   "test": "plugins/dev-pipeline/tools/verdict-join-selftest.sh:187",
+   "id": "AC-5"
+  },
+  {
+   "n": 6,
+   "text": "A new dev-pipeline tool counts a PR's comments created (reviews: submitted) at or before a given start time. It reads issue comments, inline review comments and non-empty review bodies. It excludes the lane's accounts: `<tracker.bot.app.appName>[bot]` and the login of the gh it reads with. It writes `{at, total, by_author}` to a file. It exits non-zero and writes nothing when any read fails.",
+   "impl": "plugins/dev-pipeline/tools/other-comments.sh:1",
+   "test": "plugins/dev-pipeline/tools/other-comments-selftest.sh:67",
+   "id": "AC-6"
+  },
+  {
+   "n": 7,
+   "text": "verdict-join.sh takes that file through a new flag and emits it as `other_comments`. No flag, an unreadable file or invalid JSON emits `null`, never `0`.",
+   "impl": "plugins/dev-pipeline/tools/verdict-join.sh:43",
+   "test": "plugins/dev-pipeline/tools/verdict-join-selftest.sh:200",
+   "id": "AC-7"
+  },
+  {
+   "n": 8,
+   "text": "run.sh takes the count at the review's start and passes it to the join. A `run-joined-selftest.sh` case, with another reviewer's inline comment posted before the start, fails without the change.",
+   "impl": "plugins/dev-pipeline/skills/run/run.sh:1329",
+   "test": "plugins/dev-pipeline/skills/run/run-joined-selftest.sh:205",
+   "id": "AC-8"
+  },
+  {
+   "n": 9,
+   "text": "`/dev-pipeline:review` takes the count at step 2, and `review-lead` at process step 6. Each writes it to a scratch file it never prints, and passes it in its join block. `review-lead` passes the flag only when verdict-join.sh's usage line names it.",
+   "impl": "plugins/dev-pipeline/skills/review/SKILL.md:42",
+   "test": null,
+   "id": "AC-9"
+  },
+  {
+   "n": 10,
+   "text": "Path extraction keeps balanced `[..]`, `[[..]]` and `(..)` segments. `app/users/[id]/page.tsx:12` is read whole, and `[x](src/a.ts:10)` yields `src/a.ts:10`. Two route files at the same line no longer pair.",
+   "impl": "plugins/dev-pipeline/tools/verdict-join.sh:65",
+   "test": "plugins/dev-pipeline/tools/verdict-join-selftest.sh:213",
+   "id": "AC-10"
+  },
+  {
+   "n": 11,
+   "text": "A joined verdict with the longer line still passes `verdict-check.sh`.",
+   "impl": "plugins/dev-pipeline/tools/verdict-join.sh:221",
+   "test": "plugins/dev-pipeline/skills/run/run-joined-selftest.sh:205",
+   "id": "AC-11"
+  }
+ ]
+}

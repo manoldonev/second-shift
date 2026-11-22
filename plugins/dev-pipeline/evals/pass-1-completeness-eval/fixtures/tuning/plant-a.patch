@@ -1,0 +1,59 @@
+diff --git a/plugins/dev-pipeline/tools/verdict-join-selftest.sh b/plugins/dev-pipeline/tools/verdict-join-selftest.sh
+index 434b62dc..4dbf6a97 100755
+--- a/plugins/dev-pipeline/tools/verdict-join-selftest.sh
++++ b/plugins/dev-pipeline/tools/verdict-join-selftest.sh
+@@ -166,7 +166,7 @@ OUTR="$(bash "$TOOL" "$T/lead.md" "$T/plain.md" --format report)"; RR="$(devjs "
+ v3ok "$RJ" && v3ok "$RR" && [ "$(jq -r .format <<<"$RJ")" = verdict ] && [ "$(jq -r .format <<<"$RR")" = report ] \
+   && ok "(r22) the machine line is v3 and carries a findings array and every v2 field, under --format verdict and --format report" || bad "(r22) verdict=$RJ report=$RR"
+ WANT='[{"src":"blind","id":"B3","class":"blocker","path":"src/c.ts","line":3,"pair":null,"posted_as":"B2"},{"src":"lane","id":"B1","class":"blocker","path":"src/a.ts","line":10,"pair":1},{"src":"blind","id":"B1","class":"blocker","path":"src/a.ts","line":9,"pair":1},{"src":"blind","id":"B2","class":"blocker","path":"src/a.ts","line":11,"pair":1},{"src":"lane","id":"N1","class":"note","path":"src/b.ts","line":5,"pair":null},{"src":"blind","id":null,"class":"note","path":null,"line":null,"pair":null},{"src":"lane","id":"N2","class":"dismissed","path":"src/z.ts","line":40,"pair":null}]'
+-[ "$(jq -c .findings <<<"$RJ")" = "$WANT" ] && [ "$(jq .findings_omitted <<<"$RJ")" = 0 ] && grep -qx -- '- \[blocker\] B2 \[blind\] src/c.ts:3 — off by one' <<<"$OUT" \
++[ "$(jq -c .findings <<<"$RJ")" = "$WANT" ] && grep -qx -- '- \[blocker\] B2 \[blind\] src/c.ts:3 — off by one' <<<"$OUT" \
+   && ok "(r23) one entry per finding in the dev list's order: two blind blockers merged onto lane B1 share its pair, the added one is posted_as B2, a lone dismissal comes last, a missing id or site is null" \
+   || bad "(r23) findings=$(jq -c .findings <<<"$RJ")"
+ WANT='[{"src":"blind","id":"B2","class":"blocker","path":"src/c.ts","line":3,"pair":null,"posted_as":"[blind]"},{"src":"lane","id":null,"class":"blocker","path":"src/a.ts","line":10,"pair":1},{"src":"blind","id":"B1","class":"blocker","path":"src/a.ts","line":12,"pair":1},{"src":"lane","id":null,"class":"note","path":"src/b.ts","line":5,"pair":null},{"src":"blind","id":"N1","class":"note","path":"src/d.ts","line":1,"pair":null}]'
+@@ -179,14 +179,6 @@ RJ="$(devjs "$(bash "$TOOL" "$T/lane-v.md" '')")"; RR="$(devjs "$(bash "$TOOL" "
+   && [ "$(jq -c '[.findings[] | select(.src == "blind")] | length' <<<"$(devjs "$(bash "$TOOL" "$T/lead.md" "$T/plain-noticket.md" --format report)")")" = 0 ] \
+   && ok "(r25) with no blind draft every lane finding has an entry in draft order; the ticket-unavailable note has none" || bad "(r25) verdict=$RJ report=$RR"
+ 
+-{ printf '%s\n' 'verdict: needs-work' 'reviewed: abc' '' '## Findings' ''
+-  for i in $(seq 160); do printf -- '- [blocker] B%s src/module-%s/handler-%s.ts:%s — the handler drops the retry header\n  Scenario: a 503 → the request is lost\n' "$i" "$i" "$i" "$i"; done; } > "$T/lane-320.md"
+-{ printf '%s\n' 'verdict: approve' '## Findings'; for i in $(seq 160); do printf -- '- [note] N%s lib/other-%s/thing-%s.ts:%s — a naming nit\n' "$i" "$i" "$i" "$i"; done; } > "$T/plain-320.md"
+-OUT="$(bash "$TOOL" "$T/lane-320.md" "$T/plain-320.md")"; RJ="$(devjs "$OUT")"
+-[ "$(jq '.findings | length' <<<"$RJ")" = 150 ] && [ "$(jq .findings_omitted <<<"$RJ")" = 170 ] && [ "$(printf '%s\n' "$OUT" | wc -c)" -lt 65536 ] \
+-  && ok "(r26) a join of 320 findings lists 150 entries, counts 170 omitted, and stays under 65,536 bytes ($(printf '%s\n' "$OUT" | wc -c | tr -d ' '))" \
+-  || bad "(r26) entries=$(jq '.findings | length' <<<"$RJ") omitted=$(jq .findings_omitted <<<"$RJ") bytes=$(printf '%s\n' "$OUT" | wc -c)"
+-
+ printf '%s\n' '{"at":"2026-01-02T03:04:05Z","total":2,"by_author":{"greptile-apps[bot]":2}}' > "$T/oc.json"
+ printf '%s\n' '{"at":"2026-01-02T03:04:05Z","total":"2","by_author":{}}' > "$T/oc-shape.json"
+ printf '%s\n' '{"at":' > "$T/oc-broken.json"
+diff --git a/plugins/dev-pipeline/tools/verdict-join.sh b/plugins/dev-pipeline/tools/verdict-join.sh
+index 11a37262..762f1ee6 100755
+--- a/plugins/dev-pipeline/tools/verdict-join.sh
++++ b/plugins/dev-pipeline/tools/verdict-join.sh
+@@ -25,7 +25,7 @@
+ # measured"), plain's draft as written, and one `<!-- plain-vs-lane: {json} -->` line for scripts that aggregate
+ # across PRs. Its `lane_only` and `plain_only` count blockers only; `m_<lane>_<plain>` count pairs by class (b
+ # blocker, n note, d dismissed, 0 absent). Its `findings` lists one entry per finding of each review, in the dev list's
+-# order, capped at 150 with `findings_omitted` counting the rest; findings the join matched share a `pair` number.
++# order; findings the join matched share a `pair` number.
+ # Its `other_comments` is the --other-comments file when that file has the tool's shape, else null. A plain
+ # `ticket-unavailable` note, with or without a site before it, means plain reviewed the diff alone; it is in no count
+ # and no row. Sites are a proxy: two findings at one site
+@@ -169,7 +169,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
+       else if (i) bent(i, pr)
+     }
+     if (pf != "") for (j = 1; j <= nl; j++) if (!luse[j] && lcls[j] == "d") lent(j, 0)
+-    for (k = 1; k <= nfl && k <= 150; k++) s = s (k > 1 ? "," : "") fl[k]
++    for (k = 1; k <= nfl; k++) s = s (k > 1 ? "," : "") fl[k]
+     return s
+   }
+   function bare(   i, s) {
+@@ -218,7 +218,7 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v rep="$([ "$fmt" = report
+     printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s", nb, np, na, nb - na, nadd, pnotes, (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
+     printf ",\"v\":3,\"format\":\"%s\",\"lane_verdict\":%s,\"plain_verdict\":%s,\"lane_notes\":%d,\"lane_dismissed\":%d,\"lane_cites_plain\":%d,\"plain_merged\":%s", (rep ? "report" : "verdict"), (lv == "" ? "null" : "\"" lv "\""), (pv == "" ? "null" : "\"" pv "\""), lnotes, ldis, cites, (pf == "" ? "null" : merged + 0)
+     printf ",\"m_b_b\":%s,\"m_b_n\":%s,\"m_b_0\":%s,\"m_n_b\":%s,\"m_n_n\":%s,\"m_n_0\":%s,\"m_d_b\":%s,\"m_d_n\":%s,\"m_d_0\":%s,\"m_0_b\":%s,\"m_0_n\":%s", mv("b_b"), mv("b_n"), mv("b_0"), mv("n_b"), mv("n_n"), mv("n_0"), mv("d_b"), mv("d_n"), mv("d_0"), mv("0_b"), mv("0_n")
+-    printf ",\"findings\":[%s],\"findings_omitted\":%d,\"other_comments\":%s} -->\n", fs, (nfl > 150 ? nfl - 150 : 0), ENVIRON["OC"]
++    printf ",\"findings\":[%s],\"other_comments\":%s} -->\n", fs, ENVIRON["OC"]
+     print ""
+     print "</details>"
+   }
