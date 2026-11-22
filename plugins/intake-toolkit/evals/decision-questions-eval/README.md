@@ -55,11 +55,11 @@ The "after" arm is the same command from the tree that holds the change.
 
 ## Check that an arm reads its own rules
 
-After the first run of each arm, open that run's trace in the report. Find the `Skill` calls for
-`plan-interview` and `interviewing-baseline`. Each result names the skill's base directory. That
-directory must be inside the tree the command ran from, not an installed copy under your home
-directory. If it is not, the score belongs to the wrong rules: stop and fix the run before you
-record it.
+After the first run of each arm, open that run's trace in the report. Find the `Skill` call for
+`interviewing-baseline`. Its result names the skill's base directory. That directory must be inside
+the tree the command ran from, not an installed copy under your home directory. If it is not, the
+score belongs to the wrong rules: stop and fix the run before you record it. `plan-interview` makes
+no `Skill` call: it loads as the prompt's slash command, from the same plugin.
 
 ## Reading the score
 
