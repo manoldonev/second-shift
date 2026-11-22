@@ -9,6 +9,7 @@
 
 - [ ] 2.1 Draft the answer key from the earlier ticket's record and fix diff, with a snapshot line per fact (plugins/intake-toolkit/evals/discovery-recall-eval/case.yaml)
 - [ ] 2.2 Write the run shape, the prompt with its two headings, the fact- graders, no-false-premise, read-the-scheduler, no-plan-written and stayed-in-snapshot (plugins/intake-toolkit/evals/discovery-recall-eval/case.yaml)
+- [ ] 2.3 Add stayed-out-of-the-clone, which fails a tool input that names a live-clone file by an absolute path outside the workspace (plugins/intake-toolkit/evals/discovery-recall-eval/case.yaml)
 
 ## 3. Docs
 
