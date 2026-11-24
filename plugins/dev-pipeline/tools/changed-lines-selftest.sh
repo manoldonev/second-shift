@@ -88,13 +88,13 @@ full_ok() { # full_ok <label> <reason pattern>
 }
 setup none "$(c 1 stranger User $t1 $t1 $'verdict: approve\nreviewed: '"$A")" "$(c 2 tester User $t2 $t2 'a plain comment')"
 echo stale > "$S/set"; run -C "$R" 7 "$H" "$S/set"; rc=$?
-full_ok "(cl5) no lane verdict on the PR: a full review, and the stale set is gone" "PR #7 has no earlier lane verdict"
+full_ok "(cl5) no lane verdict on the PR: a full review, and the stale set is gone" "PR [#]7 has no earlier lane verdict"
 setup empty
 run -C "$R" 7 "$H" "$S/set"; rc=$?
-full_ok "(cl5) a PR with no comments: a full review" "PR #7 has no earlier lane verdict"
+full_ok "(cl5) a PR with no comments: a full review" "PR [#]7 has no earlier lane verdict"
 setup unreadable; touch "$S/unreadable"
 run -C "$R" 7 "$H" "$S/set"; rc=$?
-full_ok "(cl5) the comments cannot be read: a full review" "the comments of PR #7 could not be read"
+full_ok "(cl5) the comments cannot be read: a full review" "the comments of PR [#]7 could not be read"
 setup unknown "$(c 1 tester User $t1 $t1 $'verdict: needs-work\nreviewed: 0123456789abcdef0123456789abcdef01234567')"
 run -C "$R" 7 "$H" "$S/set"; rc=$?
 full_ok "(cl5) a reviewed sha the repo does not hold: a full review" "the reviewed sha 0123456789abcdef0123456789abcdef01234567 cannot be read"

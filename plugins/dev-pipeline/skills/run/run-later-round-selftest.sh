@@ -23,7 +23,7 @@ run_case "$d"; expect approved "(lr1) needs-work, needs-work on changed lines, t
 [ "$CASE_ON" -eq 1 ] || { echo "[self-test] $PASS passed, $FAIL failed"; exit 0; }
 
 ! grep -q '^## A later review$' "$FAKE_GH/prompt-2.txt" && [ ! -e "$(SD)/changed-lines-1.1.txt" ] \
-  && jq -e '.plain_unchanged_dropped == null' <<<"$(devjson 1)" >/dev/null && grep -q 'review: a full review — PR #7 has no earlier lane verdict' <<<"$OUT" \
+  && jq -e '.plain_unchanged_dropped == null' <<<"$(devjson 1)" >/dev/null && grep -q 'review: a full review — PR [#]7 has no earlier lane verdict' <<<"$OUT" \
   && ok "(lr1) the first review is a full review: no later-review section, no changed-line set, no count in the machine line" \
   || bad "(lr1) round 1: later section=$(grep -c '^## A later review$' "$FAKE_GH/prompt-2.txt") dev=$(devjson 1)"
 
@@ -36,8 +36,9 @@ lead="$(grep '^This PR already has a lane verdict\.' "$FAKE_GH/prompt-4.txt")"; 
   && ok "(lr1) round 2's review is told the sha round 1 reviewed and where the lines changed since are; the set covers the rewritten src/a.ts" \
   || bad "(lr1) round 2: s1=$s1 prompt=$(sed -n '/^## A later review$/,+1p' "$FAKE_GH/prompt-4.txt" | tr '\n' '|') set=$(tr '\n' ' ' < "$set2" 2>/dev/null)"
 
-[ "$(posted 2 | head -n 1)" = 'verdict: needs-work' ] && above 2 | grep -qx -- '- \[blocker\] B1 \[blind\] src/a.ts:4 — the defect the lane saw' \
-  && above 2 | grep -qx -- '- \[note\] N1 \[blind\] src/a.ts:9 — a plain note' \
+b2="$(above 2)"; b3="$(above 3)"
+[ "$(head -n 1 <<<"$b2")" = 'verdict: needs-work' ] && grep -qx -- '- \[blocker\] B1 \[blind\] src/a.ts:4 — the defect the lane saw' <<<"$b2" \
+  && grep -qx -- '- \[note\] N1 \[blind\] src/a.ts:9 — a plain note' <<<"$b2" \
   && jq -e '.plain_unchanged_dropped == 0 and .plain_only == 2 and .flipped == true' <<<"$(devjson 2)" >/dev/null \
   && ok "(lr1) round 2's join gets the set: plain's blocker and note on changed lines are added and flip the approve" || bad "(lr1) round 2 verdict: $(above 2 | grep '^- ' | tr '\n' '|') dev=$(devjson 2)"
 
@@ -46,7 +47,7 @@ grep -q "The latest one reviewed $s2\. " "$FAKE_GH/prompt-6.txt" && [ -n "$s2" ]
   && ok "(lr1) round 3 narrows against round 2's reviewed sha, the latest verdict, and only work.txt changed since" \
   || bad "(lr1) round 3: s2=$s2 named=$(grep -o 'The latest one reviewed [0-9a-f]*' "$FAKE_GH/prompt-6.txt") set=$(tr '\n' ' ' < "$set3" 2>/dev/null)"
 
-[ "$(posted 3 | head -n 1)" = 'verdict: approve' ] && ! above 3 | grep -q 'src/other.ts\|\[blind\]' \
+[ "$(head -n 1 <<<"$b3")" = 'verdict: approve' ] && ! grep -q 'src/other.ts\|\[blind\]' <<<"$b3" \
   && jq -e '.plain_unchanged_dropped == 1 and .plain_only == 0 and .flipped == false and .plain_blockers == 1' <<<"$(devjson 3)" >/dev/null \
   && [ "$(tail -n 1 "$FAKE_GH/statuses" | grep -c 'state=success')" -eq 1 ] \
   && ok "(lr1) round 3's join leaves out plain's blocker on an unchanged line and counts it; the approve binds with a success status" \
