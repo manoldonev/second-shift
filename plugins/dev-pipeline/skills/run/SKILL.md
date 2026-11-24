@@ -14,7 +14,8 @@ prompt in `pass-1-review.md` beside `R`, and a plain review, with the prompt in 
 The REVIEW session then runs pass 2 on the pass-1 findings. The scheduler joins its draft with the
 plain review's and posts the one verdict, which ends with one `lane vs blind:` line and a hidden machine line.
 Once the PR has a lane verdict, each later review is told the head it reviewed: pass 2 and the join gate a
-new finding only on a line changed since, except a new blocker and an open finding of that verdict.
+new finding only on a line changed since, except a new blocker that pass 1 or pass 2 raises and an open
+finding of that verdict. A blocker that only the plain review raises on an unchanged line does not gate.
 `bash R -h` prints the header: usage,
 env, phases and the exit table. It is the truth; this file only says what is yours to do.
 
