@@ -147,7 +147,7 @@ export GIT_NO_REPLACE_OBJECTS=1
 # Run state the terminal reports on. Set as the run advances; empty until then.
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; PR_DRAFT=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
-PRIOR_SHA=""; CHANGED=""; CHANGED_SEEN=""
+PRIOR_SHA=""; CHANGED_SET=""; CHANGED_SEEN=""
 # A tracker comment is public: no local path leaves this machine through one. The worktree becomes
 # <worktree>, a path in the checkout becomes repo-relative, the home directory becomes ~, and any
 # other /Users/<name> or /home/<name> prefix is cut — the detail stays whole in the local log.
@@ -1418,14 +1418,14 @@ other_comments() { # other_comments <attempt> <start-iso>: the other reviewers' 
     || say "other comments: not counted — $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"
 }
 later_review() { # later_review <attempt>: the head the latest lane verdict reviewed in PRIOR_SHA, and the lines changed since in
-  # CHANGED (the join's copy) and CHANGED_SEEN (the review session's copy, in its scratch); all empty for a full review
+  # CHANGED_SET (the join's copy) and CHANGED_SEEN (the review session's copy, in its scratch); all empty for a full review
   local repo out
-  PRIOR_SHA=""; CHANGED=""; CHANGED_SEEN=""
+  PRIOR_SHA=""; CHANGED_SET=""; CHANGED_SEEN=""
   repo="$(repo_slug)" || { say "review: a full review — the repo slug could not be read"; return 0; }
   if out="$(GH="$GH" GH_READ="$GH_READ" bash "$TOOLS/changed-lines.sh" --repo "$repo" -C "$WT" "$PR" "$HEAD_SHA" "$STATE/changed-lines-$1.txt" 2>/dev/null)"; then
-    PRIOR_SHA="${out#reviewed: }"; CHANGED="$STATE/changed-lines-$1.txt"; CHANGED_SEEN="$CHANGED"
-    [ -z "$SCRATCH" ] || { cp "$CHANGED" "$SCRATCH/changed-lines-$1.txt" && CHANGED_SEEN="$SCRATCH/changed-lines-$1.txt"; }
-    say "review: a later review — the latest lane verdict reviewed $PRIOR_SHA; $(grep -c . "$CHANGED") changed range(s) since"
+    PRIOR_SHA="${out#reviewed: }"; CHANGED_SET="$STATE/changed-lines-$1.txt"; CHANGED_SEEN="$CHANGED_SET"
+    [ -z "$SCRATCH" ] || { cp "$CHANGED_SET" "$SCRATCH/changed-lines-$1.txt" && CHANGED_SEEN="$SCRATCH/changed-lines-$1.txt"; }
+    say "review: a later review — the latest lane verdict reviewed $PRIOR_SHA; $(grep -c . "$CHANGED_SET") changed range(s) since"
   else say "review: a full review — ${out#full review: }"; fi
 }
 join_verdicts() { # join_verdicts <lane draft> <plain draft or ''> <why plain is missing> [verdict-join.sh flags]: the joined verdict on stdout
@@ -1634,7 +1634,7 @@ joined_post() { # joined_post <attempt>: joins the lane draft with the plain one
   local j="$STATE/joined-verdict-$1.md" p="" err chg=()
   [ -s "$LANE_DRAFT" ] || { JOINED_MISS="the review session wrote no verdict draft to $LANE_DRAFT"; return 1; }
   [ "$PLAIN_OK" -eq 1 ] && p="$STATE/plain-verdict-$1.md"
-  [ -z "$CHANGED" ] || chg=(--changed "$CHANGED")
+  [ -z "$CHANGED_SET" ] || chg=(--changed "$CHANGED_SET")
   cp "$LANE_DRAFT" "$STATE/lane-verdict-$1.md" 2>/dev/null
   join_verdicts "$LANE_DRAFT" "$p" "${PLAIN_WHY:-the blind review did not return}" --ticket "$PLAIN_TICKET" --other-comments "$STATE/other-comments-$1.json" ${chg[@]+"${chg[@]}"} \
     --lane-cost "$(jq -r '.total_cost_usd | numbers' "$STATE/review-$1.json" 2>/dev/null)" --lane-wall "$(session_wall "$STATE/review-$1.start" "$STATE/review-$1.end")" \
