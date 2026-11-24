@@ -154,6 +154,15 @@ grep -qF -- '- [blocker] B1 src/a.ts:3 — mixed blocker' "$FAKE_GH/prompt-3.txt
 grep -qF 'fix each finding, [blocker] or [note], or rebut it' "$FAKE_GH/prompt-3.txt" && grep -qF 'violated or undeterminable' "$FAKE_GH/prompt-3.txt" \
   && ok "(b3) the build is ordered to fix or rebut every finding, a note included, and fix each bad row" || bad "(b3) the round-2 prompt does not order every finding addressed"
 ! grep -qF 'requires nothing' "$FAKE_GH/prompt-3.txt" && ok "(b3) no note is named optional" || bad "(b3) the round-2 prompt still frees the notes"
+grep -qF "Its first line is exactly \`build: reply\`, alone on that line." "$FAKE_GH/prompt-3.txt" \
+  && grep -qxF "Here the bot is off: post each reply with 'gh pr comment <pr> --body-file <a file you wrote with Write>'." "$FAKE_GH/prompt-3.txt" \
+  && ! grep -q 'LOCKSTEP-' "$FAKE_GH/prompt-3.txt" && ! grep -q 'build: reply' "$FAKE_GH/prompt-1.txt" \
+  && ok "(b3) with the bot off, the round-2 build starts each reply with 'build: reply' and posts it with plain gh; round 1 carries no reply rule" \
+  || bad "(b3) reply rule: $(grep -n 'build: reply\|post each reply' "$FAKE_GH/prompt-3.txt" | cut -c1-200 | tr '\n' '|')"
+grep -qF "When a reply asks the operator for something, such as a ticket edit or a row confirmation, also add that request to the PR body's \`## Before you merge\` section." "$FAKE_GH/prompt-3.txt" \
+  && grep -qF "When the body has no such section, create it after the template or \`## What this changes\` sections, before the Closes line, outside the second-shift fold." "$FAKE_GH/prompt-3.txt" \
+  && ok "(b3) the round-2 build copies each request to the operator into '## Before you merge', and creates the section when the body has none" \
+  || bad "(b3) the round-2 prompt does not route a reply's request to '## Before you merge'"
 
 # (b2) a check red in round 2 sits beside the review's findings, never in place of them: the retry still has what the review asked for
 fixture b2 "- ! grep -qx 3 work.txt"; printf 'build-pr\nreview-needs-work\nbuild-push-only\nbuild-push-only\n' > "$FAKE_CLAUDE_PLAN"
