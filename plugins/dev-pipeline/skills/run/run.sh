@@ -1137,7 +1137,18 @@ build_prompt() { # build_prompt <round> <review-findings-file-or-empty> <red-che
     echo "8. '## Checks': a table '| Check | Result |' with each check you ran. Then a line 'Skipped:' that names each skipped command and its reason. If you skipped nothing, write 'Skipped: none.' If you think a test is wrong, name it here and give the reason."
     echo "9. A line 'Decision record:' with a link to $RECORD_REL that opens on GitHub, then the line 'Record baseline: $FIRST'."
     echo "10. A blank line, the line '<!-- pipeline-cost-block -->', the line '<!-- /pipeline-cost-block -->', a blank line, and the line '</details>' that closes the fold. Write nothing between the two marker lines. The scheduler writes its run report there and its outcome into the fold's summary."
-  else echo "Address the review below: fix each finding, [blocker] or [note], or rebut it in a PR comment. Fix each record row the review scored violated or undeterminable, or edit that row as the record rules below allow. Then commit and push $BRANCH. If you added or edited a record row, add it to the '## Decisions made for you' table inside the PR body's second-shift fold. Keep every other line of the body, the marker lines and the scheduler's lines between them included. Edit the body with 'gh pr edit <pr> --body-file <a file you wrote with Write>'."; fi
+  else
+    echo "Address the review below: fix each finding, [blocker] or [note], or rebut it in a PR comment. Fix each record row the review scored violated or undeterminable, or edit that row as the record rules below allow. Then commit and push $BRANCH. If you added or edited a record row, add it to the '## Decisions made for you' table inside the PR body's second-shift fold. Keep every other line of the body, the marker lines and the scheduler's lines between them included. Edit the body with 'gh pr edit <pr> --body-file <a file you wrote with Write>'."
+    # stated once here and once in build/SKILL.md step 5
+    grep -v 'LOCKSTEP-' <<'REPLY'
+# LOCKSTEP-BEGIN build-reply
+Each reply to the review is a PR comment. Its first line is exactly `build: reply`, alone on that line. The rest of the comment is free text. Post the reply through the bot wrapper when its `--status` is `ok`, and through plain `gh` otherwise. Once a later verdict binds, the reply is collapsed as outdated. When a reply asks the operator for something, such as a ticket edit or a row confirmation, also add that request to the PR body's `## Before you merge` section. When the body has no such section, create it after the template or `## What this changes` sections, before the Closes line, outside the second-shift fold.
+# LOCKSTEP-END build-reply
+REPLY
+    # the lane build may run $GH but not gh-bot.sh --status, so the scheduler names the resolved command
+    if [ "$BOT_OK" -eq 1 ]; then echo "Here the bot wrapper's status is ok: post each reply with '$GH pr comment <pr> --body-file <a file you wrote with Write>'."
+    else echo "Here the bot is off: post each reply with 'gh pr comment <pr> --body-file <a file you wrote with Write>'."; fi
+  fi
   echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record's '## Knowledge source' and '## Fan-out' sections are context, not binding. They hold evidence that intake read, not decisions. Only the D-n rows bind. Where a row cites a finding with 'From: F-n', read that finding in the record's '## Fan-out' section, because it is the evidence the row rests on. The record is committed at $RECORD_REL; edit rows there. If you must change the decision of a row, edit that row in place. Write the new resolution and set the provenance to user-delegated. End the cell with one sentence that starts 'Changed in build:' and gives the reason. A material decision that no row covers gets a new row with provenance user-delegated. End its cell with one sentence that starts 'Added in build:' and gives the reason. Commit each edit with the code. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
   local asks; asks="$(pause_regions)"
   if [ -n "$asks" ]; then
@@ -1631,7 +1642,7 @@ review_status() {
   fi
   STATUS_NOTES="${STATUS_NOTES}status: NOT posted ($STATUS_CONTEXT=$state on $HEAD_SHA) — $why"$'\n'; say "status: NOT posted on $HEAD_SHA — $why"
 }
-# -- the earlier verdicts: once a verdict binds, every earlier lane verdict on the PR is minimized
+# -- the earlier verdicts: once a verdict binds, every earlier lane verdict and build reply on the PR is minimized
 # as outdated through $GH, so the bound one is the one a human sees expanded. A failure is one run-block line, never fatal --
 minimize_earlier_verdicts() {
   local id repo err

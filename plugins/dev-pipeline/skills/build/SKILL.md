@@ -61,6 +61,21 @@ This path does not do the steps that the scheduler does after its build:
    On `needs-work`, do these steps in this session. Fix each finding, `[blocker]` or `[note]`, or
    rebut it in a PR comment. Fix each record row scored `violated` or `undeterminable`, or edit the
    row as step 3 allows. Push, then tell the operator to run a fresh review.
+
+   <!-- LOCKSTEP-BEGIN build-reply -->
+   Each reply to the review is a PR comment. Its first line is exactly `build: reply`, alone on
+   that line. The rest of the comment is free text. Post the reply through the bot wrapper when its
+   `--status` is `ok`, and through plain `gh` otherwise. Once a later verdict binds, the reply is
+   collapsed as outdated. When a reply asks the operator for something, such as a ticket edit or a
+   row confirmation, also add that request to the PR body's `## Before you merge` section. When the
+   body has no such section, create it after the template or `## What this changes` sections,
+   before the Closes line, outside the second-shift fold.
+   <!-- LOCKSTEP-END build-reply -->
+
+   The bot wrapper is [`gh-bot.sh`](../../tools/gh-bot.sh).
+   `bash <this skill's base directory>/../../tools/gh-bot.sh --status` prints its status, and
+   `bash <this skill's base directory>/../../tools/gh-bot.sh pr comment <pr> --body-file <file>`
+   posts through it. Pass every body with `--body-file`.
    While your handoff is the latest run comment on the ticket, `/dev-pipeline:run <ticket>` refuses
    the ticket with `claimed-elsewhere`. This stops it from building into your worktree. `--resume`
    gives the ticket back to the lane.

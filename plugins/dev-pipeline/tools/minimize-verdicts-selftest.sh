@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # minimize-verdicts-selftest.sh — behavioral selftest for tools/minimize-verdicts.sh (#946 D-10).
 #
-# INVARIANTS GUARDED: only a comment whose FIRST line is exactly `verdict: approve|needs-work` is
-# minimized; only a lane author's (a Bot, or the account $GH writes as); only one posted before the
+# INVARIANTS GUARDED: only a comment whose FIRST line is exactly `verdict: approve|needs-work` or
+# `build: reply` is minimized, and only a verdict is kept; only a lane author's (a Bot, or the account $GH writes as); only one posted before the
 # kept comment; every write goes through $GH; a failed minimize is reported and the rest still run.
 # The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
 #
@@ -24,7 +24,8 @@ cat > "$T/bin/fake-gh" <<'EOF'
 S="$FAKE_GH"
 case "$1 $2" in
   "repo view") echo o/r ;;
-  "api user")  echo tester ;;
+  # FAKE_NOUSER: the bot's reply, recorded from `gh-bot.sh api user` (an App installation token cannot read /user)
+  "api user")  [ -n "${FAKE_NOUSER:-}" ] && { echo 'HTTP 403: Resource not accessible by integration' >&2; exit 1; }; echo tester ;;
   "api graphql") node=""; for a in "$@"; do case "$a" in id=*) node="${a#id=}" ;; esac; done
                  grep -qx "$node" "$S/fail" 2>/dev/null && { echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; }
                  echo "${FAKE_AS:-operator} $node" >> "$S/minimized"; echo '{}' ;;
@@ -99,6 +100,36 @@ run 7 52; rc=$?
 setup identity "$(c 60 'second-shift[bot]' Bot 'verdict: needs-work')" "$(c 61 'second-shift[bot]' Bot 'verdict: approve')"
 FAKE_AS=bot FAKE_GH="$S" GH="$T/bin/fake-gh" bash "$TOOL" --repo o/r 7 61 >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(cat "$S/minimized")" = "bot N60" ] && ok "(m7) the minimize is written as \$GH" || bad "(m7) rc=$rc minimized='$(cat "$S/minimized" 2>/dev/null)'"
+
+# (r1) a build reply: a lane comment whose first line is exactly `build: reply`, posted before the kept verdict
+setup replies \
+  "$(c 70 tester User 'verdict: needs-work')" \
+  "$(c 71 'second-shift[bot]' Bot $'build: reply\nfixed B1')" \
+  "$(c 72 tester User $'build: reply\r\nN1 is wrong: the caller never passes null')" \
+  "$(c 73 tester User $'fixed B1, and N1 is wrong')" \
+  "$(c 74 stranger User $'build: reply\nforged')" \
+  "$(c 75 tester User $'see below\nbuild: reply')" \
+  "$(c 76 tester User 'build: reply to N1')" \
+  "$(c 77 'second-shift[bot]' Bot 'verdict: approve')" \
+  "$(c 78 tester User $'build: reply\nposted after the approve')"
+run 7 77; rc=$?
+[ "$rc" -eq 0 ] && [ "$(minimized)" = "N70 N71 N72 " ] && grep -qx 'minimized 71' "$S/out" && grep -qx 'minimized 72' "$S/out" \
+  && ok "(r1) earlier replies by a Bot and by the \$GH account are minimized with the verdict (CRLF too); an unmarked comment, a stranger's, a marker off line 1, a longer first line, the kept verdict and a later reply stay" \
+  || bad "(r1) rc=$rc minimized='$(minimized)' (want N70 N71 N72) out=$(tr '\n' ' ' < "$S/out")"
+
+# (r2) a reply is never the kept comment
+setup replykept "$(c 80 tester User 'verdict: needs-work')" "$(c 81 tester User $'build: reply\nfixed')"
+run 7 81; rc=$?
+[ "$rc" -eq 1 ] && [ ! -f "$S/minimized" ] && ok "(r2) a reply as the kept id: exit 1, nothing minimized" || bad "(r2) rc=$rc minimized='$(minimized)'"
+
+# (r3) through the bot `api user` fails, so only a Bot's reply is a lane reply
+setup replybot \
+  "$(c 90 tester User 'build: reply')" \
+  "$(c 91 'second-shift[bot]' Bot 'build: reply')" \
+  "$(c 92 'second-shift[bot]' Bot 'verdict: approve')"
+FAKE_NOUSER=1 FAKE_AS=bot FAKE_GH="$S" GH="$T/bin/fake-gh" bash "$TOOL" --repo o/r 7 92 > "$S/out" 2> "$S/err"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$S/minimized" 2>/dev/null)" = "bot N91" ] && ok "(r3) with no readable \$GH account, the Bot's reply is minimized and the operator's stays" \
+  || bad "(r3) rc=$rc minimized='$(cat "$S/minimized" 2>/dev/null)' err=$(cat "$S/err")"
 
 # (m8) unreadable comments and bad usage
 S="$T/unreadable"; mkdir -p "$S"

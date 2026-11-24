@@ -297,12 +297,13 @@ review.
    the merge. Never edit it.
    Whoever edits a posted verdict in place later re-checks it with `GH=<that gh> bash <this skill's base directory>/../../tools/post-review-status.sh --recheck <comment id> <pr> <sha> <record at the head> <record at FIRST> <the comment's URL>`, which posts the status the edited comment implies, or `error` when it breaks a rule.
 
-   Then collapse the earlier verdicts of the PR as outdated. Use the same `gh` that you posted
-   through:
+   Then collapse the earlier verdicts and build replies of the PR as outdated. Use the same `gh`
+   that you posted through:
    `GH=<that gh> bash <this skill's base directory>/../../tools/minimize-verdicts.sh <pr> <comment id>`
    ([the script](../../tools/minimize-verdicts.sh)). The id is the number after `#issuecomment-`
-   in the URL that your post printed. The script minimizes only lane-authored `verdict:` comments
-   posted before yours. It never minimizes a notice or a comment by anyone else. If it fails, say
+   in the URL that your post printed. The script minimizes only lane-authored comments posted
+   before yours whose first line is a `verdict:` line or exactly `build: reply`. It never
+   minimizes a notice or a comment by anyone else. If it fails, say
    so in your session output, not in a PR comment, and continue. Never retry it as yourself in
    the place of the bot.
 

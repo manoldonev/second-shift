@@ -81,6 +81,19 @@ grep -q "^verdicts: earlier ones NOT all minimized â€” comment 1 NOT minimized â
   && ok "(mv4) [D-7] the failed minimize is one run-block line" || bad "(mv4) run block: $(grep verdicts "$FAKE_GH/pr-body.md")"
 FIXTURE_CONFIG="$CS_BOT_CONFIG" fixture mv5; printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; cs_bot; expect approved "(mv5) a run with a bot"
 [ "$(cat "$FAKE_GH/minimized" 2>/dev/null)" = "bot N1" ] && ok "(mv5) [D-6] the minimize is written through the bot" || bad "(mv5) minimized: $(tr '\n' '|' < "$FAKE_GH/minimized" 2>/dev/null)"
+grep -qF "Its first line is exactly \`build: reply\`, alone on that line." "$FAKE_GH/prompt-3.txt" \
+  && grep -qxF "Here the bot wrapper's status is ok: post each reply with '$T/bin/gh-asbot pr comment <pr> --body-file <a file you wrote with Write>'." "$FAKE_GH/prompt-3.txt" \
+  && ! grep -qF "'gh pr comment" "$FAKE_GH/prompt-3.txt" && grep -qF "section. When the body has no such section, create it" "$FAKE_GH/prompt-3.txt" \
+  && ok "(mv5) with the bot on, the round-2 build posts each marked reply through the wrapper the scheduler resolved, and routes asks to '## Before you merge'" \
+  || bad "(mv5) reply rule: $(grep -n 'build: reply\|post each reply' "$FAKE_GH/prompt-3.txt" | cut -c1-200 | tr '\n' '|')"
+# (mv6) a lane build reply posted before the bound verdict is minimized with the earlier verdict
+fixture mv6; mv_seed
+jq '. + [{id:3,node_id:"N3",body:"build: reply\nB1 is fixed; N1 is wrong",user:{login:"tester",type:"User"},created_at:"2020-01-02T00:00:00Z",updated_at:"2020-01-02T00:00:00Z"}]' \
+  "$FAKE_GH/comments.json" > "$FAKE_GH/c.tmp" && mv "$FAKE_GH/c.tmp" "$FAKE_GH/comments.json"
+printf 'build-pr\nreview-needs-work\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(mv6) a reply, a needs-work, then approve"
+# each bound verdict runs the minimize, so the reply is minimized at the needs-work and again at the approve
+[ "$(sort -u "$FAKE_GH/minimized" 2>/dev/null | tr '\n' ' ')" = "operator N3 operator N4 " ] && ok "(mv6) the earlier reply and needs-work are minimized; the bound approve, the notice and the stranger's are not" \
+  || bad "(mv6) minimized: $(tr '\n' '|' < "$FAKE_GH/minimized" 2>/dev/null)"
 
 # (vc) #991: a verdict binds only when its own comment backs it. Each inconsistent body, drafted by both the review and its
 # re-spawn: no status, no BUILD, the re-spawn told which rule broke, nothing posted on the PR, review-unbound
