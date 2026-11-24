@@ -4,7 +4,7 @@
 # Usage:
 #   verdict-join.sh <lane-draft> <plain-draft or ''> [--why <why plain is missing>] [--format verdict|report]
 #                   [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>] [--ticket true|false]
-#                   [--other-comments <other-comments.sh output>]
+#                   [--other-comments <other-comments.sh output>] [--changed <changed-lines.sh set>]
 #
 # --format report joins a review-lead report. The report is in the lane verdict grammar, so it is joined by the same
 # rules; the format changes only the machine line's "format" and the wording of the Notes line when plain is missing.
@@ -22,29 +22,36 @@
 # mergeable yet.`, and a `Nothing to do.` line names the [blind] findings. With no plain draft, `## Notes` says why
 # and the lane's verdict stands as written.
 #
+# --changed names the changed-line set of a later review (tools/changed-lines.sh): one `<path>:<first>-<last>` range
+# per line. With it, a plain finding the join would add is left out when its site is on no changed line. A site
+# matches a range when its path equals the range's path or ends it after a `/`. A plain finding with no site is still
+# added: the join cannot place it. Without --changed, every such finding is added, as in a first review.
+#
 # The body ends under `## Notes` with one visible line, `lane vs blind: <a> agreed, <d> rated differently, <l> lane
 # alone, <p> blind alone` (plus `; blind flipped the verdict`), or `lane vs blind: the blind review did not return`,
 # then one hidden `<!-- plain-vs-lane: {json} -->` line for scripts that aggregate across PRs. The counts pair every
 # finding of both reviews, notes and dismissals included, one to one, by the same site rule (nearest first, then the
 # same severity); the comment names the plain review "blind". The JSON's `lane_only` counts blockers only,
 # `plain_only` the blind blockers and notes the join added, and `plain_notes_dropped` the blind notes it left out at a
-# lane Notes site; `m_<lane>_<plain>` count pairs by class (b blocker, n note, d dismissed, 0 absent). Its `findings`
+# lane Notes site, `plain_unchanged_dropped` the blind findings it left out on unchanged lines (null without
+# --changed); `m_<lane>_<plain>` count pairs by class (b blocker, n note, d dismissed, 0 absent). Its `findings`
 # lists one entry per finding of each review, disagreements first, capped at 150 with `findings_omitted` counting the
 # rest; findings the join matched share a `pair` number. Cost and wall time are in the JSON alone, a lane passed none
 # is null. Its `other_comments` is the --other-comments file when that file has the tool's shape, else null. A plain
 # `ticket-unavailable` note, with or without a site before it, means plain reviewed the diff alone; it is in no count
 # and no entry. Sites are a proxy: two findings at one site are paired whatever they say.
 #
-# Exit: 0 the joined verdict on stdout · 2 usage, or the lane draft cannot be read.
+# Exit: 0 the joined verdict on stdout · 2 usage, or the lane draft or the --changed set cannot be read.
 set -uo pipefail
-usage() { echo "usage: verdict-join.sh <lane-draft> <plain-draft or ''> [--why <text>] [--format verdict|report] [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>] [--ticket true|false] [--other-comments <file>]" >&2; exit 2; }
+usage() { echo "usage: verdict-join.sh <lane-draft> <plain-draft or ''> [--why <text>] [--format verdict|report] [--lane-cost <usd>] [--plain-cost <usd>] [--lane-wall <s>] [--plain-wall <s>] [--ticket true|false] [--other-comments <file>] [--changed <file>]" >&2; exit 2; }
 [ $# -ge 2 ] || usage
 lane="$1" plain="$2"; shift 2
-why="the blind review did not return" fmt=verdict lc="" pc="" lw="" pw="" ticket=true ocf=""
+why="the blind review did not return" fmt=verdict lc="" pc="" lw="" pw="" ticket=true ocf="" chf="" chg=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --why) why="${2-}"; shift 2 ;;
     --other-comments) ocf="${2-}"; shift 2 ;;
+    --changed) chf="${2-}"; chg=1; shift 2 ;;
     --ticket) ticket="${2-}"; shift 2; case "$ticket" in true|false) : ;; *) usage ;; esac ;;
     --format) fmt="${2-}"; case "$fmt" in verdict|report) : ;; *) usage ;; esac; shift 2 ;;
     --lane-cost) lc="${2-}"; shift 2 ;;
@@ -55,6 +62,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -f "$lane" ] && [ -r "$lane" ] || { echo "verdict-join: cannot read the lane draft $lane" >&2; exit 2; }
+[ "$chg" -eq 0 ] || { [ -f "$chf" ] && [ -r "$chf" ]; } || { echo "verdict-join: cannot read the changed-line set $chf" >&2; exit 2; }
 [ -z "$plain" ] || [ -r "$plain" ] || plain=""
 num() { case "$1" in ''|*[!0-9.]*|.*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
 OC=""
@@ -63,7 +71,7 @@ OC=""
 export OC="${OC:-null}"
 
 # shellcheck disable=SC2016  # an awk program, not shell
-awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v fmt="$fmt" -v lc="$(num "$lc")" -v pc="$(num "$pc")" -v lw="$(num "$lw")" -v pw="$(num "$pw")" '
+awk -v pf="$plain" -v cf="$chf" -v chg="$chg" -v why="$why" -v ticket="$ticket" -v fmt="$fmt" -v lc="$(num "$lc")" -v pc="$(num "$pc")" -v lw="$(num "$lw")" -v pw="$(num "$pw")" '
   # LOCKSTEP-BEGIN verdict-join-loc
   # the first path:line in s: an extensionless path (Makefile:12) counts; a URL host:port, a bare id (B1:2) or a time does not.
   # A segment may hold a balanced [..], [[..]] or (..) group without a slash (app/[id]/page.tsx), so [x](a.ts:1) yields a.ts:1
@@ -83,11 +91,21 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v fmt="$fmt" -v lc="$(num 
     d = substr(a, length(pa) + 2) - substr(b, length(pb) + 2); return d <= 3 && d >= -3
   }
   function lineof(a) { sub(/^.*:/, "", a); return a + 0 }
+  function onchanged(s,   p, n, k, c) {
+    if (!chg || s == "") return 1
+    p = s; sub(/:[0-9]+$/, "", p); n = lineof(s)
+    for (k = 1; k <= nc; k++) {
+      c = cpath[k]
+      if (c != p && substr(c, length(c) - length(p)) != "/" p) continue
+      if (n >= clo[k] && n <= chi[k]) return 1
+    }
+    return 0
+  }
   function dist(a, b,   d) { if (!near(a, b)) return -1; d = lineof(a) - lineof(b); return d < 0 ? -d : d }
   function unready(s) { gsub(/Ready to merge\?/, "Ready to merge", s); return s }
   function added(   k, c) {
     if (done) return 0; done = 1
-    for (k = 1; k <= np; k++) if (!pmatch[k]) { c++; print "- [blocker] " newid[k] " [blind] " unready(ptext[k]); printf "%s", unready(pcont[k]) }
+    for (k = 1; k <= np; k++) if (newid[k] != "") { c++; print "- [blocker] " newid[k] " [blind] " unready(ptext[k]); printf "%s", unready(pcont[k]) }
     return c
   }
   function addedn(   k, c) {
@@ -159,14 +177,19 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v fmt="$fmt" -v lc="$(num 
     if (pf == "") print "lane vs blind: the blind review did not return"
     else print "lane vs blind: " a + 0 " agreed, " dd + 0 " rated differently, " la + 0 " lane alone, " pa + 0 " blind alone" (flip ? "; blind flipped the verdict" : "")
     rv = substr(line[1], 10); lv = rv ~ /^(approve|needs-work)$/ ? rv : ""
-    printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s", nb, np, na, nb - na, nadd + naddn, ndrop, (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
-    printf ",\"v\":3,\"format\":\"%s\",\"lane_verdict\":%s,\"plain_verdict\":%s,\"lane_notes\":%d,\"lane_dismissed\":%d,\"lane_cites_plain\":%d,\"plain_merged\":%s", fmt, (lv == "" ? "null" : "\"" lv "\""), (pv == "" ? "null" : "\"" pv "\""), lnotes, ldis, cites, (pf == "" ? "null" : merged + 0)
+    printf "<!-- plain-vs-lane: {\"lane_blockers\":%d,\"plain_blockers\":%d,\"agreed\":%d,\"lane_only\":%d,\"plain_only\":%d,\"plain_notes_dropped\":%d,\"plain_unchanged_dropped\":%s,\"flipped\":%s,\"plain_returned\":%s,\"lane_cost_usd\":%s,\"plain_cost_usd\":%s,\"lane_wall_s\":%s,\"plain_wall_s\":%s,\"ticket\":%s", nb, np, na, nb - na, nadd + naddn, ndrop, (chg ? nunch + 0 : "null"), (flip ? "true" : "false"), (pf == "" ? "false" : "true"), lc, pc, lw, pw, (ticket == "true" ? "true" : "false")
+    printf ",\"v\":4,\"format\":\"%s\",\"lane_verdict\":%s,\"plain_verdict\":%s,\"lane_notes\":%d,\"lane_dismissed\":%d,\"lane_cites_plain\":%d,\"plain_merged\":%s", fmt, (lv == "" ? "null" : "\"" lv "\""), (pv == "" ? "null" : "\"" pv "\""), lnotes, ldis, cites, (pf == "" ? "null" : merged + 0)
     printf ",\"m_b_b\":%s,\"m_b_n\":%s,\"m_b_0\":%s,\"m_n_b\":%s,\"m_n_n\":%s,\"m_n_0\":%s,\"m_d_b\":%s,\"m_d_n\":%s,\"m_d_0\":%s,\"m_0_b\":%s,\"m_0_n\":%s", mv("b_b"), mv("b_n"), mv("b_0"), mv("n_b"), mv("n_n"), mv("n_0"), mv("d_b"), mv("d_n"), mv("d_0"), mv("0_b"), mv("0_n")
     printf ",\"findings\":[%s],\"findings_omitted\":%d,\"other_comments\":%s} -->\n", fs, (nfl > 150 ? nfl - 150 : 0), ENVIRON["OC"]
   }
   function alone() { print ""; print "Joined review: " why ", so this " (fmt == "report" ? "report is review-lead alone." : "verdict is the lane review alone.") }
   BEGIN {
     DASH = " — "; DL = length(DASH)
+    if (chg) while ((getline l < cf) > 0) {
+      sub(/\r$/, "", l)
+      if (!match(l, /:[0-9]+-[0-9]+$/)) continue
+      nc++; cpath[nc] = substr(l, 1, RSTART - 1); split(substr(l, RSTART + 1), rg, "-"); clo[nc] = rg[1] + 0; chi[nc] = rg[2] + 0
+    }
     if (pf != "") while ((getline l < pf) > 0) {
       sub(/\r$/, "", l)
       if (pv == "" && match(l, /^verdict: (approve|needs-work)[ \t]*$/)) { pv = substr(l, 10); sub(/[ \t]+$/, "", pv) }
@@ -211,12 +234,13 @@ awk -v pf="$plain" -v why="$why" -v ticket="$ticket" -v fmt="$fmt" -v lc="$(num 
   }
   END {
     for (k = 1; k <= np; k++) for (b = 1; b <= nb; b++) if (near(ploc[k], bloc[b])) { pmatch[k] = b; agreed[bline[b]] = 1; if (!bagreed[b]) na++; bagreed[b] = 1; break }
-    for (k = 1; k <= np; k++) if (!pmatch[k]) { nadd++; newid[k] = "B" (maxb + nadd) }
+    for (k = 1; k <= np; k++) if (!pmatch[k]) { if (!onchanged(ploc[k])) { nunch++; continue }; nadd++; newid[k] = "B" (maxb + nadd) }
     for (k = 1; k <= nq; k++) {
       for (j = 1; j <= nl; j++) if (near(qloc[k], lloc[j])) break
       if (j <= nl) continue
       for (j = 1; j <= ns; j++) if (near(qloc[k], nsite[j])) break
       if (j <= ns) ndrop++
+      else if (!onchanged(qloc[k])) nunch++
       else { naddn++; qnewid[k] = "N" (maxn + naddn) }
     }
     flip = nadd + naddn > 0 && line[1] == "verdict: approve"

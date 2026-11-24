@@ -10,8 +10,9 @@
 # The no-record mode takes the same grammar without `## Decision record rows`, which it fails, and requires the
 # `reviewed-by:` line and `## Summary`. Both modes fail a `## Summary` of more than 8 non-blank lines, a `## Notes` of
 # 150 words or more, a `[note]` finding of more than 4 lines, and the line `Knowledge-base contributions: none`. The
-# Notes count leaves out the knowledge-base block (from its lead line to the end of the section) and the lines the
-# join writes: `Joined review:`, `lane vs blind:` and the hidden `<!-- plain-vs-lane: … -->` line.
+# Notes count leaves out the knowledge-base block (from its lead line to the end of the section), the later-round
+# notes (`- later-round note: <file:line> — <defect>`, a new note on code a later review found unchanged) and the
+# lines the join writes: `Joined review:`, `lane vs blind:` and the hidden `<!-- plain-vs-lane: … -->` line.
 #
 # The body has these parts, in this order and nothing else (the grammar run.sh's review prompt and
 # review/SKILL.md state):
@@ -166,13 +167,13 @@ sec == 3 {
 }
 sec == 5 {
   if ($0 ~ /^(### )?Knowledge-base contributions/) kb = 1
-  if (kb || $0 ~ /^(<!-- plain-vs-lane: |Joined review: |lane vs blind: )/) next
+  if (kb || $0 ~ /^(<!-- plain-vs-lane: |Joined review: |lane vs blind: |- later-round note: )/) next
   nwords += NF; next
 }
 END {
   endnote()
   if (slines > 8) fail("Summary longer than eight lines", slines " non-blank lines")
-  if (nwords >= 150) fail("Notes of 150 words or more", nwords " words, not counting the knowledge-base block and the join lines")
+  if (nwords >= 150) fail("Notes of 150 words or more", nwords " words, not counting the knowledge-base block, the later-round notes and the join lines")
   if (norec) {
     if (!by) fail("missing reviewed-by line", "line 3, or line 4 after a reason line")
     if (!("## Summary" in seen)) fail("missing section", "## Summary")

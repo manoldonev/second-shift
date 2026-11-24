@@ -49,6 +49,20 @@ review.
    It prints nothing. Never open that file: only the join block reads it. When a read fails, it
    writes no file, and the joined verdict records the count as null. Go on with the review.
 
+   **Find the last reviewed head.** Use the `gh` that step 8 posts through: the path that
+   `gh-bot.sh --path` prints when its `--status` is `ok`, and plain `gh` otherwise.
+
+   ```bash
+   GH=<that gh> GH_READ=gh bash <this skill's base directory>/../../tools/changed-lines.sh -C "$(git rev-parse --show-toplevel)" <pr> <headRefOid> <your scratch dir>/changed-lines.txt
+   ```
+
+   ([the script](../../tools/changed-lines.sh)). Exit 0 prints `reviewed: <sha>`: the PR already
+   has a lane verdict, and this is a **later review**. The file then lists the lines changed since
+   that sha, one `path:first-last` range per line. Exit 3 is a **first review**, a full review as
+   before: the PR has no earlier lane verdict, or its comments or the sha cannot be read. Exit 3
+   writes no file. The script prints no finding of an earlier verdict. Do not read an earlier
+   verdict yourself before step 8.
+
    **Start pass 1 and the plain review.** Each is a record-blind session that `run.sh` also runs:
    one headless session with Read, Grep and Glob only, in a copy of the head with no `.git` and no
    plans directory, given the diff and the ticket. Pass 1 reviews the ticket, the diff and the code
@@ -97,7 +111,7 @@ review.
    findings of step 3. The diff is `origin/<base>...HEAD`, where `<base>` is the PR's base branch.
 
    <!-- LOCKSTEP-BEGIN review-record-grounds -->
-   The findings of pass 1 are this review's pass-1 findings, with the tags pass 1 gave them. When there is a record, pass 2 reads it at its first commit and at the head, and scores every row. A record row never removes, dismisses or downgrades a pass-1 finding. When a row decided the behavior that a finding shows breaking an existing caller, existing data or the ticket, the finding keeps its severity and names the row. A finding that shows existing data or an existing caller breaking under the change is not a finding when a record row names that exact case, accepts it, and names who decided. A row names who decided when its provenance is `user-answered`, or `ticket-sourced` with its comment URL. A `user-delegated` or `codebase-derived` row never accepts a break. The Evidence cell of the accepting row quotes the acceptance. Only three record grounds take a pass-1 finding out of `## Findings`: the accepted break above, the test intent's exemption of an acceptance criterion from a test, and an over-engineering `[note]` on a mechanism that a row prescribes when the row names who decided, as above. An exemption gets one line in `## Notes` that quotes it. A prescribed mechanism gets one line in `## Notes` that starts with its file:line and quotes the row. A dismissed or suppressed finding is never listed.
+   The findings of pass 1 are this review's pass-1 findings, with the tags pass 1 gave them. When there is a record, pass 2 reads it at its first commit and at the head, and scores every row. A record row never removes, dismisses or downgrades a pass-1 finding. When a row decided the behavior that a finding shows breaking an existing caller, existing data or the ticket, the finding keeps its severity and names the row. A finding that shows existing data or an existing caller breaking under the change is not a finding when a record row names that exact case, accepts it, and names who decided. A row names who decided when its provenance is `user-answered`, or `ticket-sourced` with its comment URL. A `user-delegated` or `codebase-derived` row never accepts a break. The Evidence cell of the accepting row quotes the acceptance. Only three record grounds take a pass-1 finding out of `## Findings`: the accepted break above, the test intent's exemption of an acceptance criterion from a test, and an over-engineering `[note]` on a mechanism that a row prescribes when the row names who decided, as above. In a later review, two more grounds apply: a pass-1 `[note]` on a line unchanged since the last reviewed head becomes a later-round note in `## Notes`, and a pass-1 finding that an earlier verdict accepted leaves unless its code changed since that verdict. An exemption gets one line in `## Notes` that quotes it. A prescribed mechanism gets one line in `## Notes` that starts with its file:line and quotes the row. A dismissed or suppressed finding is never listed.
    <!-- LOCKSTEP-END review-record-grounds -->
 
    The first commit is the commit that
@@ -205,6 +219,20 @@ review.
    changes a score or a finding, say so in the verdict's `## Notes`:
    `revised after reading the build's account: <what changed>`.
 
+   **A later review.** When step 2 printed `reviewed: <sha>`, the lines changed since that sha
+   are in `<your scratch dir>/changed-lines.txt`: each line of the head within 3 lines of a hunk of
+   `git diff <sha> HEAD`. An empty file means that nothing changed. Then:
+
+   <!-- LOCKSTEP-BEGIN review-later-round -->
+   In a later review, read the PR's earlier lane verdicts last, with the build's account. A lane verdict is a comment by the bot or the operator account whose line 1 is `verdict: approve` or `verdict: needs-work`. `gh pr view <pr> --json comments` returns the earlier ones, though they are minimized as outdated. Then apply these rules:
+   - Check each finding of the latest lane verdict against the head and the build's PR comments. Do not mention a fixed finding. Raise again a finding that is neither fixed nor validly rebutted. It gates, on a changed or an unchanged line.
+   - Do not raise again a finding that an earlier verdict accepted, unless the code it points at changed since that verdict. A verdict accepted a finding when it agreed with the build's rebuttal or turned the finding into a ticket edit.
+   - A new `[note]` on a line unchanged since the last reviewed head is not a finding, from pass 1 or from you. Write it in `## Notes` as a later-round note, in the form the verdict grammar gives. It does not gate.
+   - A new `[blocker]` gates on any line, from pass 1 or from you. This covers a row-reach blocker at an untouched caller, an untraced test-expectation change and a design-fidelity finding.
+   - Score every record row in full, as in a first review.
+   - The join adds a blind finding only when its file:line is on a changed line, or when it names no file:line.
+   <!-- LOCKSTEP-END review-later-round -->
+
    **Post ONE PR comment.** Post it through [`gh-bot.sh`](../../tools/gh-bot.sh) when its
    `--status` is `ok`, and through plain `gh` otherwise. Pass the body with `--body-file`. The body
    follows this grammar exactly. The review prompt of `run.sh` states the same grammar.
@@ -214,12 +242,12 @@ review.
    <!-- LOCKSTEP-BEGIN verdict-grammar -->
    The verdict comment has these parts, in this order and nothing else:
    - Line 1 is exactly `verdict: approve` or `verdict: needs-work`. Line 2 is exactly `reviewed: <the full sha of the head you reviewed>`. An optional line 3 is exactly `reason: render-unavailable`, `reason: ticket-unreadable` or `reason: seat-unavailable`. When you were given a `reviewed-by:` line, it comes next, exactly as given.
-   - `## Summary`, right after those lines. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` Write no table. Use at most eight lines.
+   - `## Summary`, right after those lines. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` When `## Notes` holds later-round notes, one action line gives their count and asks the human to read them before the merge. Write no table. Use at most eight lines.
    - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
    - Fold the rows table. Put the line `<details><summary><N> rows: <k> honored, <k> departed, <k> violated, <k> undeterminable</summary>` and a blank line before the table, and the line `</details>` after it. N is the number of rows in the table, and each k is the number of rows with that score. Keep the scores in that order and leave out a score with no rows. Always write `rows`. Never write `<details open>`. A verdict that folds the table has a `## Summary`, so every row that is not honored stays visible. A table without the fold also passes.
    - `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Dismissed and suppressed findings are not listed. Each finding id appears once in the verdict. A section with no findings holds the single line `None.`.
    - After its id and one space, a finding names its file:line and its defect: `- [blocker] B1 path:line — <defect>`. Its first continuation line is `Scenario: <input or state> → <wrong outcome>`. A finding that a dispatched reviewer raised names that reviewer in brackets before its file:line: `- [blocker] B1 [Reviewer] path:line — <defect>`. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) names its rule, and its file:line only where it has one. No finding carries a confidence number.
-   - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. It also holds one line for each thing the review must show that is not a finding: a stale or wrong PR title or description, a break that only the ticket text accepts, and a test-intent exemption. Nothing in it counts toward the verdict.
+   - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. It also holds one line for each thing the review must show that is not a finding: a stale or wrong PR title or description, a break that only the ticket text accepts, and a test-intent exemption. In a later review, it also holds one later-round note for each new `[note]` on a line unchanged since the last reviewed head, in the form `- later-round note: <file:line> — <defect>`. Nothing in it counts toward the verdict.
    - `## Summary` and `## Notes` carry no over-engineering observation that `## Findings` does not list as a finding. Write each relevant one as a `[note]` in `## Findings`, and leave out the rest. The `lane vs blind:` line is exempt.
 
    `Ready to merge?` is never written anywhere in the body.
@@ -260,7 +288,7 @@ review.
    - Put the knowledge-base block last.
    - Do not write a sub-heading that has nothing under it.
    - Leave out a topic that changed no score or finding.
-   - Keep `## Notes` under 150 words, not counting the knowledge-base block.
+   - Keep `## Notes` under 150 words, not counting the knowledge-base block and the later-round notes.
    A limit never removes a row, a finding or a knowledge-base proposal. If they do not fit, shorten the wording.
    <!-- LOCKSTEP-END verdict-style -->
 
@@ -278,7 +306,9 @@ review.
      --plain-wall "$(cat "$O/wall" 2>/dev/null)" > <joined draft>
    ```
 
-   Run the block as one Bash call, with every placeholder replaced by the literal value.
+   Run the block as one Bash call, with every placeholder replaced by the literal value. In a
+   later review, add `--changed <your scratch dir>/changed-lines.txt` to the `verdict-join.sh`
+   line. Then the join leaves out a plain finding on an unchanged line.
 
    The joined draft is the body you check and post, unchanged. The script merges plain's findings
    by `run.sh`'s rules, makes a plain-only finding turn an approve into a needs-work, and ends the

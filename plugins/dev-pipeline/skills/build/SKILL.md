@@ -59,7 +59,8 @@ This path does not do the steps that the scheduler does after its build:
    the fresh session in a `review` tab of the ticket's workspace. Do not review your own build.
    Never post a comment that starts with `verdict:`.
    On `needs-work`, do these steps in this session. Fix each finding, `[blocker]` or `[note]`, or
-   rebut it in a PR comment. Fix each record row scored `violated` or `undeterminable`, or edit the
+   rebut it in a PR comment. A `- later-round note:` line in the verdict's `## Notes` is not a
+   finding: it is for the human who merges, and fixing it is optional. Fix each record row scored `violated` or `undeterminable`, or edit the
    row as step 3 allows. Push, then tell the operator to run a fresh review.
 
    <!-- LOCKSTEP-BEGIN build-reply -->
