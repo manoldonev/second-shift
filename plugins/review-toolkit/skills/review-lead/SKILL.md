@@ -737,12 +737,12 @@ In `## Findings`:
 - End each finding, a note too, with the continuation line `Fix: <one instruction>`.
 - Write a note in at most four lines, its Fix line included.
 In `## Notes`:
-- Use one `###` sub-heading for each topic. Write at most six sentences under it.
+- Use one `###` sub-heading for each topic. Write at most six sentences under it, not counting the resolved lines and the two lines of their fold.
 - Write an inventory, such as the mutation run, as a list.
 - Put the knowledge-base block last.
 - Do not write a sub-heading that has nothing under it.
 - Leave out a topic that changed no score or finding.
-- Keep `## Notes` under 150 words, not counting the knowledge-base block and the later-round notes.
+- Keep `## Notes` under 150 words, not counting the knowledge-base block, the later-round notes, the resolved lines and the two lines of their fold.
 A limit never removes a row, a finding or a knowledge-base proposal. If they do not fit, shorten the wording.
 <!-- LOCKSTEP-END verdict-style -->
 

@@ -19,7 +19,8 @@
 # keeps it within verdict-check.sh's four-line note limit: a continuation line after the third is appended to the
 # third. An added
 # finding turns an approve into a needs-work: line 1 becomes `verdict: needs-work`, the Summary's first line `Not
-# mergeable yet.`, and a `Nothing to do.` line names the [blind] findings. With no plain draft, `## Notes` says why
+# mergeable yet.`, and a `Nothing to do.` line names the [blind] findings. An added finding also drops the lane's
+# `None.` or `None open. <n> resolved, listed in ## Notes.` line; the resolved fold in `## Notes` stays. With no plain draft, `## Notes` says why
 # and the lane's verdict stands as written.
 #
 # --changed names the changed-line set of a later review (tools/changed-lines.sh): one `<path>:<first>-<last>` range
@@ -259,7 +260,7 @@ awk -v pf="$plain" -v cf="$chf" -v chg="$chg" -v why="$why" -v ticket="$ticket" 
         if (s == "Nothing to do.") { print "Fix the [blind] " (naddn ? "findings" : "blockers") " in Findings."; continue }
       }
       if (sec == "## Findings") {
-        if (s == "None." && nadd + naddn > 0) continue
+        if ((s == "None." || s ~ /^None open\. [0-9]+ resolved, listed in ## Notes\.$/) && nadd + naddn > 0) continue
         if (s ~ /^- \[note\] /) added()
         if (i in agreed) { match(s, /^- \[blocker\] B[0-9]+ /); print substr(s, 1, RLENGTH) "[lane+blind] " substr(s, RLENGTH + 1); continue }
       }

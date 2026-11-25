@@ -1252,10 +1252,11 @@ REACH
     grep -v 'LOCKSTEP-' <<'LATER'
 # LOCKSTEP-BEGIN review-later-round
 In a later review, read the PR's earlier lane verdicts last, with the build's account. A lane verdict is a comment by the bot or the operator account whose line 1 is `verdict: approve` or `verdict: needs-work`. `gh pr view <pr> --json comments` returns the earlier ones, though they are minimized as outdated. Then apply these rules:
-- Check each finding of the latest lane verdict against the head and the build's PR comments. Do not mention a fixed finding. Raise again a finding that is neither fixed nor validly rebutted. It gates, on a changed or an unchanged line.
+- Check each finding of the latest lane verdict against the head and the build's PR comments. Write a resolved line for each one that is fixed, rebutted with a rebuttal you accept, or turned into a ticket edit. Raise again a finding that is neither fixed nor validly rebutted. It gates, on a changed or an unchanged line.
 - Do not raise again a finding that an earlier verdict accepted, unless the code it points at changed since that verdict. A verdict accepted a finding when it agreed with the build's rebuttal or turned the finding into a ticket edit.
 - A new `[note]` on a line unchanged since the last reviewed head is not a finding, from pass 1 or from you. Write it in `## Notes` as a later-round note, in the form the verdict grammar gives. It does not gate.
-- Check each later-round note of the latest lane verdict against the head. Do not mention a fixed one. Write each other one again as a later-round note, so that the human who merges still sees it. It does not gate.
+- Check each later-round note of the latest lane verdict against the head and the build's PR comments. Write a resolved line for each one that is fixed, rebutted with a rebuttal you accept, or turned into a ticket edit. Write each other one again as a later-round note, so that the human who merges still sees it. It does not gate.
+- Copy every resolved line of the latest lane verdict, so that the list holds every finding the PR had that is now resolved. While a finding is open again in `## Findings`, leave out its resolved line. Write a new one when it is resolved again.
 - A new `[blocker]` gates on any line, from pass 1 or from you. This covers a row-reach blocker at an untouched caller, an untraced test-expectation change and a design-fidelity finding.
 - Score every record row in full, as in a first review.
 - The join adds a blind finding only when its file:line is on a changed line, or when it names no file:line.
@@ -1274,16 +1275,17 @@ The verdict comment has these parts, in this order and nothing else:
 - `## Summary`, right after those lines. Its first line is exactly `Mergeable as it is.` on an approve, or `Not mergeable yet.` on a needs-work. Then name each row scored `departed`, `violated` or `undeterminable`, with its score. Then write each action the human must take, one per line, or `Nothing to do.` When `## Notes` holds later-round notes, one action line gives their count and asks the human to read them before the merge. Write no table. Use at most eight lines.
 - `## Decision record rows`, then a table headed `| Row | Score | Evidence |` and its `| --- | --- | --- |` line, with one row for every `D-n` row of the record at its first commit and at the head: a row the build deleted and a row it added are both scored. The Row cell's first token is the row's `D-n` id, and the Score cell's first word is one of `honored`, `violated`, `departed`, `undeterminable`. The section holds the table and blank lines only: per-row detail goes in the Evidence cell, anything else in `## Notes`. Other row kinds, such as `RS-n`, are not scored in this table.
 - Fold the rows table. Put the line `<details><summary><N> rows: <k> honored, <k> departed, <k> violated, <k> undeterminable</summary>` and a blank line before the table, and the line `</details>` after it. N is the number of rows in the table, and each k is the number of rows with that score. Keep the scores in that order and leave out a score with no rows. Always write `rows`. Never write `<details open>`. A verdict that folds the table has a `## Summary`, so every row that is not honored stays visible. A table without the fold also passes.
-- `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Dismissed and suppressed findings are not listed. Each finding id appears once in the verdict. A section with no findings holds the single line `None.`.
+- `## Findings`, which runs to the next `## ` heading. Each finding starts with `- [blocker] B<n> ` or `- [note] N<n> `, and its continuation lines are indented two or more spaces. Dismissed and suppressed findings are not listed. Each finding id appears once in the verdict. A section with no findings holds the single line `None.`. When `## Notes` holds resolved lines, it holds exactly `None open. <n> resolved, listed in ## Notes.` instead, where n is the number of resolved lines. The fold's summary repeats that count: the rule to state each fact once does not apply to it.
 - After its id and one space, a finding names its file:line and its defect: `- [blocker] B1 path:line — <defect>`. Its first continuation line is `Scenario: <input or state> → <wrong outcome>`. A finding that a dispatched reviewer raised names that reviewer in brackets before its file:line: `- [blocker] B1 [Reviewer] path:line — <defect>`. A finding you raise from a rule (a violated or undeterminable row, an untraced test-expectation change) names its rule, and its file:line only where it has one. No finding carries a confidence number.
 - `## Notes` (optional): free prose for the human, such as process notes or `revised after reading the build's account: <what changed>`. It also holds one line for each thing the review must show that is not a finding: a stale or wrong PR title or description, a break that only the ticket text accepts, and a test-intent exemption. In a later review, it also holds one later-round note for each new `[note]` on a line unchanged since the last reviewed head, in the form `- later-round note: <file:line> — <defect>`. Nothing in it counts toward the verdict.
+- In a later review, `## Notes` also holds the resolved fold, after the prose notes and before the knowledge-base block. The fold is the line `<details><summary><n> resolved</summary>`, a blank line, one resolved line for each resolved finding, then the line `</details>`. n is the number of resolved lines. A resolved line is exactly `- resolved: <file:line> — <defect> — <how>`. `<how>` is `fixed`, `rebuttal accepted: <why>` or `ticket edited`. For a finding that had no file:line, the slot holds the rule or row id the finding named. The line carries no finding id and no sha. A verdict with no resolved line has no fold. A verdict with a resolved line always has the fold. The fold has no `###` heading, and the style rules on `###` sub-headings and on leaving out a topic do not apply to it. A resolved line is not a finding, does not gate and needs no Summary action line.
 - `## Summary` and `## Notes` carry no over-engineering observation that `## Findings` does not list as a finding. Write each relevant one as a `[note]` in `## Findings`, and leave out the rest. The `lane vs blind:` line is exempt.
 
 `Ready to merge?` is never written anywhere in the body.
 
 Every finding is relevant: something in the diff that a distinguished engineer who knew of it would definitely address before merge. A `[blocker]` and a `[note]` both make the verdict `needs-work`. The tag names the kind of problem. The PR title and description are not the diff: a stale or wrong one is never a finding and never makes a verdict `needs-work`.
 
-`verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no finding and no `reason:` line. `verdict: needs-work` carries at least one finding, `[blocker]` or `[note]`, a `violated` or `undeterminable` row, or a `reason:` line; under that line the rows need not be scored, and the findings may be `None.`.
+`verdict: approve` means mergeable as-is: every record row is scored, none is `violated` or `undeterminable`, and there is no finding and no `reason:` line. `verdict: needs-work` carries at least one finding, `[blocker]` or `[note]`, a `violated` or `undeterminable` row, or a `reason:` line; under that line the rows need not be scored, and the findings may be `None.` or the `None open.` line.
 # LOCKSTEP-END verdict-grammar
 GRAMMAR
   # stated once here and once in review/SKILL.md step 8
@@ -1316,12 +1318,12 @@ In `## Findings`:
 - End each finding, a note too, with the continuation line `Fix: <one instruction>`.
 - Write a note in at most four lines, its Fix line included.
 In `## Notes`:
-- Use one `###` sub-heading for each topic. Write at most six sentences under it.
+- Use one `###` sub-heading for each topic. Write at most six sentences under it, not counting the resolved lines and the two lines of their fold.
 - Write an inventory, such as the mutation run, as a list.
 - Put the knowledge-base block last.
 - Do not write a sub-heading that has nothing under it.
 - Leave out a topic that changed no score or finding.
-- Keep `## Notes` under 150 words, not counting the knowledge-base block and the later-round notes.
+- Keep `## Notes` under 150 words, not counting the knowledge-base block, the later-round notes, the resolved lines and the two lines of their fold.
 A limit never removes a row, a finding or a knowledge-base proposal. If they do not fit, shorten the wording.
 # LOCKSTEP-END verdict-style
 STYLE
