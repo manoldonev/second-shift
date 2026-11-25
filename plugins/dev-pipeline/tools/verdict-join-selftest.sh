@@ -10,7 +10,8 @@
 # four-line limit. Both formats end with one visible
 # `lane vs blind:` line and the hidden machine line, and write no fold, pair list, session line or blind draft; the
 # machine line keeps cost and wall time, a findings list in pairing order, and a matrix that sums. With no plain draft
-# the verdict stands, its Notes say why, and the line says the blind review did not return. With a changed-line set
+# the verdict stands, its Notes say why, and the line says the blind review did not return. An added finding drops the
+# lane's `None open. <n> resolved` line as it drops `None.`. With a changed-line set
 # (a later review), a plain finding sited outside it is left out and counted; one inside it, or with no site, is added;
 # an unreadable set is exit 2.
 #
@@ -282,6 +283,17 @@ N="$(findings "$OUT" | awk '/^- \[note\] N1 \[blind\] / { on = 1; print; next } 
   && grep -qxF '  Callers: src/a.ts:1 More: src/b.ts:2 Fix: use the constant' <<<"$N" \
   && ok "(r35) a blind note longer than four lines keeps three continuation lines, the later ones appended to the third, and the joined body passes verdict-check in both modes" \
   || bad "(r35) rc=$RC rc2=$RC2 check=$CHECK check2=$CHECK2 note=$N"
+
+printf '%s\n' 'verdict: approve' "reviewed: $(printf 'a%.0s' $(seq 40))" '' '## Summary' '' 'Mergeable as it is.' 'Nothing to do.' '' '## Decision record rows' '' \
+  '| Row | Score | Evidence |' '| --- | --- | --- |' '| D-1 | honored | ok |' '' '## Findings' '' 'None open. 1 resolved, listed in ## Notes.' '' '## Notes' '' \
+  'A process note.' '' '<details><summary>1 resolved</summary>' '' '- resolved: src/w.ts:40 — the retry loops forever — fixed' '</details>' > "$T/lane-resolved.md"
+OUT="$(bash "$TOOL" "$T/lane-resolved.md" "$T/plain-ready.md")"; printf '%s\n' "$OUT" > "$T/joined-resolved.md"
+CHECK="$(bash "$HERE/verdict-check.sh" "$T/joined-resolved.md" "$T/rec-ready.md" "$T/rec-ready.md")"; RC=$?
+F="$(findings "$OUT")"
+[ "$RC" -eq 0 ] && [ "$(head -n 1 <<<"$OUT")" = 'verdict: needs-work' ] && ! grep -q '^None' <<<"$F" \
+  && grep -q '^- \[blocker\] B1 \[blind\] src/x.ts:4 ' <<<"$F" && grep -qxF -- '- resolved: src/w.ts:40 — the retry loops forever — fixed' <<<"$OUT" \
+  && ok "(r42) a blind blocker drops the lane's None open. line, keeps the resolved fold, and the joined verdict passes verdict-check" \
+  || bad "(r42) rc=$RC check=$CHECK findings=$(tr '\n' '|' <<<"$F")"
 
 # ---- a later review: --changed names the lines changed since the last reviewed head ----
 printf '%s\n' 'src/new.ts:9-15' 'src/other.ts:1-3' > "$T/changed.txt"

@@ -11,8 +11,14 @@
 # `reviewed-by:` line and `## Summary`. Both modes fail a `## Summary` of more than 8 non-blank lines, a `## Notes` of
 # 150 words or more, a `[note]` finding of more than 4 lines, and the line `Knowledge-base contributions: none`. The
 # Notes count leaves out the knowledge-base block (from its lead line to the end of the section), the later-round
-# notes (`- later-round note: <file:line> — <defect>`, a new note on code a later review found unchanged) and the
-# lines the join writes: `Joined review:`, `lane vs blind:` and the hidden `<!-- plain-vs-lane: … -->` line.
+# notes (`- later-round note: <file:line> — <defect>`, a new note on code a later review found unchanged), the resolved
+# fold and the lines the join writes: `Joined review:`, `lane vs blind:` and the hidden `<!-- plain-vs-lane: … -->` line.
+#
+# A later review lists what it saw resolved in `## Notes`: `<details><summary><n> resolved</summary>`, the
+# `- resolved: <file:line> — <defect> — <how>` lines, then `</details>`. Every resolved line sits in that fold, a fold
+# holds at least one, and <n> equals their number. An empty `## Findings` beside resolved lines holds
+# `None open. <n> resolved, listed in ## Notes.` with the same <n>, never `None.`. Where the fold sits is not checked:
+# the join writes its own lines after it.
 #
 # The body has these parts, in this order and nothing else (the grammar run.sh's review prompt and
 # review/SKILL.md state):
@@ -30,7 +36,7 @@
 #   a blank line after that, and `</details>` on its own line after the table. A folded table needs
 #   a `## Summary`, which names every row that is not honored;
 #   `## Findings`: each finding starts `- [blocker] B<n> ` or `- [note] N<n> `, continuation lines are
-#   indented two or more spaces, and a section with no findings holds the single line `None.`; the
+#   indented two or more spaces, and a section with no findings holds the single line `None.` or `None open.`; the
 #   rest of a finding's line is free text, and no finding id appears twice;
 #   `## Panel` (optional, not parsed: earlier verdicts carry one) and `## Notes` (optional, free prose).
 # `Ready to merge?` anywhere fails. Every finding gates, a [note] the same as a [blocker]: an approve
@@ -155,7 +161,8 @@ sec == 2 {
 }
 sec == 3 {
   if ($0 ~ /^[ \t]*$/) next
-  if ($0 == "None.") { nones++; next }
+  if ($0 == "None.") { nones++; bare++; next }
+  if ($0 ~ /^None open\. [0-9]+ resolved, listed in ## Notes\.$/) { nones++; split($0, ow, " "); nopen = ow[3] + 0; hasopen = 1; next }
   if (match($0, /^- \[(blocker|note)\] [BN][0-9]+ /)) {
     fid = substr($0, 1, RLENGTH - 1); sub(/^.* /, "", fid)
     if (fid in fids) fail("finding id repeated", fid); fids[fid] = 1
@@ -166,6 +173,9 @@ sec == 3 {
   fail("Findings not in the grammar", "line " NR ": " cut($0)); next
 }
 sec == 5 {
+  if ($0 ~ /^<details><summary>[0-9]+ resolved<\/summary>$/) { rfold++; inres = 1; rsumn = $0; gsub(/[^0-9]/, "", rsumn); rsumn += 0; next }
+  if (inres && $0 == "</details>") { inres = 0; next }
+  if ($0 ~ /^- resolved: /) { nres++; if (!inres) rout++; next }
   if ($0 ~ /^(### )?Knowledge-base contributions/) kb = 1
   if (kb || $0 ~ /^(<!-- plain-vs-lane: |Joined review: |lane vs blind: |- later-round note: )/) next
   nwords += NF; next
@@ -173,7 +183,13 @@ sec == 5 {
 END {
   endnote()
   if (slines > 8) fail("Summary longer than eight lines", slines " non-blank lines")
-  if (nwords >= 150) fail("Notes of 150 words or more", nwords " words, not counting the knowledge-base block, the later-round notes and the join lines")
+  if (nwords >= 150) fail("Notes of 150 words or more", nwords " words, not counting the knowledge-base block, the later-round notes, the resolved fold and the join lines")
+  if (bare && nres) fail("None. beside resolved lines", "an empty ## Findings holds None open. " nres " resolved, listed in ## Notes.")
+  if (hasopen && nopen == 0) fail("None open. line counts no resolved line", "an empty ## Findings with no resolved line holds None.")
+  else if (hasopen && nopen != nres) fail("resolved count differs from the resolved lines", "## Findings says " nopen ", ## Notes has " nres)
+  if (rout) fail("resolved line outside the resolved fold", rout " line(s)")
+  if (rfold && nres == 0) fail("resolved fold with no resolved line")
+  else if (rfold && rsumn != nres) fail("resolved count differs from the resolved lines", "the fold summary says " rsumn ", ## Notes has " nres)
   if (norec) {
     if (!by) fail("missing reviewed-by line", "line 3, or line 4 after a reason line")
     if (!("## Summary" in seen)) fail("missing section", "## Summary")

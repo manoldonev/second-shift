@@ -10,7 +10,8 @@
 # that cannot be read is exit 2. With the verdict file alone, a review-lead verdict in the lane format passes and a
 # rows section, a review-lead section of the old report or an approve with a finding fails. In both modes a Summary
 # over 8 lines, Notes of 150 words, a note over 4 lines and the none contributions line fail, and each limit passes; later-round
-# note lines are not counted in the Notes words. The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
+# note lines are not counted in the Notes words. An empty Findings beside resolved lines says `None open. <n> resolved`;
+# both counts must equal the resolved lines, which sit in a fold and are not counted in the Notes words. The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
 #
 # Operator-safe: no network. Exit code = number of failed checks.
 set -uo pipefail
@@ -284,6 +285,36 @@ check notes-later "$(summ approve "$LSUM" "$HEAD_ROWS" 'None.')"$'\n\n## Notes\n
 passes "(l2) an approve whose Notes pass 150 words only through later-round notes passes: those lines are not counted"
 check notes-later-prose "$(summ approve "$LSUM" "$HEAD_ROWS" 'None.')"$'\n\n## Notes\n\n'"$N149"$'\n\n'"${LATER//- later-round note: /}"
 fails_with "(l2) the same notes written as prose are counted" "Notes of 150 words or more"
+
+# ---- a later review lists the findings it saw resolved, in a fold in ## Notes ----
+RL1="- resolved: src/a.ts:3 — the retry loops forever — fixed"
+RL2="- resolved: untraced test-expectation change — a snapshot lost a line — rebuttal accepted: the ticket asks for it"
+rfold() { printf '<details><summary>%s resolved</summary>\n\n%s\n</details>' "$1" "$2"; }
+RES2="$(rfold 2 "$RL1"$'\n'"$RL2")"
+OPEN2='None open. 2 resolved, listed in ## Notes.'
+check rs-ok "$(body approve "$HEAD_ROWS" "$OPEN2" $'\n## Notes\n\nA process note.\n\n'"$RES2"$'\n\n'"$KB")"
+passes "(rs1) an approve whose empty Findings says None open. 2 resolved, with two resolved lines in the fold, passes"
+check rs-nw "$(body needs-work "$HEAD_ROWS" '- [blocker] B1 src/b.ts:9 — a new defect' $'\n## Notes\n\n'"$RES2")"
+passes "(rs1) a needs-work with a finding and a resolved fold passes"
+check rs-open3 "$(body approve "$HEAD_ROWS" 'None open. 3 resolved, listed in ## Notes.' $'\n## Notes\n\n'"$RES2")"
+fails_with "(rs2) a None open. line that counts 3 beside two resolved lines" "resolved count differs from the resolved lines: ## Findings says 3, ## Notes has 2"
+check rs-fold3 "$(body approve "$HEAD_ROWS" "$OPEN2" $'\n## Notes\n\n'"$(rfold 3 "$RL1"$'\n'"$RL2")")"
+fails_with "(rs2) a fold summary that counts 3 beside two resolved lines" "resolved count differs from the resolved lines: the fold summary says 3, ## Notes has 2"
+check rs-bare "$(body approve "$HEAD_ROWS" 'None.' $'\n## Notes\n\n'"$RES2")"
+fails_with "(rs3) a bare None. beside resolved lines" "None. beside resolved lines"
+check rs-nofold "$(body approve "$HEAD_ROWS" "$OPEN2" $'\n## Notes\n\n'"$RL1"$'\n'"$RL2")"
+fails_with "(rs4) resolved lines with no fold" "resolved line outside the resolved fold: 2 line(s)"
+check rs-empty "$(body approve "$HEAD_ROWS" 'None.' $'\n## Notes\n\n<details><summary>0 resolved</summary>\n\n</details>')"
+fails_with "(rs5) a fold with no resolved line" "resolved fold with no resolved line"
+check rs-zero "$(body approve "$HEAD_ROWS" 'None open. 0 resolved, listed in ## Notes.')"
+fails_with "(rs6) None open. 0 resolved" "None open. line counts no resolved line"
+check rs-first "$(body approve "$HEAD_ROWS" 'None.' $'\n## Notes\n\nA process note.')"
+passes "(rs7) a first-review approve with None. in an empty Findings and no resolved fold passes"
+RLONG="$(for i in 1 2; do printf -- '- resolved: src/r.ts:%s — %s— fixed\n' "$i" "$(words 30)"; done)"
+check rs-words "$(body approve "$HEAD_ROWS" "$OPEN2" "$(printf '\n## Notes\n\n%s\n\n%s' "$N149" "$(rfold 2 "$RLONG")")")"
+passes "(rs8) an approve whose Notes pass 150 words only through the resolved lines and the two fold lines passes"
+check rs-words-prose "$(body approve "$HEAD_ROWS" 'None.' "$(printf '\n## Notes\n\n%s\n\n%s' "$N149" "${RLONG//- resolved: /}")")"
+fails_with "(rs8) the same lines written as prose are counted" "Notes of 150 words or more"
 NOTE4=$'- [note] N1 src/a.ts:3 — the helper repeats a constant\n  Scenario: the constant changes → the helper keeps the old value\n  The repo keeps it in src/units.ts:1.\n  Fix: use the constant'
 NOTE5="$NOTE4"$'\n  One line too many.'
 BLOCKER6=$'- [blocker] B1 src/w.ts:40 — the retry loops forever\n  Scenario: a 409 → no exit\n  a\n  b\n  c\n  Fix: stop after three tries'
