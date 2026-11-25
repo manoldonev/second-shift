@@ -4,6 +4,36 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v19.2.0
+
+### `dev-pipeline` 19.0.0 → 19.1.0
+
+- **feat(dev-pipeline): build replies are minimized with the earlier verdicts** (#1377)
+  once a verdict binds, the build's earlier reply comments are
+  collapsed as outdated with the earlier verdicts, so an approved PR shows
+  no stale rebuttals. Later build rounds mark each reply `build: reply`,
+  post it through the bot when it is on, and copy each request to the
+  operator into `## Before you merge`.
+  Migration: none. Replies posted before this release carry no marker and
+  stay expanded.
+- **feat(dev-pipeline): a later review gates only what changed since the last reviewed head** (#1376)
+  a review of a PR that already has a lane verdict gates only
+  new findings on lines changed since that verdict's head, a new blocker,
+  and an open finding of that verdict. A new note on unchanged code goes
+  to ## Notes as a later-round note for the merger and does not gate.
+  The join's machine line is now version 4, with plain_unchanged_dropped.
+  Migration: none.
+
+### `review-toolkit` 12.1.0 → 12.2.0
+
+- **feat(dev-pipeline): a later review gates only what changed since the last reviewed head** (#1376)
+  a review of a PR that already has a lane verdict gates only
+  new findings on lines changed since that verdict's head, a new blocker,
+  and an open finding of that verdict. A new note on unchanged code goes
+  to ## Notes as a later-round note for the merger and does not gate.
+  The join's machine line is now version 4, with plain_unchanged_dropped.
+  Migration: none.
+
 ## v19.1.0
 
 ### `design-toolkit` 9.0.0 → 9.1.0
