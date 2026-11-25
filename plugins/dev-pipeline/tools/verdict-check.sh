@@ -16,7 +16,7 @@
 #
 # A later review lists what it saw resolved in `## Notes`: `<details><summary><n> resolved</summary>`, the
 # `- resolved: <file:line> — <defect> — <how>` lines, then `</details>`. Every resolved line sits in that fold, a fold
-# holds at least one, and <n> equals their number. An empty `## Findings` beside resolved lines holds
+# holds at least one, <n> equals their number, and the fold closes. An empty `## Findings` beside resolved lines holds
 # `None open. <n> resolved, listed in ## Notes.` with the same <n>, never `None.`. Where the fold sits is not checked:
 # the join writes its own lines after it.
 #
@@ -190,6 +190,7 @@ END {
   if (rout) fail("resolved line outside the resolved fold", rout " line(s)")
   if (rfold && nres == 0) fail("resolved fold with no resolved line")
   else if (rfold && rsumn != nres) fail("resolved count differs from the resolved lines", "the fold summary says " rsumn ", ## Notes has " nres)
+  if (inres) fail("resolved fold not closed", "no </details> line after the resolved lines")
   if (norec) {
     if (!by) fail("missing reviewed-by line", "line 3, or line 4 after a reason line")
     if (!("## Summary" in seen)) fail("missing section", "## Summary")

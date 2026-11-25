@@ -2,7 +2,7 @@
 
 ## 1. The checker
 
-- [ ] 1.1 Selftest: an approve whose empty `## Findings` holds `None open. 2 resolved, listed in ## Notes.` with two resolved lines in the fold passes; it fails when either count reads 3, when Findings holds a bare `None.`, when the resolved lines have no fold, when the fold has no resolved line, and on `None open. 0 resolved` (plugins/dev-pipeline/tools/verdict-check-selftest.sh) [AC-3]
+- [ ] 1.1 Selftest: an approve whose empty `## Findings` holds `None open. 2 resolved, listed in ## Notes.` with two resolved lines in the fold passes; it fails when either count reads 3, when Findings holds a bare `None.`, when the resolved lines have no fold, when the fold has no resolved line, when the fold has no `</details>` line, and on `None open. 0 resolved` (plugins/dev-pipeline/tools/verdict-check-selftest.sh) [AC-3]
 - [ ] 1.2 Selftest: an approve whose `## Notes` reach 150 words only through the resolved lines and the two fold lines passes (plugins/dev-pipeline/tools/verdict-check-selftest.sh) [AC-4]
 - [ ] 1.3 Selftest: a first-review approve whose empty `## Findings` holds `None.` still passes (plugins/dev-pipeline/tools/verdict-check-selftest.sh) [AC-6]
 - [ ] 1.4 Accept the `None open.` line, check the resolved count and the fold shape, and leave the resolved lines and the fold lines out of the Notes count (plugins/dev-pipeline/tools/verdict-check.sh)

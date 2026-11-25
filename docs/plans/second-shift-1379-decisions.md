@@ -32,6 +32,7 @@ Open region legend: `reversible-default-and-flag` = the build uses the stated de
 | D-14 | The `<file:line>` slot of a finding that had none | The rule or row id that the finding named, as the finding itself did, for example `- resolved: D-4 — <defect> — fixed`. The checker counts by prefix, so it is unaffected. | user-answered | intent |
 | D-15 | A blank line after the fold's summary line | Yes, as the rows fold has. GitHub renders the Markdown list inside an HTML block only after a blank line. run: `sed -n '130,132p' plugins/dev-pipeline/tools/verdict-check.sh` → the rows fold fails when no blank line follows its summary line | codebase-derived | fact |
 | D-16 | Which verdict the D-9 replay treats as the latest | The needs-work verdict that reviewed `12b5cfd4`. The replay hands it to the review as the latest lane verdict and leaves out the later approve, which has no finding to resolve. run: `gh pr view 1376 --json comments` → the last two verdicts are needs-work on 12b5cfd4, then approve on b33c970f | codebase-derived | fact |
+| D-17 | A resolved fold with no `</details>` line | `verdict-check.sh` fails it as `resolved fold not closed`, as it fails a rows fold with no `</details>`. It adds one shape rule to D-13's list. Added in build: an open fold hides the knowledge-base block and the join's `lane vs blind:` line, and the last review raised it. | user-delegated | intent |
 
 Options weighed:
 

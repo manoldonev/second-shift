@@ -306,6 +306,8 @@ check rs-nofold "$(body approve "$HEAD_ROWS" "$OPEN2" $'\n## Notes\n\n'"$RL1"$'\
 fails_with "(rs4) resolved lines with no fold" "resolved line outside the resolved fold: 2 line(s)"
 check rs-empty "$(body approve "$HEAD_ROWS" 'None.' $'\n## Notes\n\n<details><summary>0 resolved</summary>\n\n</details>')"
 fails_with "(rs5) a fold with no resolved line" "resolved fold with no resolved line"
+check rs-open-fold "$(body approve "$HEAD_ROWS" "$OPEN2" $'\n## Notes\n\n<details><summary>2 resolved</summary>\n\n'"$RL1"$'\n'"$RL2"$'\n\n'"$KB")"
+fails_with "(rs5) a resolved fold with no </details> line, which would hide the knowledge-base block and the join lines" "resolved fold not closed"
 check rs-zero "$(body approve "$HEAD_ROWS" 'None open. 0 resolved, listed in ## Notes.')"
 fails_with "(rs6) None open. 0 resolved" "None open. line counts no resolved line"
 check rs-first "$(body approve "$HEAD_ROWS" 'None.' $'\n## Notes\n\nA process note.')"
