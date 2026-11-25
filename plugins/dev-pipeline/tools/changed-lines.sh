@@ -60,8 +60,9 @@ diff="$(git -C "$WT" -c core.quotePath=false diff --no-ext-diff --no-textconv --
   || full "git diff $sha $HEAD_SHA failed"
 # shellcheck disable=SC2016  # an awk program, not shell
 printf '%s\n' "$diff" | awk '
-  /^diff --git / { p = ""; next }
-  /^\+\+\+ / { p = substr($0, 5); if (p == "/dev/null") p = ""; else sub(/^b\//, "", p); next }
+  /^diff --git / { p = ""; h = 1; next }
+  h && /^\+\+\+ / { p = substr($0, 5); if (p == "/dev/null") p = ""; else sub(/^b\//, "", p); next }
+  /^@@ / { h = 0 }
   /^@@ / && p != "" {
     match($0, /\+[0-9]+(,[0-9]+)?/); n = split(substr($0, RSTART + 1, RLENGTH - 1), a, ",")
     s = a[1] + 0; c = n > 1 ? a[2] + 0 : 1

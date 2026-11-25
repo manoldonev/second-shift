@@ -5,7 +5,7 @@
 # writes as) that has no reason line; a stranger's, an edited one and one with a reason line are passed over. The set
 # marks each head line within 3 lines of a hunk of `git diff <reviewed> <head>`, new side, for a changed, an added and
 # a pure-deletion hunk, and none for a deleted file; the two-dot diff works when the reviewed sha is no ancestor of the
-# head. With no earlier lane verdict, unreadable comments or an unreadable reviewed sha, the tool writes no set (exit 3).
+# head; a hunk line that reads `+++ …` stays hunk content. With no earlier lane verdict, unreadable comments or an unreadable reviewed sha, the tool writes no set (exit 3).
 # The run.sh wiring is a scenario case in skills/run/run-later-round-selftest.sh.
 #
 # Operator-safe: a fake gh, no network. Exit code = number of failed checks.
@@ -98,6 +98,18 @@ full_ok "(cl5) the comments cannot be read: a full review" "the comments of PR [
 setup unknown "$(c 1 tester User $t1 $t1 $'verdict: needs-work\nreviewed: 0123456789abcdef0123456789abcdef01234567')"
 run -C "$R" 7 "$H" "$S/set"; rc=$?
 full_ok "(cl5) a reviewed sha the repo does not hold: a full review" "the reviewed sha 0123456789abcdef0123456789abcdef01234567 cannot be read"
+
+# (cl7) an added line that starts with `++ ` shows in the diff as `+++ …`: it is hunk content, not a file header
+git -C "$R" checkout -q -b patch "$H"; seq 1 20 > "$R/p.diff"; git -C "$R" add -A; git -C "$R" commit -qm P1; P1="$(git -C "$R" rev-parse HEAD)"
+sed '3a\
+++ added
+15s/.*/fifteen/' "$R/p.diff" > "$R/p.t" && mv "$R/p.t" "$R/p.diff"; git -C "$R" commit -qam P2; P2="$(git -C "$R" rev-parse HEAD)"
+git -C "$R" checkout -q "$H"
+setup patch "$(c 1 tester User $t1 $t1 $'verdict: needs-work\nreviewed: '"$P1")"
+run -C "$R" 7 "$P2" "$S/set"; rc=$?
+printf 'p.diff:1-7\np.diff:13-19\n' > "$S/want"
+[ "$rc" -eq 0 ] && diff -u "$S/want" "$S/set" > "$S/diff" \
+  && ok "(cl7) a hunk line that reads like a file header leaves the later hunks of that file under its path" || bad "(cl7) rc=$rc $(cat "$S/diff" 2>/dev/null || echo 'no set written')"
 
 # (cl6) usage
 setup usage

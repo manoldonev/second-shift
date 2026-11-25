@@ -325,5 +325,16 @@ OUT="$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-later.md")"; RJ="$(devjs "$OU
   && jq -e '.plain_unchanged_dropped == null and .plain_only == 6' <<<"$RJ" >/dev/null \
   && ok "(r40) with no changed-line set, as in a first review or review-lead's join, every unpaired plain finding is added" || bad "(r40) json=$RJ"
 
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 b/src/new.ts:12 — crash on n = 0' \
+  '- [note] N1 /work/repo/src/new.ts:13 — a note on a changed line, named by an absolute path' \
+  '- [blocker] B2 xsrc/new.ts:12 — a defect in another file whose name ends like a changed one' > "$T/plain-longer.md"
+OUT="$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-longer.md" --changed "$T/changed.txt")"; RJ="$(devjs "$OUT")"; F="$(findings "$OUT")"
+[ "$(head -n 1 <<<"$OUT")" = 'verdict: needs-work' ] \
+  && grep -qxF -- '- [blocker] B1 [blind] b/src/new.ts:12 — crash on n = 0' <<<"$F" \
+  && grep -qxF -- '- [note] N1 [blind] /work/repo/src/new.ts:13 — a note on a changed line, named by an absolute path' <<<"$F" \
+  && [ "$(grep -c '^- \[' <<<"$F")" -eq 2 ] && jq -e '.plain_unchanged_dropped == 1' <<<"$RJ" >/dev/null \
+  && ok "(r41) a site whose path is longer than the range's path, after a /, is on the changed line; a path that only ends with the same letters is not" \
+  || bad "(r41) json=$RJ findings=$(tr '\n' '|' <<<"$F")"
+
 echo "verdict-join-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

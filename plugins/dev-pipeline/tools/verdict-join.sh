@@ -24,7 +24,7 @@
 #
 # --changed names the changed-line set of a later review (tools/changed-lines.sh): one `<path>:<first>-<last>` range
 # per line. With it, a plain finding the join would add is left out when its site is on no changed line. A site
-# matches a range when its path equals the range's path or ends it after a `/`. A plain finding with no site is still
+# matches a range when one path equals the other or ends the other after a `/`. A plain finding with no site is still
 # added: the join cannot place it. Without --changed, every such finding is added, as in a first review.
 #
 # The body ends under `## Notes` with one visible line, `lane vs blind: <a> agreed, <d> rated differently, <l> lane
@@ -96,7 +96,7 @@ awk -v pf="$plain" -v cf="$chf" -v chg="$chg" -v why="$why" -v ticket="$ticket" 
     p = s; sub(/:[0-9]+$/, "", p); n = lineof(s)
     for (k = 1; k <= nc; k++) {
       c = cpath[k]
-      if (c != p && substr(c, length(c) - length(p)) != "/" p) continue
+      if (c != p && substr(c, length(c) - length(p)) != "/" p && substr(p, length(p) - length(c)) != "/" c) continue
       if (n >= clo[k] && n <= chi[k]) return 1
     }
     return 0
