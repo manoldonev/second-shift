@@ -39,7 +39,7 @@ grep -q '^# a change$' "$pp" && grep -q 'Do the thing in src/a.ts' "$pp" && ! gr
   && ok "(j1) the lane review may not comment and is told to write its draft" || bad "(j1) lane allowlist/prompt: $(grep -o 'Bash(gh pr comment[^,]*' "$FAKE_GH/args-2.txt")"
 [ "$(grep -c '^verdict: ' "$FAKE_GH/pr-comment-bodies" 2>/dev/null)" -eq 1 ] && [ "$(jq length "$FAKE_GH/comments.json")" -eq 1 ] && grep -q 'state=success' "$FAKE_GH/statuses" \
   && ok "(j1) the scheduler posts one joined verdict, binds it and posts success" || bad "(j1) posted: $(tr '\n' '|' < "$FAKE_GH/pr-comment-bodies" 2>/dev/null)"
-join_tail 1 && jq -e '.v == 3 and (.findings | type) == "array" and .format == "verdict" and .lane_blockers == 0 and .plain_blockers == 0 and .agreed == 0 and .flipped == false and .plain_returned == true
+join_tail 1 && jq -e '.v == 4 and (.findings | type) == "array" and .format == "verdict" and .lane_blockers == 0 and .plain_blockers == 0 and .agreed == 0 and .flipped == false and .plain_returned == true
     and .lane_cost_usd == 1 and .plain_cost_usd == 0.5 and (.lane_wall_s | type) == "number" and .plain_wall_s >= 2 and .ticket == true
     and .lane_verdict == "approve" and .plain_verdict == "approve"' <<<"$(devjson 1)" >/dev/null \
   && has_posted 1 -x 'lane vs blind: 0 agreed, 0 rated differently, 0 lane alone, 0 blind alone' \
@@ -203,7 +203,7 @@ jq -n '[{user:{login:"greptile-apps[bot]",type:"Bot"},created_at:"2020-01-01T00:
         {user:{login:"late",type:"User"},created_at:"2999-01-01T00:00:00Z",body:"after the start"}]' > "$FAKE_GH/inline-comments.json"
 jq -n '[{user:{login:"greptile-apps[bot]",type:"Bot"},submitted_at:"2020-01-01T00:00:00Z",body:"summary",state:"COMMENTED"}]' > "$FAKE_GH/reviews.json"
 run_case "$d"; expect approved "(j14) a review on a PR another reviewer had commented on"
-join_tail 1 && jq -e '.v == 3 and .other_comments.total == 2 and .other_comments.by_author == {"greptile-apps[bot]": 2} and (.other_comments.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T"))
+join_tail 1 && jq -e '.v == 4 and .other_comments.total == 2 and .other_comments.by_author == {"greptile-apps[bot]": 2} and (.other_comments.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T"))
     and ([.findings[] | [.src, .class, .pair]] == [["lane","blocker",1],["blind","blocker",1],["lane","note",2],["blind","note",2]])' <<<"$(devjson 1)" >/dev/null \
   && [ "$(grep -c '^verdict: ' "$FAKE_GH/pr-comment-bodies")" -eq 2 ] && ! grep -q 'breaks the verdict grammar' <<<"$OUT" \
   && ok "(j14) the posted line counts the other reviewer's inline comment and review at the start, lists each finding, and passes verdict-check.sh" || bad "(j14) dev=$(devjson 1)"

@@ -742,7 +742,7 @@ In `## Notes`:
 - Put the knowledge-base block last.
 - Do not write a sub-heading that has nothing under it.
 - Leave out a topic that changed no score or finding.
-- Keep `## Notes` under 150 words, not counting the knowledge-base block.
+- Keep `## Notes` under 150 words, not counting the knowledge-base block and the later-round notes.
 A limit never removes a row, a finding or a knowledge-base proposal. If they do not fit, shorten the wording.
 <!-- LOCKSTEP-END verdict-style -->
 

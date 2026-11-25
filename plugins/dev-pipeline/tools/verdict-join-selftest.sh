@@ -10,7 +10,9 @@
 # four-line limit. Both formats end with one visible
 # `lane vs blind:` line and the hidden machine line, and write no fold, pair list, session line or blind draft; the
 # machine line keeps cost and wall time, a findings list in pairing order, and a matrix that sums. With no plain draft
-# the verdict stands, its Notes say why, and the line says the blind review did not return.
+# the verdict stands, its Notes say why, and the line says the blind review did not return. With a changed-line set
+# (a later review), a plain finding sited outside it is left out and counted; one inside it, or with no site, is added;
+# an unreadable set is exit 2.
 #
 # Operator-safe: no network. Exit code = number of failed checks.
 set -uo pipefail
@@ -53,7 +55,7 @@ JSON="$(devjs "$OUT")"
 INV='.lane_blockers == .m_b_b + .m_b_n + .m_b_0 and .lane_notes == .m_n_b + .m_n_n + .m_n_0 and .lane_dismissed == .m_d_b + .m_d_n + .m_d_0
   and .plain_blockers == .m_b_b + .plain_merged + .m_n_b + .m_d_b + .m_0_b and .agreed == .m_b_b and .lane_only == .m_b_n + .m_b_0'
 [ "$(jq -c '[.lane_blockers,.plain_blockers,.agreed,.lane_only,.plain_only,.plain_notes_dropped,.flipped,.plain_returned,.lane_cost_usd,.plain_cost_usd,.lane_wall_s,.plain_wall_s,.v,.format,.lane_verdict,.plain_verdict]' <<<"$JSON" 2>/dev/null)" \
-     = '[1,2,1,0,2,0,false,true,1.2,0.3,100,40,3,"report","needs-work","needs-work"]' ] \
+     = '[1,2,1,0,2,0,false,true,1.2,0.3,100,40,4,"report","needs-work","needs-work"]' ] \
   && jq -e "$INV" <<<"$JSON" >/dev/null \
   && ok "(r5) the machine line counts the report's pairs, keeps both sessions' cost and wall time, and its matrix sums" || bad "(r5) json=$JSON"
 
@@ -147,15 +149,15 @@ OUT="$(bash "$TOOL" "$T/lead.md" "$T/plain-two.md" --format report)"
   && ok "(r19) two plain blockers at one lane blocker are one agreed pair, the second counted as merged" || bad "(r19) $(devjs "$OUT")"
 
 V2KEYS='["lane_blockers","plain_blockers","agreed","lane_only","plain_only","plain_notes_dropped","flipped","plain_returned","lane_cost_usd","plain_cost_usd","lane_wall_s","plain_wall_s","ticket","v","format","lane_verdict","plain_verdict","lane_notes","lane_dismissed","lane_cites_plain","plain_merged","m_b_b","m_b_n","m_b_0","m_n_b","m_n_n","m_n_0","m_d_b","m_d_n","m_d_0","m_0_b","m_0_n"]'
-v3ok() { jq -e --argjson k "$V2KEYS" '. as $l | .v == 3 and (.findings | type) == "array" and all($k[]; . as $x | $l | has($x))' <<<"$1" >/dev/null 2>&1; }
+v4ok() { jq -e --argjson k "$V2KEYS" '. as $l | .v == 4 and (.findings | type) == "array" and .plain_unchanged_dropped == null and all($k[]; . as $x | $l | has($x))' <<<"$1" >/dev/null 2>&1; }
 printf '%s\n' 'verdict: needs-work' 'reviewed: abc' '' '## Findings' '' '- [blocker] B1 src/a.ts:10 — injection' '  Scenario: a quote → the query breaks' \
   '- [note] N1 src/b.ts:5 — slow' '- [note] N2 src/z.ts:40 — Dismissed. not reachable' > "$T/lane-v.md"
 printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 src/a.ts:9 — injection' '- [blocker] B2 src/a.ts:11 — injection again' \
   '- [blocker] B3 src/c.ts:3 — off by one' '- [note] the docs are stale' > "$T/plain-v.md"
 OUT="$(bash "$TOOL" "$T/lane-v.md" "$T/plain-v.md")"; RJ="$(devjs "$OUT")"
 OUTR="$(bash "$TOOL" "$T/lead.md" "$T/plain.md" --format report)"; RR="$(devjs "$OUTR")"
-v3ok "$RJ" && v3ok "$RR" && [ "$(jq -r .format <<<"$RJ")" = verdict ] && [ "$(jq -r .format <<<"$RR")" = report ] \
-  && ok "(r22) the machine line is v3 and carries a findings array and every v2 field, under --format verdict and --format report" || bad "(r22) verdict=$RJ report=$RR"
+v4ok "$RJ" && v4ok "$RR" && [ "$(jq -r .format <<<"$RJ")" = verdict ] && [ "$(jq -r .format <<<"$RR")" = report ] \
+  && ok "(r22) the machine line is v4 and carries a findings array, every v2 field and a null plain_unchanged_dropped, under --format verdict and --format report" || bad "(r22) verdict=$RJ report=$RR"
 WANT='[{"src":"blind","id":"B3","class":"blocker","path":"src/c.ts","line":3,"pair":null,"posted_as":"B2"},{"src":"lane","id":"B1","class":"blocker","path":"src/a.ts","line":10,"pair":1},{"src":"blind","id":"B1","class":"blocker","path":"src/a.ts","line":9,"pair":1},{"src":"blind","id":"B2","class":"blocker","path":"src/a.ts","line":11,"pair":1},{"src":"lane","id":"N1","class":"note","path":"src/b.ts","line":5,"pair":null},{"src":"blind","id":null,"class":"note","path":null,"line":null,"pair":null,"posted_as":"N3"},{"src":"lane","id":"N2","class":"dismissed","path":"src/z.ts","line":40,"pair":null}]'
 [ "$(jq -c .findings <<<"$RJ")" = "$WANT" ] && [ "$(jq .findings_omitted <<<"$RJ")" = 0 ] && grep -qx -- '- \[blocker\] B2 \[blind\] src/c.ts:3 — off by one' <<<"$OUT" \
   && grep -qx -- '- \[note\] N3 \[blind\] the docs are stale' <<<"$OUT" \
@@ -280,6 +282,59 @@ N="$(findings "$OUT" | awk '/^- \[note\] N1 \[blind\] / { on = 1; print; next } 
   && grep -qxF '  Callers: src/a.ts:1 More: src/b.ts:2 Fix: use the constant' <<<"$N" \
   && ok "(r35) a blind note longer than four lines keeps three continuation lines, the later ones appended to the third, and the joined body passes verdict-check in both modes" \
   || bad "(r35) rc=$RC rc2=$RC2 check=$CHECK check2=$CHECK2 note=$N"
+
+# ---- a later review: --changed names the lines changed since the last reviewed head ----
+printf '%s\n' 'src/new.ts:9-15' 'src/other.ts:1-3' > "$T/changed.txt"
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 src/old.ts:40 — a defect on code the last review read' '  Scenario: x → y' \
+  '- [blocker] B2 src/new.ts:12 — a defect on a changed line' '  Scenario: n = 0 → crash' '- [blocker] B3 the docs name the old flag' \
+  '- [note] N1 src/old.ts:41 — a style point on unchanged code' '- [note] N2 src/new.ts:5 — a note on an unchanged line of a changed file' \
+  '- [note] N3 new.ts:14 — a note on a changed line, named by its file name' > "$T/plain-later.md"
+OUT="$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-later.md" --changed "$T/changed.txt")"; RC=$?; RJ="$(devjs "$OUT")"
+F="$(findings "$OUT")"; printf '%s\n' "$OUT" > "$T/joined-later.md"
+CHECK="$(bash "$HERE/verdict-check.sh" "$T/joined-later.md" "$T/rec-ready.md" "$T/rec-ready.md")"; RC2=$?
+[ "$RC" -eq 0 ] && [ "$RC2" -eq 0 ] && [ "$(head -n 1 <<<"$OUT")" = 'verdict: needs-work' ] \
+  && grep -qxF -- '- [blocker] B1 [blind] src/new.ts:12 — a defect on a changed line' <<<"$F" \
+  && grep -qxF -- '- [blocker] B2 [blind] the docs name the old flag' <<<"$F" \
+  && grep -qxF -- '- [note] N1 [blind] new.ts:14 — a note on a changed line, named by its file name' <<<"$F" \
+  && ! grep -q 'src/old.ts\|src/new.ts:5' <<<"$(above "$OUT")" && [ "$(grep -c '^- \[' <<<"$F")" -eq 3 ] \
+  && jq -e '.plain_unchanged_dropped == 3 and .plain_only == 3 and .flipped == true and .v == 4' <<<"$RJ" >/dev/null \
+  && ok "(r36) with a changed-line set, a plain blocker and notes outside it are left out and counted; one inside it, one named by its file name and a siteless one are added, and the body passes verdict-check" \
+  || bad "(r36) rc=$RC check=$RC2 $CHECK json=$RJ findings=$(tr '\n' '|' <<<"$F")"
+
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 src/old.ts:40 — a defect on code the last review read' '- [note] N1 src/other.ts:7 — a note four lines from a hunk' > "$T/plain-unchanged.md"
+printf '%s\n' 'verdict: approve' '## Findings' 'None.' > "$T/plain-clean.md"
+OUT="$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-unchanged.md" --changed "$T/changed.txt")"; RJ="$(devjs "$OUT")"
+[ "$(above "$OUT")" = "$(above "$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-clean.md")")" ] \
+  && [ "$(head -n 1 <<<"$OUT")" = 'verdict: approve' ] && ! grep -q '\[blind\]' <<<"$OUT" \
+  && jq -e '.plain_unchanged_dropped == 2 and .plain_only == 0 and .flipped == false and .plain_blockers == 1' <<<"$RJ" >/dev/null \
+  && ok "(r37) when every plain finding is on an unchanged line, the lane's approve stands as written and the machine line counts both" \
+  || bad "(r37) json=$RJ body=$(above "$OUT" | tr '\n' '|')"
+
+: > "$T/changed-empty.txt"
+OUT="$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-later.md" --changed "$T/changed-empty.txt")"; RJ="$(devjs "$OUT")"
+grep -qxF -- '- [blocker] B1 [blind] the docs name the old flag' <<<"$OUT" && [ "$(grep -c '^- \[' <<<"$(findings "$OUT")")" -eq 1 ] \
+  && jq -e '.plain_unchanged_dropped == 5' <<<"$RJ" >/dev/null \
+  && ok "(r38) an empty set (the same head reviewed again) leaves out every sited plain finding and keeps the siteless one" || bad "(r38) json=$RJ"
+
+OUT="$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-later.md" --changed "$T/no-such-set.txt" 2>"$T/err")"; RC=$?
+[ "$RC" -eq 2 ] && [ -z "$OUT" ] && grep -q 'cannot read the changed-line set' "$T/err" \
+  && ok "(r39) an unreadable changed-line set is exit 2, as an unreadable lane draft is, and nothing is joined" || bad "(r39) rc=$RC out=$OUT"
+
+OUT="$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-later.md")"; RJ="$(devjs "$OUT")"
+[ "$(grep -c '^- \[[a-z]*\] [BN][0-9]* \[blind\]' <<<"$OUT")" -eq 6 ] && grep -qxF -- '- [blocker] B1 [blind] src/old.ts:40 — a defect on code the last review read' <<<"$OUT" \
+  && jq -e '.plain_unchanged_dropped == null and .plain_only == 6' <<<"$RJ" >/dev/null \
+  && ok "(r40) with no changed-line set, as in a first review or review-lead's join, every unpaired plain finding is added" || bad "(r40) json=$RJ"
+
+printf '%s\n' 'verdict: needs-work' '## Findings' '- [blocker] B1 b/src/new.ts:12 — crash on n = 0' \
+  '- [note] N1 /work/repo/src/new.ts:13 — a note on a changed line, named by an absolute path' \
+  '- [blocker] B2 xsrc/new.ts:12 — a defect in another file whose name ends like a changed one' > "$T/plain-longer.md"
+OUT="$(bash "$TOOL" "$T/lane-approve.md" "$T/plain-longer.md" --changed "$T/changed.txt")"; RJ="$(devjs "$OUT")"; F="$(findings "$OUT")"
+[ "$(head -n 1 <<<"$OUT")" = 'verdict: needs-work' ] \
+  && grep -qxF -- '- [blocker] B1 [blind] b/src/new.ts:12 — crash on n = 0' <<<"$F" \
+  && grep -qxF -- '- [note] N1 [blind] /work/repo/src/new.ts:13 — a note on a changed line, named by an absolute path' <<<"$F" \
+  && [ "$(grep -c '^- \[' <<<"$F")" -eq 2 ] && jq -e '.plain_unchanged_dropped == 1' <<<"$RJ" >/dev/null \
+  && ok "(r41) a site whose path is longer than the range's path, after a /, is on the changed line; a path that only ends with the same letters is not" \
+  || bad "(r41) json=$RJ findings=$(tr '\n' '|' <<<"$F")"
 
 echo "verdict-join-selftest: $PASS passed, $FAIL failed"
 exit "$FAIL"

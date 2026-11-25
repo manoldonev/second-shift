@@ -9,7 +9,8 @@
 # region passes only scored violated; every failed rule is printed, not only the first; a record
 # that cannot be read is exit 2. With the verdict file alone, a review-lead verdict in the lane format passes and a
 # rows section, a review-lead section of the old report or an approve with a finding fails. In both modes a Summary
-# over 8 lines, Notes of 150 words, a note over 4 lines and the none contributions line fail, and each limit passes. The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
+# over 8 lines, Notes of 150 words, a note over 4 lines and the none contributions line fail, and each limit passes; later-round
+# note lines are not counted in the Notes words. The run.sh wiring is a scenario case in skills/run/run-verdict-selftest.sh.
 #
 # Operator-safe: no network. Exit code = number of failed checks.
 set -uo pipefail
@@ -277,6 +278,12 @@ check1 nr-notes-149 "$(lead approve $'Mergeable as it is.\nNothing to do.' 'None
 passes "(l2) a no-record Notes section of 149 words passes"
 check1 nr-notes-150 "$(lead approve $'Mergeable as it is.\nNothing to do.' 'None.' "$(printf '\n## Notes\n\n%s word' "$N149")")"
 fails_with "(l2) a no-record Notes section of 150 words" "Notes of 150 words or more: 150 words"
+LATER="$(printf -- '- later-round note: src/old.ts:%s — %s\n' 12 "$(words 30)" 40 "$(words 30)")"
+LSUM=$'Mergeable as it is.\nD-2 departed: the build deleted it.\nRead the 2 later-round notes in ## Notes.'
+check notes-later "$(summ approve "$LSUM" "$HEAD_ROWS" 'None.')"$'\n\n## Notes\n\n'"$N149"$'\n\n'"$LATER"
+passes "(l2) an approve whose Notes pass 150 words only through later-round notes passes: those lines are not counted"
+check notes-later-prose "$(summ approve "$LSUM" "$HEAD_ROWS" 'None.')"$'\n\n## Notes\n\n'"$N149"$'\n\n'"${LATER//- later-round note: /}"
+fails_with "(l2) the same notes written as prose are counted" "Notes of 150 words or more"
 NOTE4=$'- [note] N1 src/a.ts:3 — the helper repeats a constant\n  Scenario: the constant changes → the helper keeps the old value\n  The repo keeps it in src/units.ts:1.\n  Fix: use the constant'
 NOTE5="$NOTE4"$'\n  One line too many.'
 BLOCKER6=$'- [blocker] B1 src/w.ts:40 — the retry loops forever\n  Scenario: a 409 → no exit\n  a\n  b\n  c\n  Fix: stop after three tries'
