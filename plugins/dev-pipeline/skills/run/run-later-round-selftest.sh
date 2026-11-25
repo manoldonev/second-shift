@@ -16,6 +16,7 @@ reviewed() { posted "$1" | sed -n '2s/^reviewed: //p'; }
 
 # (lr1) round 1 is a full review. Round 2's build rewrites src/a.ts, so plain's findings there are on changed lines and
 # gate. Round 3's build touches work.txt alone, so plain's blocker in src/other.ts is on an unchanged line and does not
+# gate.
 fixture lr1; printf 'build-pr\nreview-needs-work-mixed\nbuild-push-only\nreview-approve\nbuild-push-only\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"
 export FAKE_PLAIN_PLAN="$d/plain-plan"; printf 'plain-approve\nplain-blocker-agree\nplain-blocker-new\n' > "$FAKE_PLAIN_PLAN"
 mkdir -p "$FAKE_GH/tree-3/src"; printf 'a1\na2\na3\na4\na5\na6\n' > "$FAKE_GH/tree-3/src/a.ts"

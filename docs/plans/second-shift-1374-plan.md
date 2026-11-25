@@ -23,6 +23,7 @@
 - [ ] 4.2 The scheduler reads the set before each review and hands it to pass 2 and the join; the later-review prompt block; the build prompt sentence (plugins/dev-pipeline/skills/run/run.sh)
 - [ ] 4.3 The manual review does the same in step 2 and step 8; the grammar, style and grounds copies change in lockstep (plugins/dev-pipeline/skills/review/SKILL.md, plugins/review-toolkit/skills/review-lead/SKILL.md)
 - [ ] 4.4 The interactive build reads later-round notes as optional (plugins/dev-pipeline/skills/build/SKILL.md)
+- [ ] 4.5 An open finding of the latest verdict stays a finding, and its unfixed later-round notes are written again (plugins/dev-pipeline/skills/run/run.sh, plugins/dev-pipeline/skills/review/SKILL.md, docs/plans/second-shift-1374-decisions.md)
 
 ## 5. The replay
 
