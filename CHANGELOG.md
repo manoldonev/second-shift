@@ -4,6 +4,34 @@ All notable changes to the second-shift marketplace. Versions are per-plugin (`p
 this file tracks the marketplace release. `configVersion` stays `const 1` — v2 is fully backward-compatible for a
 consumer with an empty config; the migration notes below are only for consumers using the changed features.
 
+## v19.3.0
+
+### `dev-pipeline` 19.1.0 → 19.2.0
+
+- **feat(dev-pipeline): a later review verdict lists the findings it saw resolved** (#1380)
+  the final lane verdict now lists every finding the earlier
+  review rounds raised that is resolved, in a folded `<n> resolved` list in
+  `## Notes`, and an empty `## Findings` reads `None open. <n> resolved` in
+  place of a bare `None.`.
+  Migration: none.
+  a later review lists a later-round note as resolved when the
+  build fixed it, rebutted it with a rebuttal the review accepts, or
+  turned it into a ticket edit, the same as a finding.
+  Migration: none.
+
+### `review-toolkit` 12.2.0 → 12.3.0
+
+- **feat(dev-pipeline): a later review verdict lists the findings it saw resolved** (#1380)
+  the final lane verdict now lists every finding the earlier
+  review rounds raised that is resolved, in a folded `<n> resolved` list in
+  `## Notes`, and an empty `## Findings` reads `None open. <n> resolved` in
+  place of a bare `None.`.
+  Migration: none.
+  a later review lists a later-round note as resolved when the
+  build fixed it, rebutted it with a rebuttal the review accepts, or
+  turned it into a ticket edit, the same as a finding.
+  Migration: none.
+
 ## v19.2.0
 
 ### `dev-pipeline` 19.0.0 → 19.1.0
