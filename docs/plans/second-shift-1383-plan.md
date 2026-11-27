@@ -2,9 +2,10 @@
 
 ## 1. The no-progress stop
 
-- [ ] 1.1 Scenario case: round 1 gets needs-work, the round-2 build pushes nothing, and the run ends `no-progress` with rc 1, no second check run and no second review; the detail line and the PR run block carry the verdict URL, each open finding's id with its first sentence, and the recovery; a `--resume` launch whose round-1 build pushes nothing still gets a review; a verdict with a two-sentence blocker and notes past 600 characters gets a detail cut to each first sentence and to 600 characters (plugins/dev-pipeline/skills/run/run-later-round-selftest.sh, plugins/dev-pipeline/skills/run/run-selftest-lib.sh) [AC-1] [AC-2] [AC-3]
-- [ ] 1.2 Record the sha, the URL and the findings of each bound verdict; after a collected build, stop with `no-progress` when the pushed head is still that sha; append the detail to the run notes (plugins/dev-pipeline/skills/run/run.sh)
-- [ ] 1.3 List `no-progress` in the run.sh header exit table and the run SKILL.md rc-1 row (plugins/dev-pipeline/skills/run/run.sh, plugins/dev-pipeline/skills/run/SKILL.md)
+- [ ] 1.1 Scenario case: round 1 gets needs-work, the round-2 build pushes nothing, and the run ends `no-progress` with rc 1, no second check run and no second review; the detail line and the PR run block carry the verdict URL, each open finding's id with its first sentence, and the recovery; a `--resume` launch whose round-1 build pushes nothing still gets a review; a verdict with a two-sentence blocker and notes past 600 characters gets a detail cut to each first sentence and to 600 characters (plugins/dev-pipeline/skills/run/run-later-round-selftest.sh) [AC-1] [AC-2] [AC-3]
+- [ ] 1.2 Add the fake review mode `review-needs-work-long`, a verdict with a two-sentence blocker and notes past 600 characters (plugins/dev-pipeline/skills/run/run-selftest-lib.sh)
+- [ ] 1.3 Record the sha, the URL and the findings of each bound verdict; after a collected build, stop with `no-progress` when the pushed head is still that sha; append the detail to the run notes (plugins/dev-pipeline/skills/run/run.sh)
+- [ ] 1.4 List `no-progress` in the run.sh header exit table and the run SKILL.md rc-1 row (plugins/dev-pipeline/skills/run/run.sh, plugins/dev-pipeline/skills/run/SKILL.md)
 
 ## 2. The ticket amend
 
