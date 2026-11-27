@@ -1458,6 +1458,10 @@ worktree_inflight() { # worktree_inflight <archive-tag> -> 0 collected · 8 in f
   # INFLIGHT_UNPUSHED holds the unpushed commits when they, on a clean tree, are all that is in flight
   local dirty unpushed; INFLIGHT_REASON=""; INFLIGHT_UNPUSHED=""
   dirty="$(git -C "$WT" status --porcelain --untracked-files=no 2>&1)" || { INFLIGHT_REASON="its status could not be read ($dirty)"; return 1; }
+  if [ -n "$dirty" ]; then
+    exec_bit_restore
+    dirty="$(git -C "$WT" status --porcelain --untracked-files=no 2>&1)" || { INFLIGHT_REASON="its status could not be read ($dirty)"; return 1; }
+  fi
   if [ -n "$dirty" ]; then INFLIGHT_REASON="its tree is not clean"; return 8; fi
   # best effort, wrong only in the SAFE direction: a failed fetch can make pushed work look unpushed, never the reverse
   git -C "$WT" fetch --quiet origin "$BRANCH" >/dev/null 2>&1
@@ -1465,6 +1469,17 @@ worktree_inflight() { # worktree_inflight <archive-tag> -> 0 collected · 8 in f
   if [ -n "$unpushed" ]; then INFLIGHT_REASON="it carries commits that are not on origin/$BRANCH"; INFLIGHT_UNPUSHED="$unpushed"; return 8; fi
   quarantine_untracked "$1" || return 8
   return 0
+}
+exec_bit_restore() { # a file whose index matches HEAD at 100755, and whose disk copy differs only by the missing exec bit, gets the bit
+  # `git update-index --chmod=+x` commits the bit without setting it on disk; setting it changes no content and loses no work
+  local p
+  while IFS= read -r -d '' p; do
+    git -C "$WT" diff --cached --quiet -- "$p" 2>/dev/null || continue
+    [ "$(git -C "$WT" ls-files -s -- "$p" 2>/dev/null | cut -d' ' -f1)" = 100755 ] || continue
+    [ -f "$WT/$p" ] && [ ! -x "$WT/$p" ] || continue
+    git -C "$WT" -c core.fileMode=false diff --quiet -- "$p" 2>/dev/null || continue
+    chmod +x "$WT/$p" && say "build: $p is 100755 in its commit but not executable on disk; set the bit, content unchanged"
+  done < <(git -C "$WT" diff --name-only -z 2>/dev/null)
 }
 quarantine_untracked() { # quarantine_untracked <tag> -> 0 nothing left or archived · 1 not archived (INFLIGHT_REASON set; the originals stay)
   # one entry per file, raw NUL-separated paths, whatever status.showUntrackedFiles says; ignored files are never listed,

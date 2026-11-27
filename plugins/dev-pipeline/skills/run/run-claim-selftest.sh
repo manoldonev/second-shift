@@ -181,12 +181,14 @@ hook_says() { # hook_says <tool> <file_path-or-command>: what the build's hook c
   || bad "(zh) build hook on chmod +x: $(hook_says Bash "chmod +x $wt/scripts/new-selftest.sh")"
 
 # (zj) a build that makes a new script executable on disk commits 100755 and reaches the review with a clean tree;
-#      the same bit set only in the index leaves a mode-only difference, which stays in-flight work
+#      the same bit set only in the index is set on disk by the scheduler, so the run goes on to the review
 fixture zj; printf 'build-pr-chmod\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(zj) chmod +x on disk, then git add and commit"
 [ "$(git -C "$d/origin.git" ls-tree second-shift/42 -- new-selftest.sh | cut -d' ' -f1)" = 100755 ] && [ -z "$(git -C "$d/wt/42" status --porcelain 2>/dev/null)" ] \
   && ok "(zj) the branch carries new-selftest.sh as 100755 and the worktree is clean" \
   || bad "(zj) branch entry: $(git -C "$d/origin.git" ls-tree second-shift/42 -- new-selftest.sh) · status: $(git -C "$d/wt/42" status --porcelain 2>&1 | tr '\n' '|')"
-fixture zk; printf 'build-pr-update-index\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect build-inflight "(zk) git update-index --chmod=+x alone leaves a mode-only difference in flight"
+fixture zk; printf 'build-pr-update-index\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect approved "(zk) git update-index --chmod=+x alone: the scheduler sets the committed bit on disk"
+grep -qF 'build: new-selftest.sh is 100755 in its commit but not executable on disk; set the bit, content unchanged' <<<"$OUT" \
+  && ok "(zk) the log names the file whose exec bit the scheduler set" || bad "(zk) no exec-bit line in the log"
 
 # (zi) #1080: a plansDir under .claude/ — the build's hook is given the record and the plan, so the build can write the plan
 #      the plan coverage requires and edit the record's rows there; any other file in that dir is still denied
