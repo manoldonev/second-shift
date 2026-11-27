@@ -1,0 +1,256 @@
+schema_version: "1.1"
+name: discovery-recall-eval
+description: >
+  plan-interview on a real scheduler ticket (TICKET.md), read against a snapshot of this repo at
+  the commit the ticket was filed against. Measures discovery: how many of the code facts that
+  changed the ticket's fix the session finds before it asks its questions. Each answer-key fact is
+  one fact- grader; recall is the share of fact- graders a run passes.
+tags: [intake, plan-interview, discovery]
+runs: 5
+expected_outcome: >
+  The session loads plan-interview, reads the ticket and the scheduler it names
+  (plugins/dev-pipeline/skills/run/run.sh), and ends its turn with one message that holds two
+  numbered lists: the facts it would record as codebase-derived rows, each with its evidence, and
+  every question the whole interview would ask. It answers no question and writes no plan and no
+  Decision Ledger.
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    /intake-toolkit:plan-interview
+
+    Plan the fix for the ticket in TICKET.md. The current directory is the repo the ticket is about.
+  append_system_prompt: |
+    This is a non-interactive session: there is no live user and the AskUserQuestion tool is unavailable.
+    Follow the skill normally up to the point where you would ask the user your questions.
+    Then end your turn with one message that holds two numbered lists, in this order.
+    First, under the heading "## Facts from the code", every fact you would record as a codebase-derived row, each with its evidence.
+    Then, under the heading "## Questions", every question the whole interview would ask, numbered. List the questions of later turns too, not only the ones you would ask first. Write each question as you would put it to the user.
+    Do not answer the questions yourself, do not assume answers, and do not write a plan or a Decision Ledger.
+  max_turns: 60
+  timeout_seconds: 1800
+  allowed_tools: [Read, Glob, Grep, Skill, Bash]
+graders:
+  # Recall reads only the graders whose name starts with fact-. A fact grader named without the
+  # prefix drops out of the recall figure.
+  - name: fact-resume-breaks-fresh-process
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Fact (plugins/dev-pipeline/skills/run/run.sh:42, plugins/dev-pipeline/skills/run/run-selftest.sh:144):
+      the ticket's "re-enter the session with claude -p --resume" candidate breaks the scheduler's
+      stated rule that every session is a fresh process, and the [F1] case of run-selftest.sh fails
+      when a session is resumed or continued.
+
+      PASS if the final message, in its facts list or in a question, says that resuming or
+      continuing the session conflicts with the scheduler's fresh-process rule or with the selftest
+      that forbids --resume / --continue.
+      FAIL if it only names --resume as an option, or names the rule without tying it to the
+      resume candidate, or does not mention it.
+
+  - name: fact-repo-settings-override-env
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Fact (plugins/dev-pipeline/skills/run/run.sh:243): the scheduler spawns every session with
+      --setting-sources "user,project,local", and an `env` entry in a loaded settings file replaces
+      the value the same variable has in the process environment (documented Claude Code
+      behavior), so a timeout exported from the scheduler's shell can be undone by the repo's own
+      settings.json; the env has to be applied above those files, for example with --settings.
+
+      PASS if the final message says that variables set in the spawned process's environment can
+      be overridden by a settings file the session loads (the repo's, the user's or a local one),
+      or that the env must be passed through --settings or another layer above the settings files.
+      FAIL if it only says to set the variables in the environment, or only names
+      --setting-sources without this consequence, or does not mention it.
+
+  - name: fact-timeouts-do-not-stop-chosen-background
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Fact (CLAUDE.md:93-94): the repo's CLAUDE.md tells sessions to run the long sweep with
+      run_in_background, so a session backgrounds it by its own choice, and a larger Bash timeout
+      does not stop that choice; the documented CLAUDE_CODE_DISABLE_BACKGROUND_TASKS switch turns
+      off run_in_background and automatic backgrounding.
+
+      PASS if the final message says that raising BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS
+      alone does not stop the session from choosing run_in_background, or that background tasks
+      must be turned off (for example with CLAUDE_CODE_DISABLE_BACKGROUND_TASKS) for the checks to
+      stay in the foreground.
+      FAIL if it treats the timeout raise alone as enough to keep checks in the foreground, or does
+      not mention it.
+
+  - name: fact-claude-md-note-conflicts
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Fact (CLAUDE.md:93-94): the repo's Verification note tells every session to run the long
+      sweep with nohup under run_in_background, so a fix that keeps the build session in the
+      foreground contradicts that instruction, and the note itself has to change, for example to
+      apply only to interactive sessions.
+
+      PASS if the final message says that the CLAUDE.md note must be changed, scoped or exempted
+      for the headless build, or asks whether to change it.
+      FAIL if it only repeats that the session followed CLAUDE.md, with no change to the note, or
+      does not mention it.
+
+  - name: fact-review-needs-background
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Fact (plugins/dev-pipeline/skills/run/run.sh:451, plugins/dev-pipeline/skills/run/run.sh:467-468):
+      the review session runs review-lead's panel through the Workflow tool, which its allowlist
+      grants, and a Workflow runs as a background task (documented Claude Code behavior), so
+      turning background tasks off for every spawned session would break the review; the switch
+      must apply to the build session only.
+
+      PASS if the final message says that the review session depends on background tasks (its
+      Workflow or review-lead panel), so a change that disables or forbids background work must
+      not reach the review session, or asks whether it should.
+      FAIL if it proposes the change for every spawned session without this concern, or does not
+      mention it.
+
+  - name: fact-review-background-wait
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Fact (plugins/dev-pipeline/skills/run/run.sh:190, plugins/dev-pipeline/skills/run/run.sh:467-468):
+      under claude -p a session stops waiting on a running background task after 600 s idle by
+      default and drops its result (documented Claude Code behavior), while the review session runs
+      its Workflow panel with a bound of 3600 s, so a panel that runs past 600 s is lost unless the
+      session's background wait is raised.
+
+      PASS if the final message says that a headless session waits on a background task only for a
+      limited time (600 s or 10 minutes) and that the review's Workflow panel can outlast it, or
+      that the review session's background wait needs to be raised.
+      FAIL if it does not connect a limited background wait to the review session, or does not
+      mention it.
+
+  - name: fact-timeout-inside-the-bound
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Fact (plugins/dev-pipeline/skills/run/run.sh:216, plugins/dev-pipeline/skills/run/run.sh:245):
+      bounded() kills the session at its wall-clock bound, and add_cost() then finds no
+      total_cost_usd and marks the session unpriced, so a Bash timeout raised to the full bound lets
+      one hung command use the whole bound, and the session is killed with no result and no price;
+      the timeout has to end inside the bound.
+
+      PASS if the final message says that the raised Bash timeout must stay below the session's
+      wall-clock bound (or the watchdog), so that a hung command fails while the session can still
+      report, or asks what margin to keep.
+      FAIL if it sets the timeout to the bound or higher without this concern, or does not mention
+      it.
+
+  - name: fact-cap-accepts-fractions
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Fact (plugins/dev-pipeline/skills/run/run.sh:185-186, plugins/dev-pipeline/skills/run/run.sh:189):
+      cap() accepts a fractional value such as 7200.5 for the counts and the time bounds, and bash
+      integer arithmetic fails on a fraction, so a timeout computed from the build bound (for
+      example seconds to milliseconds) breaks unless cap() refuses or normalizes fractions.
+
+      PASS if the final message says that the configured bound can be fractional, or not an
+      integer, and that arithmetic on it in bash would fail, or asks how to validate it.
+      FAIL if it derives the timeout from the bound without this concern, or does not mention it.
+
+  - name: fact-build-allowlist-has-no-workflow
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Fact (plugins/dev-pipeline/skills/run/run.sh:458): the build session's allowlist grants Agent
+      but not Workflow, so turning background tasks off for the build session takes away no
+      Workflow the build depends on; the documented CLAUDE_CODE_DISABLE_BACKGROUND_TASKS switch
+      turns off background Bash, background subagents and automatic backgrounding, and a foreground
+      Agent call still works.
+
+      PASS if the final message says that the build session's allowlist has no Workflow, or that
+      disabling background tasks removes nothing the build session needs (or only background
+      subagents), citing the build allowlist.
+      FAIL if it does not examine what turning background tasks off takes from the build session,
+      or does not mention it.
+
+  - name: fact-bg-spawn-history
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      Fact (CHANGELOG.md:904, plugins/dev-pipeline/skills/run/run.sh:712): the scheduler once
+      spawned its sessions with claude --bg, and it now spawns them with claude -p and flags such as
+      --permission-prompts none, --allowedTools and --max-turns; replacing -p with --bg, a mode
+      that survives a turn that ends on a background task, is an option with a recorded history in
+      this repo, and it gives up those -p flags.
+
+      PASS if the final message raises claude --bg (or a spawn mode that outlives the end of a
+      turn) as an option AND ties it to the repo's earlier move to --bg or to the -p flags the
+      scheduler would give up.
+      FAIL if it does not raise such a spawn mode, or raises it with neither the history nor the
+      cost, or does not mention it.
+
+  - name: no-false-premise
+    type: llm
+    focus: last_message
+    weight: 1
+    criteria: |
+      The repo the session read contradicts each premise below. You cannot read that repo, so judge
+      only these premises.
+
+      Premise 1 (false; plugins/dev-pipeline/skills/run/run.sh:42): the scheduler's rules allow it
+      to re-enter, resume or continue an earlier session (claude -p --resume). In fact every
+      session is a fresh process, and a selftest fails when a session is resumed.
+      Premise 2 (false; plugins/dev-pipeline/skills/run/run.sh:243): a variable set in the spawned
+      process's environment always reaches the session. In fact the session loads the user,
+      project and local settings files, and an `env` entry there replaces the process value.
+
+      FAIL if the final message states either premise as true: for example that run.sh already
+      resumes sessions or that nothing in the scheduler forbids it, or that exporting the timeout
+      variables in the spawn's environment is sure to take effect.
+      PASS if the message does not state either premise as true. Offering a premise as an option,
+      asking about it, or naming it as a risk is not stating it as true.
+
+  # The match stays inside one tool call's input, so the path in the ticket text never counts.
+  - name: read-the-scheduler
+    type: regex
+    target: trace
+    pattern: '"name":"Read","input":\{(?:(?!"type":).)*?"file_path":"[^"]*skills/run/run\.sh"|"name":"Grep","input":\{(?:(?!"type":).)*?"path":"[^"]*skills/run/run\.sh"|"name":"Bash","input":\{(?:(?!"type":).)*?"command":"(?:[^"\\]|\\.)*?\b(?:cat|sed|head|tail|awk|less|nl|grep|rg)\b(?:[^"\\]|\\.)*?skills/run/run\.sh'
+    weight: 1
+
+  - name: no-plan-written
+    type: regex
+    target: last_message
+    pattern: '(^|\n)#{1,6}[ \t]*(Decision Ledger|Implementation [Pp]lan|Plan)[ \t]*(\n|$)|\|\s*ID\s*\|\s*Decision\s*\|'
+    match: not_contains
+    weight: 1
+
+  # The answer key lives in this case and the fixture ticket's record lives in the live checkout.
+  # A tool input that names either path means the session left its snapshot: discard that run.
+  - name: stayed-in-snapshot
+    type: regex
+    target: trace
+    pattern: '"input":\{(?:(?!"type":).)*?(?:intake-toolkit/evals|second-shift-908-decisions)'
+    match: not_contains
+    weight: 1
+
+  # The live clone already holds the fix: its run.sh, CLAUDE.md and CHANGELOG.md state the answer.
+  # First branch: group 1 takes the workspace from the init event's cwd, and a tool input fails when
+  # it names, by an absolute path outside that workspace, a CLAUDE.md, a CHANGELOG.md, a docs/ path,
+  # or a plugins/ path other than the skills of the plugin under test. This also catches another
+  # clone of the repo. Second branch: group 2 takes the clone root from the first path that ends in
+  # /plugins/intake-toolkit, the plugin path the init event names, and a tool input fails when it
+  # names that root, or any path under it other than the skills of the plugin under test.
+  - name: stayed-out-of-the-clone
+    type: regex
+    target: trace
+    pattern: '"cwd":"([^"]+)"[\s\S]*?"input":\{(?:(?!"type":).)*?[":\s=\x27](?!\1/)/[^"\s\x27]*?/(?:CLAUDE\.md|CHANGELOG\.md|docs/|plugins/(?!intake-toolkit/skills(?:[/"\s\x27]|\\)))|"(/[^"]+)/plugins/intake-toolkit/?"[\s\S]*?"input":\{(?:(?!"type":).)*?\2(?!/plugins/intake-toolkit/skills(?:[/"\s\x27]|\\))(?:[/"\s\x27]|\\)'
+    match: not_contains
+    weight: 1
