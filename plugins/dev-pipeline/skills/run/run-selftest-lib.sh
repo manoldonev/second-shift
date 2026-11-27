@@ -307,6 +307,10 @@ case "$plan" in
     post "$(vbody approve "$(git rev-parse "origin/$branch")" $'\n## Notes\n\nKnowledge-base contributions:\n- <kb-page> — the worker retries a 409 forever (lookup gap)\n- <kb-page> — every build round appends to work.txt (change gap)')" ;;
   review-needs-work-mixed) # one blocker and one note, in the grammar's finding form
     post "$(FINDINGS=$'- [blocker] B1 src/a.ts:3 — mixed blocker\n  Scenario: a 409 → the worker never exits\n  Fix: stop after three tries\n- [note] N1 src/a.ts:9 — mixed note' vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
+  review-needs-work-long) # a two-sentence blocker, then eight notes that run past 600 characters in total
+    f=$'- [blocker] B1 src/a.ts:3 — the worker retries a 409 forever. It never exits under load.\n  Scenario: a 409 → the worker never exits\n  Fix: stop after three tries'
+    for i in 1 2 3 4 5 6 7 8; do f="$f"$'\n'"- [note] N$i src/n$i.ts:1 — a note whose one sentence runs on long enough that eight of them pass the cap"; done
+    post "$(FINDINGS="$f" vbody needs-work "$(git rev-parse "origin/$branch")")" ;;
   review-render-unavailable|review-ticket-unreadable|review-seat-unavailable) sha=$(git rev-parse "origin/$branch")
     post "$(printf 'verdict: needs-work\nreviewed: %s\nreason: %s\n\n## Decision record rows\n\n| Row | Score | Evidence |\n| --- | --- | --- |\n\n## Findings\n\nNone.' "$sha" "${plan#review-}")" ;;
   review-two-verdicts) # both bind; the LAST posted wins: $FAKE_ORDER = needs-work,approve or approve,needs-work. The first is

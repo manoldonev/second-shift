@@ -40,6 +40,22 @@ expect env-worktree "[pause] regions that cannot be read refuse the build"; [ "$
 fixture pa4; park_d2; printf 'build-pr-decide-parked\nreview-approve-d2\nreview-approve-d2\n' > "$FAKE_CLAUDE_PLAN"; run_case "$d"; expect review-unbound "[pause] an approve that scores the build's own decision of the parked row honored never binds"
 grep -qF "user-delegated row under a pause-and-ask region not scored violated: D-2 honored" <<<"$OUT" && [ ! -s "$FAKE_GH/statuses" ] && ok "[pause] ...the miss names the rule, and no status is posted" || bad "[pause] miss: $(grep 'verdict grammar' <<<"$OUT" | head -n 1)"
 
+# Under github, writes: false withholds only the Atlassian write tools, so a handoff build still amends the ticket with gh.
+# Under jira, writes: false withholds every ticket write, and the edit becomes a request in the PR body.
+FIXTURE_CONFIG='{"tracker":{"type":"github","writes":false,"branchPrefix":"second-shift/"},"paths":{"plansDir":"docs/plans"}}' fixture pa8; park_d2
+printf 'ready-for-dev\n' > "$FAKE_GH/labels"; run_case "$d" --handoff; expect build-handoff "[pause] a github handoff with writes false"
+hp="$(sed -n 's/^prompt: //p' <<<"$OUT")"
+[ "$CASE_ON" -eq 0 ] || { [ -n "$hp" ] && grep -qF "write it with 'gh issue edit 42 --body-file" "$hp" && ! grep -qF 'make no ticket write' "$hp" \
+  && ok "[pause] ...its pause answer still amends the ticket with gh issue edit" || bad "[pause] github handoff: $(grep -F 'departs from the ticket text' "$hp" 2>/dev/null | tail -n 1)"; }
+FIXTURE_CONFIG='{"tracker":{"type":"jira","writes":false,"branchPrefix":"jdoe/","keyPattern":"[A-Z]+-[0-9]+"},"paths":{"plansDir":"docs/plans"}}' fixture pa9; park_d2
+mv "$d/main/.claude/pipeline-state/42-ledger.md" "$d/main/.claude/pipeline-state/GH-42-ledger.md"
+[ "$CASE_ON" -eq 0 ] || { OUT="$( cd "$d/main" && bash "$RUN" GH-42 --handoff 2>&1 )"; RC=$?; TERM_SLUG="$(printf '%s\n' "$OUT" | sed -n 's/^terminal: //p' | tail -n 1)"; }
+expect build-handoff "[pause] a jira handoff with writes false"
+hp="$(sed -n 's/^prompt: //p' <<<"$OUT")"
+[ "$CASE_ON" -eq 0 ] || { [ -n "$hp" ] && grep -qF "make no ticket write: tracker.writes is false. Add the ticket edit as a request to the PR body's '## Before you merge' section." "$hp" \
+  && ! grep -qF 'gh issue edit' "$hp" && ! grep -qF "rewrite that text in the ticket's description" "$hp" \
+  && ok "[pause] ...its pause answer makes no ticket write and asks for the edit in the PR body" || bad "[pause] jira handoff: $(grep -F 'departs from the ticket text' "$hp" 2>/dev/null | tail -n 1)"; }
+
 echo "[self-test] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
 exit $?

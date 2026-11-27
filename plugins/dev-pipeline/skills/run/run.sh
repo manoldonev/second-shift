@@ -1168,7 +1168,7 @@ REPLY
       echo "To stop, commit and push the work that does not depend on the decision. Then write the file $SCRATCH/$PAUSE_FILE with the Write tool. Its first line is exactly 'paused: OR-n', the region that stopped you. Under it, write the question the requester must answer and the options you see. Then end your turn. The scheduler stops the run on that file and reports the region. Nobody answers inside this session."
     else
       echo "To stop, tell the operator which region stopped you and the question to answer. Go on only after the operator answers. Then write the answer into the row with provenance user-answered."
-      if [ "$TRACKER_WRITES" = false ]; then
+      if [ "$TRACKER" = jira ] && [ "$TRACKER_WRITES" = false ]; then
         echo "When the answer departs from the ticket text, make no ticket write: tracker.writes is false. Add the ticket edit as a request to the PR body's '## Before you merge' section."
       elif [ "$TRACKER" = jira ]; then
         echo "When the answer departs from the ticket text, amend the ticket in this session: rewrite that text in the ticket's description in place, keep its id and its position, and change nothing else."

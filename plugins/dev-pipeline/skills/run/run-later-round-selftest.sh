@@ -36,6 +36,18 @@ run_case "$d" --resume; expect approved "(lr2) the resumed launch's round 1 buil
   && ok "(lr2) the resumed round 1 reviews the head the earlier launch's verdict reviewed" \
   || bad "(lr2) resume: calls=$(cat "$FAKE_GH/calls") pass1=$(cat "$FAKE_GH/pass1-calls" 2>/dev/null) reviewed=$(reviewed 2) s1=$s1"; }
 
+# (lr3) the verdict's blocker has two sentences and its eight notes run past 600 characters: the detail keeps the first
+# sentence of each finding and cuts the list at 600 characters.
+fixture lr3; printf 'build-pr\nreview-needs-work-long\nbuild-nothing\n' > "$FAKE_CLAUDE_PLAN"
+run_case "$d"; expect no-progress "(lr3) a later build that pushes nothing stops on a verdict with long findings"
+if [ "$CASE_ON" -eq 1 ]; then
+  open="$(grep '\[run\] terminal: no-progress — ' <<<"$OUT")"; open="${open#*Open findings: }"; open="${open%%. Edit the ticket or push a fix*}"
+  [[ "$open" == "B1 src/a.ts:3 — the worker retries a 409 forever.; N1 src/n1.ts:1 — "* ]] && [[ "$open" == *"; N6 src/n6.ts:1 — "* ]] \
+    && [[ "$open" != *"N8 "* ]] && [ "${#open}" -le 600 ] \
+    && ok "(lr3) the detail keeps each finding's first sentence and stops the list at 600 characters" \
+    || bad "(lr3) open findings (${#open} characters): $open"
+fi
+
 # (lr1) round 1 is a full review. Round 2's build rewrites src/a.ts, so plain's findings there are on changed lines and
 # gate. Round 3's build touches work.txt alone, so plain's blocker in src/other.ts is on an unchanged line and does not
 # gate.
