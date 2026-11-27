@@ -18,6 +18,19 @@ consumer with an empty config; the migration notes below are only for consumers 
   build fixed it, rebutted it with a rebuttal the review accepts, or
   turned it into a ticket edit, the same as a finding.
   Migration: none.
+- **feat(dev-pipeline): stop a run on an unchanged head, and amend the ticket on a build-time departure** (#1384)
+  a later round whose build pushes nothing now stops with
+  `terminal: no-progress` (rc 1) instead of paying for a review of the same
+  head; the detail line lists the open findings and the recovery. The
+  interactive build amends the ticket when the operator steers a departure
+  from it, and the build-paused detail asks the operator to do so.
+  Migration: a wrapper that routes on rc 1 needs no change; one that lists
+  slugs adds `no-progress`.
+- **fix(dev-pipeline): a lane build's index-only exec bit no longer stops the run** (#1386)
+  a lane build that sets a script's exec bit only in git's index no
+  longer ends the run as build-inflight; the scheduler sets the committed bit
+  on disk and the run goes on to the review.
+  Migration: none.
 
 ### `review-toolkit` 12.2.0 → 12.3.0
 
