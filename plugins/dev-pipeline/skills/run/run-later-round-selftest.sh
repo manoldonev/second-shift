@@ -14,6 +14,40 @@ devjson() { posted "$1" | sed -n 's/^<!-- plain-vs-lane: \(.*\) -->$/\1/p'; }   
 above() { posted "$1" | sed '/^lane vs blind: /,$d'; }   # the k-th body without the join's lines
 reviewed() { posted "$1" | sed -n '2s/^reviewed: //p'; }
 
+# (lr2) round 1 gets needs-work and round 2's build pushes nothing: the run stops before the checks and a review run again
+# on the head that verdict reviewed. A --resume is a new launch, and its first round is reviewed though its build pushes nothing.
+fixture lr2; printf 'build-pr\nreview-needs-work-mixed\nbuild-nothing\n' > "$FAKE_CLAUDE_PLAN"
+run_case "$d"; expect no-progress "(lr2) the round-2 build left the head at the sha round 1's verdict reviewed"
+if [ "$CASE_ON" -eq 1 ]; then
+  sd1="$(SD)"; s1="$(reviewed 1)"; tline="$(grep '\[run\] terminal: no-progress — ' <<<"$OUT")"
+  [ "$RC" -eq 1 ] && [ "$(cat "$FAKE_GH/calls")" -eq 3 ] && [ "$(cat "$FAKE_GH/pass1-calls")" -eq 1 ] \
+    && [ "$(cat "$FAKE_GH/plain-calls")" -eq 1 ] && [ "$(find "$sd1" -name 'checks-*.log' | wc -l | tr -d ' ')" -eq 1 ] && [ -n "$s1" ] \
+    && ok "(lr2) exit 1, and round 2 runs no check, no pass 1, no plain session and no review" \
+    || bad "(lr2) rc=$RC calls=$(cat "$FAKE_GH/calls") pass1=$(cat "$FAKE_GH/pass1-calls" 2>/dev/null) plain=$(cat "$FAKE_GH/plain-calls" 2>/dev/null) checks=$(find "$sd1" -name 'checks-*.log' | tr '\n' ' ')"
+  want="the verdict at https://x/pr/7#verdict reviewed $s1. Open findings: B1 src/a.ts:3 — mixed blocker; N1 src/a.ts:9 — mixed note. Edit the ticket or push a fix, then --resume, or run /dev-pipeline:review 7 to weigh a rebuttal."
+  left="round 2's build left PR #""7 at $s1, and $want"
+  grep -qF -- "$want" <<<"$tline" && grep -qF -- "no-progress: $left" "$FAKE_GH/pr-body.md" && grep -qF -- "no-progress — $left" "$FAKE_GH/issue-comments" \
+    && ok "(lr2) the detail names the verdict, each open finding's id and first sentence, and the recovery, in the log, the run block and the closing comment" \
+    || bad "(lr2) detail: $tline | block: $(grep 'no-progress' "$FAKE_GH/pr-body.md" 2>/dev/null | head -n 1)"
+fi
+printf 'build-nothing\nreview-approve\n' > "$FAKE_CLAUDE_PLAN"; : > "$FAKE_GH/calls"; printf 'in-progress\nopus\n' > "$FAKE_GH/labels"
+run_case "$d" --resume; expect approved "(lr2) the resumed launch's round 1 builds nothing and is reviewed"
+[ "$CASE_ON" -eq 0 ] || { [ "$(cat "$FAKE_GH/calls")" -eq 2 ] && [ "$(cat "$FAKE_GH/pass1-calls")" -eq 2 ] && [ "$(reviewed 2)" = "$s1" ] \
+  && ok "(lr2) the resumed round 1 reviews the head the earlier launch's verdict reviewed" \
+  || bad "(lr2) resume: calls=$(cat "$FAKE_GH/calls") pass1=$(cat "$FAKE_GH/pass1-calls" 2>/dev/null) reviewed=$(reviewed 2) s1=$s1"; }
+
+# (lr3) the verdict's blocker has two sentences and its eight notes run past 600 characters: the detail keeps the first
+# sentence of each finding and cuts the list at 600 characters.
+fixture lr3; printf 'build-pr\nreview-needs-work-long\nbuild-nothing\n' > "$FAKE_CLAUDE_PLAN"
+run_case "$d"; expect no-progress "(lr3) a later build that pushes nothing stops on a verdict with long findings"
+if [ "$CASE_ON" -eq 1 ]; then
+  open="$(grep '\[run\] terminal: no-progress — ' <<<"$OUT")"; open="${open#*Open findings: }"; open="${open%%. Edit the ticket or push a fix*}"
+  [[ "$open" == "B1 src/a.ts:3 — the worker retries a 409 forever.; N1 src/n1.ts:1 — "* ]] && [[ "$open" == *"; N6 src/n6.ts:1 — "* ]] \
+    && [[ "$open" != *"N8 "* ]] && [ "${#open}" -le 600 ] \
+    && ok "(lr3) the detail keeps each finding's first sentence and stops the list at 600 characters" \
+    || bad "(lr3) open findings (${#open} characters): $open"
+fi
+
 # (lr1) round 1 is a full review. Round 2's build rewrites src/a.ts, so plain's findings there are on changed lines and
 # gate. Round 3's build touches work.txt alone, so plain's blocker in src/other.ts is on an unchanged line and does not
 # gate.

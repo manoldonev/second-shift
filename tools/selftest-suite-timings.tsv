@@ -23,5 +23,6 @@ plugins/dev-pipeline/skills/run/run-claim-selftest.sh	300	2026-10-13
 plugins/dev-pipeline/skills/run/run-detach-selftest.sh	138	2026-10-13
 plugins/dev-pipeline/skills/run/run-queue-selftest.sh	226	2026-10-13
 plugins/dev-pipeline/skills/run/run-record-selftest.sh	239	2026-10-13
+plugins/dev-pipeline/skills/run/run-pause-selftest.sh	46	2026-11-27
 plugins/dev-pipeline/skills/run/run-rows-selftest.sh	252	2026-10-13
 plugins/dev-pipeline/skills/run/run-verdict-selftest.sh	243	2026-10-13
