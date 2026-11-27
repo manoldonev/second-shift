@@ -73,7 +73,8 @@
 #
 # exit: 0 approved · build-handoff
 #       1 stopped for a human: build-no-pr, build-inflight(-unreadable), build-blocked, build-paused (the build
-#         stopped on a pause-and-ask region of the record, which only the requester decides), pr-ambiguous,
+#         stopped on a pause-and-ask region of the record, which only the requester decides), no-progress (in a
+#         round after the first of a launch, the build left the head at the sha the latest bound verdict reviewed), pr-ambiguous,
 #         closeout-inflight(-unreadable), staleness-unreadable, verdict-uncheckable (the bound verdict's
 #         body could not be checked against the record), plan-coverage-uncheckable (the record's Test intent
 #         at its first commit could not be read as an AC set), baseline-unwritten (a clean rebase was pushed but
@@ -148,6 +149,7 @@ export GIT_NO_REPLACE_OBJECTS=1
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 COST=0; UNPRICED=""; ROUND=0; ATTEMPT=0; CHECKS_RED=0; CLAIMED=0; PR=""; PR_URL=""; PR_DRAFT=""; HEAD_SHA=""; VERDICT=""; CI=""; FIRST=""; CHILD=""; TRACKER=""
 PRIOR_SHA=""; CHANGED_SET=""; CHANGED_SEEN=""
+BOUND_SHA=""; BOUND_URL=""; BOUND_VERDICT=""   # the latest verdict this launch bound; empty through its first round
 # A tracker comment is public: no local path leaves this machine through one. The worktree becomes
 # <worktree>, a path in the checkout becomes repo-relative, the home directory becomes ~, and any
 # other /Users/<name> or /home/<name> prefix is cut — the detail stays whole in the local log.
@@ -506,10 +508,16 @@ pause_detail() { # pause_detail <the build's pause file> -> the terminal's detai
   region=""; [ -z "$or" ] || region="$(pause_regions | grep -m 1 -- "^$or — ")"
   ask="$(sed '1d' "$1" 2>/dev/null | tr '\n' ' ' | sed 's/^ *//; s/  */ /g; s/ *$//' | cut -c1-400)"
   if [ -n "$region" ]; then
-    echo "the build stopped on $region. The record marks that region pause-and-ask, so only the requester decides it. The build's question: ${ask:-(none written)} — write the answer into the row that cites $or in $RECORD_REL on $BRANCH, with provenance user-answered, push, and --resume. Worktree and claim left in place"
+    echo "the build stopped on $region. The record marks that region pause-and-ask, so only the requester decides it. The build's question: ${ask:-(none written)} — write the answer into the row that cites $or in $RECORD_REL on $BRANCH, with provenance user-answered. When the answer departs from the ticket text, also rewrite that text in the ticket body in place: keep its id and its position, and change nothing else. Then push, and --resume. Worktree and claim left in place"
   else
     echo "the build stopped and wrote $PAUSE_FILE, but its first line names no pause-and-ask region of the record ('$(head -n 1 "$1" 2>/dev/null | cut -c1-80)'). What it wrote: ${ask:-(nothing)} — a human decides what happens next. Worktree and claim left in place"
   fi
+}
+no_progress_detail() { # no_progress_detail <the bound verdict's findings> -> the terminal's detail: the verdict, its open findings, the recovery
+  local open
+  open="$(sed -nE 's/^- \[(blocker|note)\] ([BN][0-9]+ .*)$/\2/p' "$1" 2>/dev/null \
+    | awk '{ i = index($0, ". "); if (i) $0 = substr($0, 1, i); sub(/[ \t\r]+$/, ""); printf "%s%s", (NR > 1 ? "; " : ""), $0 }' | cut -c1-600)"
+  echo "round $ROUND's build left PR #$PR at $BOUND_SHA, and the verdict at ${BOUND_URL:-(no URL)} reviewed $BOUND_SHA. Open findings: ${open:-(none read)}. Edit the ticket or push a fix, then --resume, or run /dev-pipeline:review $PR to weigh a rebuttal. A review of the same head cannot change the outcome. Worktree and claim left in place"
 }
 frames_rows() { record_text | design_section_of | grep -E '^\| *RS-[0-9]+ *\|' | sed 's/^| *//; s/ *| */|/g; s/ *|$//'; }
 design_declared() { # 0 armed or disarmed with a reason; 1 neither (its forms byte for byte); reads record_text
@@ -1151,7 +1159,7 @@ REPLY
     if [ "$BOT_OK" -eq 1 ]; then echo "Here the bot wrapper's status is ok: post each reply with '$GH pr comment <pr> --body-file <a file you wrote with Write>'."
     else echo "Here the bot is off: post each reply with 'gh pr comment <pr> --body-file <a file you wrote with Write>'."; fi
   fi
-  echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record's '## Knowledge source' and '## Fan-out' sections are context, not binding. They hold evidence that intake read, not decisions. Only the D-n rows bind. Where a row cites a finding with 'From: F-n', read that finding in the record's '## Fan-out' section, because it is the evidence the row rests on. The record is committed at $RECORD_REL; edit rows there. If you must change the decision of a row, edit that row in place. Write the new resolution and set the provenance to user-delegated. End the cell with one sentence that starts 'Changed in build:' and gives the reason. A material decision that no row covers gets a new row with provenance user-delegated. End its cell with one sentence that starts 'Added in build:' and gives the reason. Commit each edit with the code. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
+  echo; echo "The following decisions were settled with the requester before implementation started. They are binding. The record's '## Knowledge source' and '## Fan-out' sections are context, not binding. They hold evidence that intake read, not decisions. Only the D-n rows bind. Where a row cites a finding with 'From: F-n', read that finding in the record's '## Fan-out' section, because it is the evidence the row rests on. The record is committed at $RECORD_REL; edit rows there. If you must change the decision of a row, edit that row in place. Write the new resolution and set the provenance to user-delegated. End the cell with one sentence that starts 'Changed in build:' and gives the reason. A material decision that no row covers gets a new row with provenance user-delegated. End its cell with one sentence that starts 'Added in build:' and gives the reason. When such a row departs from the ticket text, put the sentence 'Departs from AC-n: <original text>.' or 'Departs from the ticket's <part>: <original text>.' before that closing sentence. Commit each edit with the code. Commit $FIRST is the record baseline the review reads: never amend, rebase or force-push over it. Never post a comment starting with 'verdict:'."
   local asks; asks="$(pause_regions)"
   if [ -n "$asks" ]; then
     echo; echo "The record's '## Open Regions' table marks these regions pause-and-ask:"; echo "- ${asks//$'\n'/$'\n'- }"
@@ -1160,6 +1168,13 @@ REPLY
       echo "To stop, commit and push the work that does not depend on the decision. Then write the file $SCRATCH/$PAUSE_FILE with the Write tool. Its first line is exactly 'paused: OR-n', the region that stopped you. Under it, write the question the requester must answer and the options you see. Then end your turn. The scheduler stops the run on that file and reports the region. Nobody answers inside this session."
     else
       echo "To stop, tell the operator which region stopped you and the question to answer. Go on only after the operator answers. Then write the answer into the row with provenance user-answered."
+      if [ "$TRACKER_WRITES" = false ]; then
+        echo "When the answer departs from the ticket text, make no ticket write: tracker.writes is false. Add the ticket edit as a request to the PR body's '## Before you merge' section."
+      elif [ "$TRACKER" = jira ]; then
+        echo "When the answer departs from the ticket text, amend the ticket in this session: rewrite that text in the ticket's description in place, keep its id and its position, and change nothing else."
+      else
+        echo "When the answer departs from the ticket text, amend the ticket in this session: rewrite that text in the ticket body in place, keep its id and its position, and change nothing else. Read the body with 'gh issue view $ISSUE --json body', and write it with 'gh issue edit $ISSUE --body-file <a file you wrote with Write>'."
+      fi
     fi
   fi
   echo; record_at_first
@@ -2087,6 +2102,16 @@ while :; do
       [ "$n" -ne 0 ] || terminal build-no-pr "no open PR on $BRANCH after the BUILD session — nothing to review; a human decides what happens next. Worktree and claim left in place"
       [ "$n" -eq 1 ] || terminal pr-ambiguous "$n open PRs on $BRANCH: $(printf '%s' "$prs" | tr '\n' ' ')"
       PR="$prs"; PR_URL="$("$GH_READ" pr view "$PR" --json url --jq .url 2>/dev/null)" || PR_URL=""
+      # a later round of this launch: a build that left the head where the bound verdict found it hands the review the head
+      # it already judged. The first round of a launch, --resume included, binds nothing before its review, so it always gets one
+      if [ -n "$BOUND_SHA" ]; then
+        after="$(remote_head)" || terminal env-remote-unreadable "cannot read origin/$BRANCH after the BUILD; --resume"
+        if [ "$after" = "$BOUND_SHA" ]; then
+          VERDICT="$BOUND_VERDICT"; detail="$(no_progress_detail "$FINDINGS")"
+          RUN_NOTES="${RUN_NOTES}no-progress: $(public_text "$detail")"$'\n'
+          terminal no-progress "$detail"
+        fi
+      fi
       NEED_BUILD=0; NEED_CHECKS=1
       pr_conventions "$PR" "$A"; crc=$?
       [ "$crc" -ne 2 ] || terminal env-tracker-unreadable "PR #$PR could not be read — a conventions check that cannot run is not one that passed"
@@ -2188,6 +2213,7 @@ while :; do
     over_ceiling && terminal cost-spent "\$$(usd_up "$COST") exceeds the \$$COST_CEIL ceiling"
   done
   say "verdict: $VERDICT (reviewed $HEAD_SHA)"
+  BOUND_SHA="$HEAD_SHA"; BOUND_VERDICT="$VERDICT"; BOUND_URL="$(cut -f3 "$STATE/verdict.tsv" 2>/dev/null)"
   review_status
   minimize_earlier_verdicts
   [ "$VERDICT" = approve ] && break

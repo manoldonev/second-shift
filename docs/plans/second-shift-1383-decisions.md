@@ -29,6 +29,7 @@ Provenance legend: `user-answered` = the operator chose. `codebase-derived` = a 
 | D-13 | Test for AC-7 | Exempt. The sentence is prompt text at two sites, and no script parses it. | user-answered | intent |
 | D-14 | The `no-progress` detail on the PR | The run appends the D-6 detail to `RUN_NOTES` before the stop, so the PR's run block shows it. Other terminals keep a slug-only block. Under jira, the run block is the detail's only public place. | user-answered | intent |
 | D-15 | Where the interactive build reads the amend step | Two sites: build/SKILL.md step 3 for a steer, and the `build_prompt` pause branch printed only under `--handoff` for a pause answer. The lane takes the other branch, so it gets no amend step. run: `grep -nF 'if [ "$HANDOFF" -eq 0 ]; then' plugins/dev-pipeline/skills/run/run.sh` → 1887: the scratch dir, and the lane pause branch, exist only without `--handoff` | codebase-derived | fact |
+| D-16 | Where the test for AC-5 lives | The pause-and-ask cases move unchanged from run-rows-selftest.sh into a new slice, run-pause-selftest.sh, and AC-5's assertion joins the `[pause]` case there. Added in build: run-rows-selftest.sh took 454 s here, near the 600 s bound of the fails-without-the-change check. | user-delegated | intent |
 
 Options weighed:
 

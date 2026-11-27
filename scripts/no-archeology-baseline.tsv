@@ -12,8 +12,8 @@ plugins/dev-pipeline/skills/run/run-cases-selftest.sh	19	debt	selftest labels; f
 plugins/dev-pipeline/skills/run/run-claim-selftest.sh	25	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-detach-selftest.sh	27	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-judge-selftest.sh	46	debt	selftest labels; fixture ids among them become data rows when swept
+plugins/dev-pipeline/skills/run/run-pause-selftest.sh	3	data	fixture record rows and the verdict-check message a case asserts
 plugins/dev-pipeline/skills/run/run-record-selftest.sh	102	debt	selftest labels; fixture ids among them become data rows when swept
-plugins/dev-pipeline/skills/run/run-rows-selftest.sh	3	data	fixture record rows and the verdict-check message a case asserts
 plugins/dev-pipeline/skills/run/run-selftest-lib.sh	14	data	fixture record rows, AC lines and the Closes keyword of the fake PR body
 plugins/dev-pipeline/skills/run/run-selftest.sh	26	debt	selftest labels; fixture ids among them become data rows when swept
 plugins/dev-pipeline/skills/run/run-verdict-selftest.sh	26	debt	selftest labels; fixture ids among them become data rows when swept

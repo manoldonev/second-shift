@@ -50,6 +50,15 @@ This path does not do the steps that the scheduler does after its build:
    `Changed in build: <reason>`. A steer that makes a material decision no row covers becomes a
    new row, provenance `user-answered`, that ends with `Added in build: <reason>`. Commit either
    edit with the code. Never leave it in chat.
+   When such a row departs from the ticket text, put `Departs from AC-n: <original text>.` or
+   `Departs from the ticket's <part>: <original text>.` before its closing `Changed in build:` or
+   `Added in build:` sentence. Then amend the ticket in this session, as the intake Receipt does:
+   rewrite the departed text in place so that it states the chosen behavior, keep its id and its
+   position, and change nothing else. On github: `gh issue view <issue> --json body`, edit,
+   `gh issue edit <issue> --body-file <file>`. Under jira, edit the description. Under jira
+   `tracker.writes: false`, make no write: add the ticket edit as a request to the PR body's
+   `## Before you merge` section. The same holds for an answer that the operator gives in this
+   session to a `pause-and-ask` stop.
    Never amend, rebase or force-push over the `baseline:` commit: the review reads the record there.
 4. **Open the PR** after every listed check is green. Open it as a draft and leave it a draft.
    Write the body in the order that the prompt gives.

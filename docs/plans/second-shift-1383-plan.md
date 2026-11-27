@@ -8,7 +8,8 @@
 
 ## 2. The ticket amend
 
-- [ ] 2.1 Move the pause-and-ask cases into their own scenario slice, and assert that the `build-paused` detail tells the operator to amend the ticket when the answer departs from it (plugins/dev-pipeline/skills/run/run-pause-selftest.sh, plugins/dev-pipeline/skills/run/run-rows-selftest.sh) [AC-5]
-- [ ] 2.2 Add the amend sentence to the `build-paused` detail line (plugins/dev-pipeline/skills/run/run.sh)
-- [ ] 2.3 Add the amend step to the handoff pause branch of the build prompt and to build/SKILL.md step 3, with the jira `writes: false` fallback (plugins/dev-pipeline/skills/run/run.sh, plugins/dev-pipeline/skills/build/SKILL.md)
-- [ ] 2.4 Add the `Departs from` sentence to a build-time departure row, in the build prompt's record rules and in build/SKILL.md step 3 (plugins/dev-pipeline/skills/run/run.sh, plugins/dev-pipeline/skills/build/SKILL.md)
+- [ ] 2.1 Move the pause-and-ask cases out of the rows slice into their own scenario slice, unchanged (plugins/dev-pipeline/skills/run/run-rows-selftest.sh, plugins/dev-pipeline/skills/run/run-pause-selftest.sh)
+- [ ] 2.2 Assert that the `build-paused` detail tells the operator to amend the ticket when the answer departs from it (plugins/dev-pipeline/skills/run/run-pause-selftest.sh) [AC-5]
+- [ ] 2.3 Add the amend sentence to the `build-paused` detail line (plugins/dev-pipeline/skills/run/run.sh)
+- [ ] 2.4 Add the amend step to the handoff pause branch of the build prompt and to build/SKILL.md step 3, with the jira `writes: false` fallback (plugins/dev-pipeline/skills/run/run.sh, plugins/dev-pipeline/skills/build/SKILL.md)
+- [ ] 2.5 Add the `Departs from` sentence to a build-time departure row, in the build prompt's record rules and in build/SKILL.md step 3 (plugins/dev-pipeline/skills/run/run.sh, plugins/dev-pipeline/skills/build/SKILL.md)
