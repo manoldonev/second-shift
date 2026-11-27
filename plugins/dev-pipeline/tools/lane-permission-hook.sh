@@ -21,8 +21,8 @@
 # so a plansDir under .claude/ (say .claude/plans) can take the plan the scheduler requires and the record's row edits.
 # Its one Bash allow, once the withheld and compound checks pass: exactly `chmod +x <operand>...`, every operand a plain
 # word that resolves, against the input's cwd, inside the worktree and outside its .claude/ subdirectories. The bit
-# then sits on disk, so `git add` commits 100755 and the tree stays clean; `git update-index --chmod=+x` leaves a
-# mode-only difference that the scheduler reads as uncommitted work. Any other chmod is denied as above.
+# then sits on disk, so `git add` commits 100755 and the tree stays clean; after `git update-index --chmod=+x` the
+# scheduler sets the committed bit on disk itself. Any other chmod is denied as above.
 #
 # Output: one hookSpecificOutput JSON object on stdout, exit 0. With no worktree argument or unreadable input it prints
 # nothing and the permission flow proceeds as it would without the hook (a denial, under --permission-prompts none).
